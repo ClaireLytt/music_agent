@@ -22,7 +22,6 @@ class SearchHit:
     song_name: str
     song_title: str
     album: str
-    era_emoji: str
     line_index: int
     timestamp_ms: int
     text: str
@@ -47,7 +46,6 @@ class LyricsSearcher:
                     song_name=s["name"],
                     song_title=s["title"],
                     album=s["album"],
-                    era_emoji=s.get("era_emoji", "🎵"),
                     line_index=ln.line_index,
                     timestamp_ms=ln.timestamp_ms,
                     text=ln.text,

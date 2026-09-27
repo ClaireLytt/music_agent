@@ -2,7 +2,8 @@
 
 页签 1  🎧 播放解读 — 同步歌词、点一句歌词、右侧问 AI 助手
 页签 2  🗺️ 艺术家图谱 — 艺术家演化地图
-页签 3  ➕ 添加歌曲 — 用户自行添加歌曲（LRC + 元数据 + 可选音频）
+页签 3  🥚 彩蛋地图 — 同歌手全曲库歌词互文网络图
+页签 4  ➕ 添加歌曲 — 用户自行添加歌曲（LRC + 元数据 + 可选音频）
 
 All JavaScript lives in gr.Blocks(head=...) because Gradio 6 injects
 gr.HTML content via innerHTML (embedded <script> tags do not execute).
@@ -26,21 +27,24 @@ from dataclasses import replace
 
 from .annotator.models import Song
 from .audio_provider import resolve as resolve_audio
-from .config import Settings, save_user_settings
+from .config import (
+    HACKATHON_PLAYLIST_SOURCE,
+    Settings,
+    default_model_for,
+    save_user_settings,
+)
 from .debate import DebateSession, speak as ai_speak
 from .evolution.engine import load_or_build
 from .evolution.ui import EVOLUTION_CSS, render_evolution_html
 from .lrc_parser import load_lrc_file, parse_lrc
 from .search import LyricsSearcher
 
-logger = logging.getLogger(__name__)
+try:
+    from .intertextuality.echo_map import ECHO_MAP_CSS
+except ImportError:  # embeddings extra not installed — tab shows a hint instead
+    ECHO_MAP_CSS = ""
 
-_ERA_EMOJI = {
-    "debut": "🦋", "fearless": "💛", "speak now": "💜", "red": "🧣",
-    "1989": "🌊", "reputation": "🐍", "lover": "🦋", "folklore": "🍂",
-    "evermore": "🍃", "midnights": "🌙", "ttpd": "🪶",
-    "the tortured poets department": "🪶",
-}
+logger = logging.getLogger(__name__)
 
 _CHAT_HINT = (
     '<div class="chat-empty">点击左侧任意一句歌词，然后在这里向 AI 助手提问，'
@@ -77,9 +81,9 @@ def _discover_songs(songs_dir: str,
         songs.append({
             "dir": str(d), "name": d.name,
             "title": meta.get("title", d.name.replace("_", " ").title()),
-            "artist": meta.get("artist", "Taylor Swift"),
+            "artist": meta.get("artist", "未知歌手"),
             "album": meta.get("album", ""), "year": meta.get("year", 0),
-            "era": era, "era_emoji": _ERA_EMOJI.get(era, "🎵"),
+            "era": era,
             "audio_type": audio.type, "audio_src": audio.path_or_url or "",
             # preview clips start mid-song; shift lyric sync by this many ms
             "audio_offset_ms": int(meta.get("audio_offset_ms", 0) or 0),
@@ -248,6 +252,34 @@ _ECHO_NO_INDEX = ('<div class="chat-empty">⚠️ 歌词语料库尚未构建，
                   '并生成 embeddings。</div>')
 
 
+_ECHO_OVERVIEW_EMPTY = ('<div class="chat-empty">本歌暂未发现与同歌手其他作品的'
+                        '强呼应彩蛋。</div>')
+
+
+def _render_echo_overview(hits: list[tuple[Any, Any]], artist: str) -> str:
+    """Whole-song echo overview: every 🥚 line and its strongest target.
+
+    hits: (TimedLine, EchoLine) pairs; each entry is clickable and jumps to
+    the lyric line (data-goto-line is handled in _HEAD_JS).
+    """
+    if not hits:
+        return _ECHO_OVERVIEW_EMPTY
+    items = []
+    for ln, e in hits:
+        album = f" · {_esc(e.album)}" if e.album else ""
+        items.append(
+            f'<div class="echo-ov-item" data-goto-line="{ln.line_index}" '
+            f'title="点击跳转到这句歌词">'
+            f'<div class="echo-ov-src">“{_esc(ln.text)}”</div>'
+            f'<div class="echo-ov-dst">↔ 《{_esc(e.song)}》{album}：'
+            f'“{_esc(e.line)}”<span class="echo-ov-sim">{e.similarity}</span>'
+            '</div></div>'
+        )
+    head = (f'<div class="echo-ov-head">共 {len(hits)} 处与'
+            f'{_esc(artist or "同歌手")}其他作品的呼应 · 点击条目跳转</div>')
+    return f'<div class="echo-ov-list">{head}{"".join(items)}</div>'
+
+
 def _render_echo_html(results: list[dict], artist: str) -> str:
     if not results:
         return (f'<div class="chat-empty">未在 {_esc(artist or "该歌手")} '
@@ -378,17 +410,18 @@ _HEAD_JS = """
     if (!lines.length) return;
     const title = document.querySelector('.song-title-display');
     if (!title || title.textContent.trim() !== data.song) return;
-    const want = new Set(data.lines);
+    const want = new Map((data.lines || []).map(o => [o.i, o]));
     lines.forEach(el => {
       const has = el.querySelector('.echo-mark');
-      const w = want.has(parseInt(el.dataset.index));
-      if (w && !has) {
+      const o = want.get(parseInt(el.dataset.index));
+      if (o && !has) {
         const m = document.createElement('span');
         m.className = 'echo-mark';
-        m.title = '彩蛋：这句在同歌手其他作品中有呼应，点击这行查看';
+        m.title = '彩蛋：与《' + o.song + '》有呼应（相似度 ' + o.sim +
+                  '），点击这行查看详情';
         m.textContent = '🥚';
         el.appendChild(m);
-      } else if (!w && has) has.remove();
+      } else if (!o && has) has.remove();
     });
   }, 600);
 
@@ -424,6 +457,24 @@ _HEAD_JS = """
     if (e.target.closest('#ll-search')) return;
 
     const audio = getAudio();
+
+    // 彩蛋总览 entry: jump to (and select) the referenced lyric line
+    const ov = e.target.closest('[data-goto-line]');
+    if (ov) {
+      const line = document.querySelector(
+        '#lyrics-scroll .lyric-line[data-index="' + ov.dataset.gotoLine + '"]');
+      if (line) {
+        const c = document.getElementById('lyrics-container');
+        if (c) {
+          c.scrollTo({
+            top: line.offsetTop - c.clientHeight / 2 + line.offsetHeight / 2,
+            behavior: 'smooth',
+          });
+        }
+        line.click();
+      }
+      return;
+    }
 
     const seekEl = e.target.closest('[data-seek]');
     if (seekEl && audio) {
@@ -556,7 +607,6 @@ footer, .gradio-container footer { display: none !important; }
   display: flex; align-items: center; gap: 14px;
   padding: 12px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px;
 }
-.era-emoji { font-size: 36px; }
 .song-title-display { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
 .song-meta-display { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
 
@@ -646,6 +696,19 @@ footer, .gradio-container footer { display: none !important; }
 .echo-line { font-size: 13px; font-style: italic; color: var(--text-primary); }
 .echo-meta { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
 .echo-explain { font-size: 13px; line-height: 1.7; }
+
+/* whole-song easter-egg overview (🗺️ 本歌彩蛋总览) */
+.echo-ov-head { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.echo-ov-list { max-height: 40vh; overflow-y: auto; scrollbar-width: thin; }
+.echo-ov-item {
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-card); margin-bottom: 6px; cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.echo-ov-item:hover { border-color: var(--accent); }
+.echo-ov-src { font-size: 13px; font-style: italic; color: var(--text-primary); }
+.echo-ov-dst { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+.echo-ov-sim { margin-left: 6px; font-size: 11px; color: var(--accent); }
 """
 
 
@@ -654,7 +717,7 @@ footer, .gradio-container footer { display: none !important; }
 def launch_kwargs() -> dict:
     """Style/head kwargs for app.launch() (Gradio 6 moved them off Blocks)."""
     return {
-        "css": _CSS + EVOLUTION_CSS,
+        "css": _CSS + EVOLUTION_CSS + ECHO_MAP_CSS,
         "head": _HEAD_JS,
         "theme": gr.themes.Base(primary_hue="blue", neutral_hue="slate"),
     }
@@ -669,7 +732,7 @@ def create_app(settings: Settings) -> gr.Blocks:
         # never expose it on a public deployment
         songs = _discover_songs(
             settings.songs_dir,
-            exclude_sources={"tme_hackathon_playlist"} if public else None)
+            exclude_sources={HACKATHON_PLAYLIST_SOURCE} if public else None)
         ctx["songs"] = songs
         searcher = LyricsSearcher(songs)
         ctx["searcher"] = searcher
@@ -678,7 +741,9 @@ def create_app(settings: Settings) -> gr.Blocks:
             # block on a ~90MB download / cold model init
             threading.Thread(target=searcher.warm_up, daemon=True).start()
         ctx["evolution"] = load_or_build(
-            settings.songs_dir, Path("data/evolution/evolution.json"))
+            settings.songs_dir, Path(settings.evolution_path))
+        # library changes invalidate the in-library highlights on echo graphs
+        ctx.pop("echo_graphs", None)
 
     refresh_library()
 
@@ -714,8 +779,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             return settings
         cfg = cfg if isinstance(cfg, dict) else {}
         provider = (cfg.get("llm_provider") or "openai").strip()
-        model = (cfg.get("model_name") or "").strip() or (
-            "claude-sonnet-5" if provider == "anthropic" else "deepseek-chat")
+        model = (cfg.get("model_name") or "").strip() or default_model_for(provider)
         return replace(
             settings,
             api_key=(cfg.get("api_key") or "").strip(),
@@ -746,45 +810,63 @@ def create_app(settings: Settings) -> gr.Blocks:
         from .intertextuality.search import search_similar
         hits = search_similar(
             line_text, embeddings, corpus,
-            top_k=4, min_similarity=0.35,
+            model_name=settings.embedding_model,
+            top_k=settings.echo_top_k,
+            min_similarity=settings.echo_search_min_similarity,
+            min_similarity_cjk=settings.echo_search_min_similarity_cjk,
             exclude_song=info.get("title", ""),
             artist=info.get("artist") or None,
         )
         return [{"song": h.song, "album": h.album, "line": h.line,
                  "similarity": h.similarity} for h in hits]
 
-    def build_echo_map(info: dict) -> str:
-        """JSON payload of line indices that have cross-song echoes (🥚 map)."""
+    def build_echo_map(info: dict) -> tuple[str, str]:
+        """Whole-song 🥚 scan → (JS payload JSON, overview panel HTML).
+
+        The payload decorates echoing lyric lines with 🥚 markers; the
+        overview panel lists every echoing line with its strongest target.
+        """
         song_dir = info.get("dir")
         if not song_dir:
-            return ""
+            return "", _ECHO_OVERVIEW_EMPTY
         index = _echo_index()
         if index is None:
-            return ""
+            return "", _ECHO_NO_INDEX
         lrc = Path(song_dir) / "lyrics.lrc"
         mtime = lrc.stat().st_mtime if lrc.exists() else 0.0
         cache = ctx.setdefault("echo_maps", {})
         cached = cache.get(song_dir)
         if cached and cached[0] == mtime:
-            return cached[1]
+            return cached[1], cached[2]
         embeddings, corpus = index
         data = _load_song_data(song_dir)
         lines = data["timed_lines"]
-        from .intertextuality.search import find_echo_lines
+        from .intertextuality.search import find_song_echoes
         try:
-            flags = find_echo_lines(
+            echoes = find_song_echoes(
                 [ln.text for ln in lines], embeddings, corpus,
+                model_name=settings.embedding_model,
                 exclude_song=info.get("title", ""),
+                min_similarity=settings.echo_min_similarity,
+                min_similarity_cjk=settings.echo_min_similarity_cjk,
                 artist=info.get("artist") or None,
             )
         except Exception:
             logger.exception("Echo map failed for %s", song_dir)
-            return ""
-        idxs = [ln.line_index for ln, f in zip(lines, flags) if f]
-        payload = json.dumps(
-            {"song": info.get("title", ""), "lines": idxs}, ensure_ascii=False)
-        cache[song_dir] = (mtime, payload)
-        return payload
+            return "", _ECHO_OVERVIEW_EMPTY
+        hits = [
+            (ln, e) for ln, e in zip(lines, echoes) if e is not None
+        ]
+        payload = json.dumps({
+            "song": info.get("title", ""),
+            "lines": [
+                {"i": ln.line_index, "song": e.song, "sim": e.similarity}
+                for ln, e in hits
+            ],
+        }, ensure_ascii=False)
+        overview = _render_echo_overview(hits, info.get("artist", ""))
+        cache[song_dir] = (mtime, payload, overview)
+        return payload, overview
 
     with gr.Blocks(title="歌词透镜 — AI 歌词批注播放器") as app:
         # per-visitor LLM config, persisted in the visitor's own browser
@@ -865,6 +947,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                             echo_html = gr.HTML(_ECHO_HINT)
                             echo_btn = gr.Button("✨ 让 AI 解释这些呼应", size="sm")
                             echo_out = gr.Markdown("", elem_classes=["echo-explain"])
+                        with gr.Accordion("🗺️ 本歌彩蛋总览", open=False,
+                                          elem_id="ll-echo-overview"):
+                            echo_overview = gr.HTML(_ECHO_OVERVIEW_EMPTY)
                         line_pick = gr.Textbox(
                             value="", visible=True, elem_id="ll-line-pick",
                             elem_classes=["ll-hidden"], show_label=False,
@@ -879,7 +964,19 @@ def create_app(settings: Settings) -> gr.Blocks:
             with gr.Tab("🗺️ 艺术家图谱"):
                 evolution_html = gr.HTML("")
 
-            # ══ 页签 3: 添加歌曲（公开版为只读曲库，不提供） ══
+            # ══ 页签 3: 彩蛋地图 ══
+            with gr.Tab("🥚 彩蛋地图"):
+                gr.Markdown(
+                    "在同一歌手的**全部曲库歌曲**之间批量检索歌词呼应，"
+                    "生成彩蛋网络图：节点是歌曲（大小 = 呼应数量，"
+                    "金色描边 = 在你的歌曲列表中），连线是歌与歌之间的互文彩蛋。"
+                )
+                map_artist = gr.Dropdown(
+                    choices=[], value=None, label="选择歌手",
+                    elem_id="ll-map-artist")
+                echo_map_html = gr.HTML("")
+
+            # ══ 页签 4: 添加歌曲（公开版为只读曲库，不提供） ══
             if not public:
                 with gr.Tab("➕ 添加歌曲"):
                     catalog = _load_catalog()
@@ -922,7 +1019,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 file_types=[".mp3", ".wav", ".m4a", ".ogg", ".flac"])
                         add_btn = gr.Button("💾 保存歌曲", variant="primary")
 
-            # ══ 页签 4: 设置 ══
+            # ══ 页签 5: 设置 ══
             with gr.Tab("⚙️ 设置"):
                 if public:
                     gr.Markdown(
@@ -977,13 +1074,64 @@ def create_app(settings: Settings) -> gr.Blocks:
         song_outputs = [lyrics_html, chat_state, chat_topic, chat_html, evolution_html,
                         echo_state, echo_html, echo_out, card_status, card_img]
 
-        def on_echo_map(choice: str) -> str:
+        def on_echo_map(choice: str) -> tuple[str, str]:
             if not ctx["songs"]:
-                return ""
+                return "", _ECHO_OVERVIEW_EMPTY
             return build_echo_map(find_song(choice))
 
         song_radio.change(on_song_select, [song_radio], song_outputs).then(
-            on_echo_map, [song_radio], [echo_map_box])
+            on_echo_map, [song_radio], [echo_map_box, echo_overview])
+
+        # ── 彩蛋地图（歌手级互文网络）──
+
+        def _corpus_artists() -> list[str]:
+            """Distinct primary artists in the corpus (display-name order)."""
+            index = _echo_index()
+            if index is None:
+                return []
+            from .intertextuality.search import primary_artist
+            names: dict[str, str] = {}
+            for line in index[1]:
+                key = primary_artist(line.artist)
+                if key:
+                    names.setdefault(key, line.artist)
+            return sorted(names.values(), key=str.lower)
+
+        def on_map_artist(artist: str) -> str:
+            if not artist:
+                return ""
+            index = _echo_index()
+            if index is None:
+                return _ECHO_NO_INDEX
+            cache = ctx.setdefault("echo_graphs", {})
+            if artist not in cache:
+                from .intertextuality.echo_map import (
+                    build_echo_graph, render_echo_map_html)
+                embeddings, corpus = index
+                graph = build_echo_graph(
+                    embeddings, corpus, artist,
+                    min_similarity=settings.echo_min_similarity,
+                    min_similarity_cjk=settings.echo_min_similarity_cjk,
+                    max_nodes=settings.echo_map_max_nodes,
+                    library_titles={s["title"] for s in ctx["songs"]},
+                )
+                cache[artist] = render_echo_map_html(graph)
+            return cache[artist]
+
+        def init_echo_map(choice: str):
+            """Populate the artist dropdown; default to the current song's artist."""
+            artists = _corpus_artists()
+            if not artists:
+                return gr.Dropdown(choices=[], value=None), _ECHO_NO_INDEX
+            from .intertextuality.search import artist_matches
+            current = find_song(choice).get("artist", "") if ctx["songs"] else ""
+            value = next(
+                (a for a in artists if current and artist_matches(a, current)),
+                artists[0])
+            return gr.Dropdown(choices=artists, value=value), on_map_artist(value)
+
+        map_artist.change(on_map_artist, [map_artist], [echo_map_html])
+        app.load(init_echo_map, [song_radio], [map_artist, echo_map_html])
 
         def on_audio_upload(fpath, choice: str):
             if not fpath:
@@ -1361,9 +1509,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             if not key:
                 return "⚠️ 请填写 API Key。", gr.skip()
             base = (base or "").strip()
-            model = (model or "").strip()
-            if not model:
-                model = "claude-sonnet-5" if provider == "anthropic" else "deepseek-chat"
+            model = (model or "").strip() or default_model_for(provider)
             if public:
                 # per-visitor: browser localStorage only, never server disk
                 cfg = {"api_key": key, "llm_provider": provider,
@@ -1395,7 +1541,7 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         if ctx["songs"]:
             app.load(on_song_select, [song_radio], song_outputs).then(
-                on_echo_map, [song_radio], [echo_map_box])
+                on_echo_map, [song_radio], [echo_map_box, echo_overview])
         else:
             app.load(lambda: render_evolution_html(ctx["evolution"], lang="zh"),
                      None, [evolution_html])

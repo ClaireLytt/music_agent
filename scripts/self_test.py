@@ -1,5 +1,9 @@
 ﻿#!/usr/bin/env python3
-"""Self-test against a running lyric-agent server (http://127.0.0.1:7860).
+"""Self-test against a running lyric-agent server (port = UI_PORT, default 7860).
+
+Run against a FRESHLY STARTED server: the add-song tests delete their test
+directories from disk at cleanup, which the server only notices on the next
+library refresh — a second run against the same server sees stale entries.
 
 Uses the raw Gradio HTTP API (POST /gradio_api/call/<name> + SSE result)
 so Radio client-side validation doesn't get in the way.
@@ -10,6 +14,7 @@ Usage: python scripts/self_test.py
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import sys
@@ -20,7 +25,7 @@ from pathlib import Path
 
 import httpx
 
-BASE = "http://127.0.0.1:7860"
+BASE = f"http://127.0.0.1:{os.getenv('UI_PORT', '7860')}"
 ROOT = Path(__file__).resolve().parent.parent
 SONGS_DIR = ROOT / "data" / "songs"
 EVOLUTION_JSON = ROOT / "data" / "evolution" / "evolution.json"
@@ -105,7 +110,9 @@ def main() -> None:
     for label in songs:
         try:
             out = call("on_song_select", [label])
-            lyrics, _state, topic, _chat, evo = out
+            # outputs: lyrics, chat_state, topic, chat, evolution, echo_state,
+            # echo_html, echo_out, card_status, card_img — assert on the head
+            lyrics, _state, topic, _chat, evo = out[:5]
             ok = ("lyrics-scroll" in lyrics and bool(str(evo).strip())
                   and "尚未选择" in str(topic))
             check(f"song_select: {label}", ok)
@@ -137,11 +144,30 @@ def main() -> None:
         return [c[0] if isinstance(c, list) else c
                 for c in upd.get("choices", [])] if isinstance(upd, dict) else []
 
+    # expected orders computed from the actual library on disk, so the test
+    # keeps working as songs are added or removed
+    def library_meta() -> list[dict]:
+        metas = []
+        for d in sorted(SONGS_DIR.iterdir()):
+            if not d.is_dir() or not (d / "lyrics.lrc").exists():
+                continue
+            meta_path = d / "metadata.json"
+            m = (json.loads(meta_path.read_text(encoding="utf-8"))
+                 if meta_path.exists() else {})
+            metas.append({
+                "title": m.get("title", d.name.replace("_", " ").title()),
+                "album": m.get("album", ""),
+                "artist": m.get("artist", "未知歌手"),
+            })
+        return metas
+
     try:
         labels = sort_labels("album_asc", "s1")
-        # evermore < folklore < midnights < red... (case-insensitive)
-        ok = len(labels) == len(songs) and "champagne" in labels[0].lower()
-        check("sort by album asc", bool(ok), f"labels={labels}")
+        expected = [m["title"] for m in sorted(
+            library_meta(),
+            key=lambda m: (m["album"].lower(), m["title"].lower()))]
+        check("sort by album asc", labels == expected,
+              f"labels={labels} expected={expected}")
     except Exception as e:
         check("sort by album asc", False, repr(e))
     try:
@@ -154,9 +180,11 @@ def main() -> None:
         check("sort by added asc/desc are mirrored", False, repr(e))
     try:
         labels = sort_labels("artist_asc", "s4")
-        # "Taylor Swift ft. Bon Iver" (exile) sorts after "Taylor Swift" -> last on asc
-        ok = len(labels) == len(songs) and "exile" in labels[-1].lower()
-        check("sort by artist asc", bool(ok), f"labels={labels}")
+        expected = [m["title"] for m in sorted(
+            library_meta(),
+            key=lambda m: (m["artist"].lower(), m["title"].lower()))]
+        check("sort by artist asc", labels == expected,
+              f"labels={labels} expected={expected}")
     except Exception as e:
         check("sort by artist asc", False, repr(e))
 
@@ -185,7 +213,8 @@ def main() -> None:
     # ── 4. AI assistant: line pick + chat ──
     try:
         out = call("on_line_pick", ["0", cardigan, None])
-        _st, topic, _chat = out
+        # outputs: chat_state, topic, chat, echo_state, echo_html, echo_out
+        _st, topic, _chat = out[:3]
         check("line_pick idx 0 -> topic", "正在讨论" in str(topic))
     except Exception as e:
         check("line_pick idx 0 -> topic", False, repr(e))
@@ -196,24 +225,55 @@ def main() -> None:
         check("line_pick invalid idx -> default", False, repr(e))
     try:
         # session state persists per session_hash: the line picked above feeds this
-        out = call("on_chat_send", [None, "这句歌词用了什么修辞？", cardigan])
+        out = call("on_chat_send", [None, "这句歌词用了什么修辞？", cardigan, {}])
         chat, cleared = out[1], out[2]
         check("chat send (reply or key warning)",
               "chat-bubble" in str(chat) and cleared == "")
     except Exception as e:
         check("chat send (reply or key warning)", False, repr(e))
     try:
-        out = call("on_chat_send", [None, "  ", cardigan])
+        out = call("on_chat_send", [None, "  ", cardigan, {}])
         check("chat send empty input (no-op)", True)
     except Exception as e:
         check("chat send empty input (no-op)", False, repr(e))
     try:
         # fresh session: no line picked yet -> hint to pick a line first
-        out = call("on_chat_send", [None, "问题", cardigan],
+        out = call("on_chat_send", [None, "问题", cardigan, {}],
                    session=f"{SESSION}-noline")
         check("chat send without line pick -> hint", "请先点击" in str(out[1]))
     except Exception as e:
         check("chat send without line pick -> hint", False, repr(e))
+
+    # ── 4b. 彩蛋: whole-song echo map + overview panel ──
+    try:
+        out = call("on_echo_map", [cardigan])
+        payload, overview = out[0], out[1]
+        d = json.loads(payload) if payload else {"lines": []}
+        ok = (d.get("song") == "cardigan" and d["lines"]
+              and all({"i", "song", "sim"} == set(o) for o in d["lines"])
+              and "data-goto-line" in str(overview))
+        check("echo map payload + overview", bool(ok),
+              f"lines={len(d.get('lines', []))}")
+    except Exception as e:
+        check("echo map payload + overview", False, repr(e))
+
+    # ── 4c. 彩蛋地图 tab: artist network graph ──
+    try:
+        out = call("init_echo_map", [cardigan])
+        dd, map_html = out[0], out[1]
+        choices = [c[0] if isinstance(c, list) else c
+                   for c in dd.get("choices", [])] if isinstance(dd, dict) else []
+        ok = (dd.get("value") == "Taylor Swift" and len(choices) > 1
+              and "<svg" in str(map_html) and "egg-edge" in str(map_html))
+        check("echo map tab init (dropdown + svg)", bool(ok),
+              f"value={dd.get('value')} artists={len(choices)}")
+    except Exception as e:
+        check("echo map tab init (dropdown + svg)", False, repr(e))
+    try:
+        out = call("on_map_artist", ["陈奕迅"])
+        check("echo map switch artist", "陈奕迅" in str(out[0]))
+    except Exception as e:
+        check("echo map switch artist", False, repr(e))
 
     # ── 5. add song ──
     try:

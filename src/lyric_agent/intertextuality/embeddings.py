@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..config import DEFAULT_EMBEDDING_MODEL
 from .corpus import CorpusLine, load_corpus
 
 logger = logging.getLogger(__name__)
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 def generate_embeddings(
     corpus_dir: str,
-    model_name: str = "all-MiniLM-L6-v2",
+    model_name: str = DEFAULT_EMBEDDING_MODEL,
 ) -> tuple[np.ndarray, list[CorpusLine]]:
     """Generate embeddings for all corpus lines and save to disk.
 

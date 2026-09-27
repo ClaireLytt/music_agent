@@ -155,15 +155,3 @@ def speak(
         "speaker": PERSONAS[persona]["name_zh"],
         "text": full,
     })
-
-
-def opening_statements(
-    settings: Settings,
-    session: DebateSession,
-) -> dict[str, str]:
-    """Generate both personas' opening analyses (non-streaming convenience)."""
-    results: dict[str, str] = {}
-    for persona in ("critic", "fan"):
-        text = "".join(speak(settings, session, persona))
-        results[persona] = text
-    return results

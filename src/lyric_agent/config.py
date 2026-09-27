@@ -11,7 +11,37 @@ from dotenv import load_dotenv
 
 _VALID_PROVIDERS = ("anthropic", "openai")
 
+# fallback model per provider when the user leaves 模型名称 blank
+DEFAULT_MODELS = {"anthropic": "claude-sonnet-5", "openai": "deepseek-chat"}
+
+# canonical embedding model: corpus embeddings and query encoding must agree,
+# so every layer (config / embeddings / search) references this one constant
+DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+
+# 彩蛋 (easter-egg) similarity thresholds:
+#   ECHO_MIN_SIMILARITY    strong echo — whole-song 🥚 map + artist network map
+#   ECHO_SEARCH_SIMILARITY exploratory — per-line 互文追踪 panel (top-K cards)
+# *_CJK variants apply when either line is mostly CJK: the default English
+# MiniLM model packs Chinese lines into a narrow embedding cone (median
+# cross-song similarity ~0.56), so CJK pairs need a much stricter cutoff.
+# For proper Chinese support set EMBEDDING_MODEL to a multilingual model
+# (e.g. paraphrase-multilingual-MiniLM-L12-v2) and rerun `lyric-agent embed`.
+DEFAULT_ECHO_MIN_SIMILARITY = 0.62
+DEFAULT_ECHO_MIN_SIMILARITY_CJK = 0.90
+DEFAULT_ECHO_SEARCH_SIMILARITY = 0.35
+DEFAULT_ECHO_SEARCH_SIMILARITY_CJK = 0.60
+DEFAULT_ECHO_TOP_K = 4
+DEFAULT_ECHO_MAP_MAX_NODES = 18
+
+# metadata.json "source" value of hackathon-playlist material, which is
+# licensed for offline demo only and must never appear on a public deployment
+HACKATHON_PLAYLIST_SOURCE = "tme_hackathon_playlist"
+
 USER_SETTINGS_PATH = Path("data/user_settings.json")
+
+
+def default_model_for(provider: str) -> str:
+    return DEFAULT_MODELS.get(provider, DEFAULT_MODELS["openai"])
 
 
 def _load_user_settings() -> dict:
@@ -35,15 +65,22 @@ def save_user_settings(values: dict) -> None:
 @dataclass(frozen=True)
 class Settings:
     api_key: str
-    model_name: str = "deepseek-chat"
+    model_name: str = DEFAULT_MODELS["openai"]
     max_tokens: int = 16000
     llm_provider: str = "openai"
     llm_base_url: str = ""
     temperature: float = 0.3
     songs_dir: str = "data/songs"
     corpus_dir: str = "data/corpus"
+    evolution_path: str = "data/evolution/evolution.json"
     embedding_provider: str = "local"
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    echo_min_similarity: float = DEFAULT_ECHO_MIN_SIMILARITY
+    echo_min_similarity_cjk: float = DEFAULT_ECHO_MIN_SIMILARITY_CJK
+    echo_search_min_similarity: float = DEFAULT_ECHO_SEARCH_SIMILARITY
+    echo_search_min_similarity_cjk: float = DEFAULT_ECHO_SEARCH_SIMILARITY_CJK
+    echo_top_k: int = DEFAULT_ECHO_TOP_K
+    echo_map_max_nodes: int = DEFAULT_ECHO_MAP_MAX_NODES
     ui_port: int = 7860
     ui_lang: str = "zh"
     # public deployment: per-visitor API keys (browser localStorage), read-only
@@ -80,19 +117,32 @@ def load_settings(require_api_key: bool = False) -> Settings:
         # infer from key source: only ANTHROPIC_API_KEY set -> anthropic
         llm_provider = "anthropic" if (anthropic_key and not generic_key) else "openai"
 
-    default_model = "claude-sonnet-5" if llm_provider == "anthropic" else "deepseek-chat"
-
     return Settings(
         api_key=api_key,
-        model_name=user.get("model_name", "") or os.getenv("MODEL_NAME", default_model),
+        model_name=user.get("model_name", "")
+        or os.getenv("MODEL_NAME", default_model_for(llm_provider)),
         max_tokens=int(os.getenv("MAX_TOKENS", "16000")),
         llm_provider=llm_provider,
         llm_base_url=user.get("llm_base_url", "") or os.getenv("LLM_BASE_URL", ""),
         temperature=float(os.getenv("TEMPERATURE", "0.3")),
         songs_dir=os.getenv("SONGS_DIR", "data/songs"),
         corpus_dir=os.getenv("CORPUS_DIR", "data/corpus"),
+        evolution_path=os.getenv("EVOLUTION_PATH", "data/evolution/evolution.json"),
         embedding_provider=os.getenv("EMBEDDING_PROVIDER", "local"),
-        embedding_model=os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
+        embedding_model=os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+        echo_min_similarity=float(
+            os.getenv("ECHO_MIN_SIMILARITY", str(DEFAULT_ECHO_MIN_SIMILARITY))),
+        echo_min_similarity_cjk=float(
+            os.getenv("ECHO_MIN_SIMILARITY_CJK",
+                      str(DEFAULT_ECHO_MIN_SIMILARITY_CJK))),
+        echo_search_min_similarity=float(
+            os.getenv("ECHO_SEARCH_SIMILARITY", str(DEFAULT_ECHO_SEARCH_SIMILARITY))),
+        echo_search_min_similarity_cjk=float(
+            os.getenv("ECHO_SEARCH_SIMILARITY_CJK",
+                      str(DEFAULT_ECHO_SEARCH_SIMILARITY_CJK))),
+        echo_top_k=int(os.getenv("ECHO_TOP_K", str(DEFAULT_ECHO_TOP_K))),
+        echo_map_max_nodes=int(
+            os.getenv("ECHO_MAP_MAX_NODES", str(DEFAULT_ECHO_MAP_MAX_NODES))),
         ui_port=int(os.getenv("UI_PORT", "7860")),
         ui_lang=os.getenv("UI_LANG", "zh"),
         public_mode=public_mode,

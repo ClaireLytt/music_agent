@@ -38,10 +38,13 @@ lyric-agent serve
   - 🎵 Related lines from other songs (intertextuality)
   - Accordion-style: opening one closes others
   - Blue annotation indicator dots on annotated lines
-- **Intertextuality**: Cross-song imagery tracking across Taylor Swift's discography
-- **Song Selector**: Era emoji indicators (🧣 Red, 🍂 folklore, 🌙 Midnights, etc.)
-- **Bilingual**: Chinese / English UI toggle
-- **Dark Theme**: Competition-ready dark UI optimized for music playback
+- **彩蛋 · Intertextuality**: cross-song echo tracking within one artist's discography
+  - 🥚 互文追踪：点击歌词行，检索同歌手其他作品中最相似的歌词 Top-K，可让 AI 解释呼应
+  - 🥚 全曲标记：切歌后自动扫描整首歌，有强呼应的行尾显示 🥚（悬停给出目标歌曲与相似度）
+  - 🗺️ 本歌彩蛋总览：一次列出全部呼应行与目标，点击跳转到对应歌词
+  - 🥚 彩蛋地图页签：歌手级互文网络图（节点=歌曲、连线=呼应，纯服务端 SVG）
+  - 中文歌词使用更严格的 CJK 阈值 + 共享短语锚定，避免英文向 embedding 模型的假呼应；
+    阈值均可通过环境变量调整（见 `.env.example` 的 ECHO_* 配置）
 - **Interactive Review**: Rich-based CLI tool for human annotation quality review
 - **Docker Ready**: One-command deployment with docker-compose
 
