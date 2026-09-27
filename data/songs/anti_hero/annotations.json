@@ -1,0 +1,469 @@
+{
+  "song": {
+    "title": "Anti-Hero",
+    "artist": "Taylor Swift",
+    "album": "Midnights",
+    "year": 2022,
+    "era": "Midnights",
+    "genre": "synth-pop / electropop",
+    "themes": [
+      "self-loathing",
+      "anxiety",
+      "ironic self-awareness",
+      "imposter syndrome",
+      "midnight introspection"
+    ]
+  },
+  "annotations": [
+    {
+      "line_index": 0,
+      "lyric_text": "I have this thing, where I get older but just never wiser",
+      "summary": "开篇自嘲：年岁渐长智慧不增。Midnights 的「深夜自省」母题第一句就点题。",
+      "metaphor_analysis": null,
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "self-doubt",
+      "cultural_context": null,
+      "taylor_swift_context": "Taylor 称 Anti-Hero 是她「最诚实的歌之一」：把最讨厌自己的部分写成了热单。",
+      "related_lines": [],
+      "emotion_valence": 0.35,
+      "emotion_arousal": 0.4,
+      "emotion_category": "self-doubt"
+    },
+    {
+      "line_index": 1,
+      "lyric_text": "Midnights become my afternoons",
+      "summary": "昼夜颠倒的失眠意象：午夜成了下午——抑郁与自我审视把时间结构溶解了。",
+      "metaphor_analysis": "时间错乱=心理秩序崩塌。同时点出专辑名 Midnights 的概念：13 个不眠之夜。",
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "mystery",
+      "cultural_context": null,
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.3,
+      "emotion_arousal": 0.35,
+      "emotion_category": "mystery"
+    },
+    {
+      "line_index": 13,
+      "lyric_text": "I'm the problem, it's me",
+      "summary": "病毒式传播的核心句：「问题在我」。用会议出席的口吻（Hi!）自我点名，反讽中带着真诚的自我指认。",
+      "metaphor_analysis": null,
+      "allusions": [],
+      "wordplay": "「It's me, hi」模拟点名/自我介绍场景，把内心审判庭具象成一场尴尬的会议。",
+      "emotional_tone": "self-doubt",
+      "cultural_context": "发行后成为 TikTok 现象级 meme，「自我问题化」的表达进入日常语言。",
+      "taylor_swift_context": null,
+      "related_lines": [
+        {
+          "song": "exile",
+          "album": "folklore",
+          "line": "So step right out, there is no amount of crying I can do for you",
+          "similarity": 0.52
+        }
+      ],
+      "emotion_valence": 0.3,
+      "emotion_arousal": 0.55,
+      "emotion_category": "self-doubt"
+    },
+    {
+      "line_index": 17,
+      "lyric_text": "It must be exhausting, always rooting for the anti-hero",
+      "summary": "副歌点题：「一直为反英雄加油，一定很累吧」——替爱自己的人说出疲惫，是更深一层的自责。",
+      "metaphor_analysis": null,
+      "allusions": [],
+      "wordplay": "anti-hero（反英雄）：文学中有缺陷的主角。Taylor 把自己从「美国甜心」重新定位为「反英雄」。",
+      "emotional_tone": "self-doubt",
+      "cultural_context": null,
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.3,
+      "emotion_arousal": 0.5,
+      "emotion_category": "self-doubt"
+    },
+    {
+      "line_index": 18,
+      "lyric_text": "Sometimes I feel like everybody is a sexy baby",
+      "summary": "最受争议的一句：「人人都是性感宝贝，而我是山丘上的怪物」——身材焦虑与年龄焦虑的超现实表达。",
+      "metaphor_analysis": "sexy baby 指婴儿化的女性审美标准；monster on the hill 是被排除在标准外的自我——巨大、笨拙、被围观。",
+      "allusions": [
+        "「sexy baby」可能引用《30 Rock》中对婴儿化女性形象的讽刺"
+      ],
+      "wordplay": null,
+      "emotional_tone": "self-doubt",
+      "cultural_context": null,
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.25,
+      "emotion_arousal": 0.5,
+      "emotion_category": "self-doubt"
+    }
+  ],
+  "emotion_arc": [
+    {
+      "line_index": 0,
+      "t_ms": 5720,
+      "valence": 0.35,
+      "arousal": 0.4,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 1,
+      "t_ms": 10330,
+      "valence": 0.3,
+      "arousal": 0.35,
+      "category": "mystery"
+    },
+    {
+      "line_index": 2,
+      "t_ms": 15350,
+      "valence": 0.14,
+      "arousal": 0.58,
+      "category": "despair"
+    },
+    {
+      "line_index": 3,
+      "t_ms": 20300,
+      "valence": 0.29,
+      "arousal": 0.49,
+      "category": "despair"
+    },
+    {
+      "line_index": 4,
+      "t_ms": 25010,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 5,
+      "t_ms": 28340,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 6,
+      "t_ms": 30600,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 7,
+      "t_ms": 32340,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 8,
+      "t_ms": 35420,
+      "valence": 0.41,
+      "arousal": 0.61,
+      "category": "anger"
+    },
+    {
+      "line_index": 9,
+      "t_ms": 37770,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 10,
+      "t_ms": 40420,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 11,
+      "t_ms": 42930,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 12,
+      "t_ms": 44620,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 13,
+      "t_ms": 47030,
+      "valence": 0.3,
+      "arousal": 0.55,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 14,
+      "t_ms": 49310,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 15,
+      "t_ms": 52140,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 16,
+      "t_ms": 55180,
+      "valence": 0.44,
+      "arousal": 0.43,
+      "category": "regret"
+    },
+    {
+      "line_index": 17,
+      "t_ms": 60000,
+      "valence": 0.3,
+      "arousal": 0.5,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 18,
+      "t_ms": 69990,
+      "valence": 0.25,
+      "arousal": 0.5,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 19,
+      "t_ms": 74680,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 20,
+      "t_ms": 79650,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 21,
+      "t_ms": 84640,
+      "valence": 0.23,
+      "arousal": 0.52,
+      "category": "despair"
+    },
+    {
+      "line_index": 22,
+      "t_ms": 89490,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 23,
+      "t_ms": 92540,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 24,
+      "t_ms": 94910,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 25,
+      "t_ms": 97690,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 26,
+      "t_ms": 99450,
+      "valence": 0.41,
+      "arousal": 0.61,
+      "category": "anger"
+    },
+    {
+      "line_index": 27,
+      "t_ms": 102120,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 28,
+      "t_ms": 104620,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 29,
+      "t_ms": 106940,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 30,
+      "t_ms": 108880,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 31,
+      "t_ms": 111540,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 32,
+      "t_ms": 113980,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 33,
+      "t_ms": 116540,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 34,
+      "t_ms": 119340,
+      "valence": 0.44,
+      "arousal": 0.43,
+      "category": "regret"
+    },
+    {
+      "line_index": 35,
+      "t_ms": 124390,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 36,
+      "t_ms": 134390,
+      "valence": 0.38,
+      "arousal": 0.49,
+      "category": "despair"
+    },
+    {
+      "line_index": 37,
+      "t_ms": 139150,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 38,
+      "t_ms": 144040,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 39,
+      "t_ms": 149420,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 40,
+      "t_ms": 153430,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 41,
+      "t_ms": 156270,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 42,
+      "t_ms": 158350,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 43,
+      "t_ms": 162150,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 44,
+      "t_ms": 163600,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 45,
+      "t_ms": 167260,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 46,
+      "t_ms": 173500,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 47,
+      "t_ms": 175890,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 48,
+      "t_ms": 178060,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 49,
+      "t_ms": 180980,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 50,
+      "t_ms": 184070,
+      "valence": 0.44,
+      "arousal": 0.43,
+      "category": "regret"
+    },
+    {
+      "line_index": 51,
+      "t_ms": 188620,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    }
+  ]
+}

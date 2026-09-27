@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lyric Lens 测试清单</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --panel2: #263449;
+    --text: #e2e8f0; --dim: #94a3b8; --accent: #60a5fa;
+    --green: #4ade80; --amber: #fbbf24; --red: #f87171; --purple: #c084fc;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 16px 80px;
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .subtitle { color: var(--dim); margin: 0 0 20px; font-size: 14px; }
+  .toolbar {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 20px;
+    position: sticky; top: 8px; z-index: 10;
+  }
+  .progress-text { font-size: 14px; color: var(--dim); }
+  .progress-text b { color: var(--accent); font-size: 17px; }
+  .bar { flex: 1; min-width: 140px; height: 8px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); width: 0%; transition: width .3s; }
+  button.reset {
+    background: transparent; border: 1px solid var(--border); color: var(--dim);
+    border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 13px;
+  }
+  button.reset:hover { color: var(--red); border-color: var(--red); }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--dim); margin-bottom: 18px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  section {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; margin-bottom: 14px; overflow: hidden;
+  }
+  section > h2 {
+    margin: 0; padding: 12px 16px; font-size: 16px; cursor: pointer;
+    display: flex; align-items: center; gap: 8px; user-select: none;
+  }
+  section > h2:hover { background: var(--panel2); }
+  section > h2 .count { margin-left: auto; font-size: 12.5px; color: var(--dim); font-weight: normal; }
+  section > h2 .chev { transition: transform .2s; color: var(--dim); font-size: 12px; }
+  section.collapsed .chev { transform: rotate(-90deg); }
+  section.collapsed .items { display: none; }
+  .items { padding: 4px 16px 12px; }
+  label.item {
+    display: flex; gap: 10px; padding: 8px 10px; border-radius: 7px;
+    cursor: pointer; align-items: flex-start; font-size: 14px;
+  }
+  label.item:hover { background: var(--panel2); }
+  label.item input { margin-top: 4px; accent-color: var(--green); flex-shrink: 0; width: 15px; height: 15px; }
+  label.item.done .txt { color: var(--dim); text-decoration: line-through; }
+  .txt .id { color: var(--accent); font-weight: 600; margin-right: 6px; }
+  .tag {
+    display: inline-block; font-size: 11px; border-radius: 4px;
+    padding: 1px 7px; margin-left: 8px; vertical-align: 1px; white-space: nowrap;
+  }
+  .tag.auto  { background: rgba(74,222,128,.15); color: var(--green); }
+  .tag.manual{ background: rgba(96,165,250,.15); color: var(--accent); }
+  .tag.audio { background: rgba(251,191,36,.15); color: var(--amber); }
+  .tag.key   { background: rgba(192,132,252,.15); color: var(--purple); }
+  .hint { display: block; color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  .prep {
+    background: var(--panel2); border-left: 3px solid var(--accent);
+    border-radius: 6px; padding: 10px 14px; margin: 0 0 18px; font-size: 13.5px;
+  }
+  .prep code { background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; }
+  .prep a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🔍 歌词透镜 — 功能测试清单</h1>
+  <p class="subtitle">勾选状态自动保存在本浏览器 (localStorage)。测试地址：<a href="http://127.0.0.1:7860" style="color:var(--accent)">http://127.0.0.1:7860</a></p>
+
+  <div class="prep">
+    <b>准备：</b>双击 <code>start.bat</code>（或运行 <code>lyric-agent serve</code>）后在浏览器打开上方地址。<br>
+    🔊 音频类测试需先在任一歌曲目录（如 <code>data/songs/cardigan/</code>）放入 <code>audio.mp3</code>，切歌即可生效（无需重启）。<br>
+    🔑 AI 助手问答与批注生成需复制 <code>.env.example</code> 为 <code>.env</code> 并填入 API_KEY 后重启。<br>
+    ⚙️ 端点级自动回归可随时重跑：<code>python scripts/self_test.py</code>（当前 29/29 通过）
+  </div>
+
+  <div class="toolbar">
+    <span class="progress-text"><b id="done-n">0</b> / <span id="total-n">0</span> 已完成</span>
+    <div class="bar"><div class="bar-fill" id="bar-fill"></div></div>
+    <button class="reset" id="reset-btn">重置全部</button>
+  </div>
+
+  <div class="legend">
+    <span><span class="dot" style="background:var(--green)"></span>自动 = 已由 self_test.py 端点测试覆盖并通过</span>
+    <span><span class="dot" style="background:var(--accent)"></span>手动 = 需浏览器交互验证</span>
+    <span><span class="dot" style="background:var(--amber)"></span>音频 = 需放入音频文件</span>
+    <span><span class="dot" style="background:var(--purple)"></span>API Key = 需配置 .env</span>
+  </div>
+
+  <div id="sections"></div>
+</div>
+
+<script>
+const DATA = [
+  ["A. 启动与布局", [
+    ["A1","打开 http://127.0.0.1:7860 页面正常加载（200，无白屏）","auto"],
+    ["A2","顶部标题「🔍 歌词透镜」与副标题显示正常","manual"],
+    ["A3","三个醒目页签：🎧 播放解读 / 🗺️ 艺术家图谱 / ➕ 添加歌曲（选中态有蓝色高亮和下划线）","manual"],
+    ["A4","左侧歌曲列表显示 5 首歌（仅显示歌名，无专辑后缀、无 emoji 前缀，一行一首不并列）","auto","已用 Playwright 验证：5 首歌纵向坐标逐一递增"],
+    ["A5","页面加载后默认选中第一首歌并渲染歌词","auto"],
+    ["A6","全站界面为简体中文，无中英切换按钮","auto"],
+    ["A7","界面极简：无推荐板块、无主题雷达、无情绪曲线/热力图、无静态批注面板","auto"],
+    ["A8","全站为白色浅色主题（无黑色底色；URL 自动附加 __theme=light，系统深色模式下也保持白色）","manual"],
+    ["A9","歌词区顶部歌名无 emoji 前缀，搜索结果条目也无 emoji","auto","已用 Playwright 截图验证"],
+    ["A10","服务器重启后，已打开的旧页面约 4 秒内自动刷新重连（无需手动 Ctrl+F5）","auto","已用 Playwright 验证：重启后页面自动 reload 且点击正常"],
+    ["A11","歌曲列表 / 排序 / 搜索模式的所有单选点均可点击并触发更新","auto","已用 Playwright 真实浏览器逐个点击验证（含第 4、5 首歌）"],
+    ["A12","歌词详情区顶部显示「歌手 · 专辑」，不显示年份","auto","已用 Playwright 验证：exile → Taylor Swift ft. Bon Iver · folklore"],
+    ["A13","页面底部无 Runs / API / Gradio 英文页脚","auto","已用 Playwright 验证 footer 已隐藏"],
+    ["A14","「⚙️ 设置」页签可直接填写 API Key / 接口类型 / 接口地址 / 模型名并保存，立即生效且写入 data/user_settings.json（重启后仍有效）","auto","已用 Playwright 验证：空 Key 保存报警且不写文件；填 Key 保存成功且文件内容正确"],
+    ["A15","「添加歌曲」页签内置中外热门曲库（Taylor Swift + 周杰伦 / 林俊杰 / 陈奕迅 / Ed Sheeran / Adele 等，约 140 首）：按歌名/歌手/专辑搜索过滤、点选后一键「添加到我的列表」、自动切歌显示歌词、重复添加有提示；手动添加收进折叠面板","auto","已用 Playwright 验证完整添加流程（含中文歌曲）与重复警告"],
+    ["A16","每句歌词的 AI 问答历史自动保存（存于歌曲目录 chat_history.json）：重开应用后再点开同一句歌词，能看到上次的提问与回答；切到别的句子不会串历史，切回来历史恢复；报错回复不会被保存","auto","已用 Playwright 验证历史加载、切句隔离与恢复"],
+    ["A17","播放页左栏「为当前歌曲上传音频」折叠区：拖拽（或点击选择）mp3/wav/flac 文件后，自动存入歌曲目录并立即显示播放器，无需刷新；重复上传会替换旧音频","auto","已用 Playwright 验证上传后播放器立即出现且指向歌曲目录"],
+    ["A18","「🥚 彩蛋 · 互文追踪」：点击一句歌词后，自动在同一歌手的其他作品（语料库 144 首 / 4678 行，本地 embedding 检索）中找出最相似的歌词 Top-4，显示歌名/专辑；点「让 AI 解释这些呼应」由 LLM 生成人话解释并区分真呼应与字面撞车；排除本歌自身、切歌后面板重置、未点歌词先点解释有守卫提示","auto","已用 Playwright 验证检索卡片（cardigan→Shake It Off/Maroon/Fifteen）与真实 LLM 解释调用"],
+    ["A19","官方 Hackathon 歌单导入（scripts/import_playlist.py）：按序号或歌名从官方参考歌单（156 首）导入歌曲，自动抓取 QQ 音乐带时间戳歌词 + 官方 60 秒免费试听片段；metadata 记录 audio_offset_ms，播放器自动把歌词时间轴对齐到试听片段（高亮/点行跳转/搜索跳转均按偏移换算），播放器下方显示「官方试听片段」提示；手动上传完整音频会自动清除偏移","auto","已用 Playwright 验证《北京昨夜下了雪》：偏移 58502ms、播放 2 秒后高亮行落在片段区间、点行跳转换算正确"],
+    ["A20","全曲彩蛋地图：切歌后自动批量检索整首歌，在与同歌手其他作品有强呼应（相似度 ≥0.62）的歌词行尾部显示 🥚 标记（悬停有提示，点击该行即可在互文面板查看详情）；结果按歌曲缓存（歌词文件变更自动失效）；歌手名模糊匹配（ft./feat. 合作曲也能命中主歌手语料）","auto","已用 Playwright 验证 cardigan 16/56 行带标记、提示文案正确、隐藏数据通道不可见；离线验证 0.62 阈值下三首歌标记率 12%–29%，exile（ft. Bon Iver）模糊匹配生效"],
+    ["A21","「🖼️ 分享卡片」：点选一句歌词后点「生成歌词金句卡」，生成 900×1200 渐变金句卡 PNG（品牌栏 + 金色引号 + 歌词大字 + AI 解读正文 + 歌名/歌手落款），解读优先取该句最近一次 AI 回答，否则回退到批注摘要；未点歌词先点生成有守卫提示；切歌后卡片区重置；emoji 自动剔除避免乱码方块","auto","已用 Playwright 验证守卫提示与点句后生成图片可见；已人工查看样例卡片排版"],
+    ["A22","公开体验版（PUBLIC_MODE=1）：每位访客用自己的 API Key（存浏览器 localStorage，不上传不落盘，访客间互不可见）；设置页不预填服务器 Key；隐藏「添加歌曲」页签与音频上传；问答历史不写服务器磁盘；比赛歌单素材（source: tme_hackathon_playlist）自动排除；未填 Key 时提问/彩蛋解释给出引导提示","auto","已用 Playwright 双服务器（7860 本地 / 7861 公开）+ 双浏览器上下文验证 12 项：比赛歌曲仅公开版隐藏、Key 字段为空无泄漏、访客A保存的Key访客B看不到、保存设置后服务器 user_settings.json 内容不变、无 Key 提问出现引导提示"],
+  ]],
+  ["B. 歌词展示与滚动", [
+    ["B1","切歌后歌词区完整渲染所有行（含时间戳）","auto","5 首歌均已验证渲染"],
+    ["B2","无音频时顶部显示放置 audio.mp3 的提示条","auto"],
+    ["B3","歌词行 hover 有高亮背景；点击后该行保持蓝色选中态","manual"],
+    ["B4","滚轮滚动歌词区后自动跟随暂停约 5 秒再恢复","manual","需音频播放中验证","audio"],
+  ]],
+  ["C. 音频播放与同步", [
+    ["C1","放入 audio.mp3 后切歌即出现播放器（无需重启服务）","auto","已用临时 WAV 验证动态发现 + 文件可访问"],
+    ["C2","播放时当前行高亮、已唱行变暗、未唱行正常","manual","audio"],
+    ["C3","当前行自动滚动到歌词区中部","manual","audio"],
+    ["C4","点击任意歌词行跳转到对应时间点","manual","audio"],
+    ["C5","空格键播放/暂停；←/→ 快退/快进 5 秒","manual","焦点在输入框时快捷键应失效","audio"],
+    ["C6","移除音频文件后切歌回到无音频提示","auto"],
+  ]],
+  ["D. 歌词搜索", [
+    ["D1","关键词搜索 scarf 返回 All Too Well 的 2 处命中","auto"],
+    ["D2","无结果时显示空态提示","auto"],
+    ["D3","语义模式：未装 sentence-transformers 时回退关键词并标注","auto"],
+    ["D4","当前歌曲的命中可点击跳转（其他歌曲不可点）","manual"],
+    ["D5","输入框回车与搜索按钮效果一致","auto"],
+    ["D6","鼠标点击搜索框可正常获得输入焦点（音频播放中也不被打断）","manual"],
+    ["D7","点「✕ 清除」按钮 → 搜索词与结果同时清空，退出搜索状态","auto"],
+  ]],
+  ["E. 排序", [
+    ["E1","「🎛️ 排序」共 4 个单选项：添加顺序（最早在前）/ 添加顺序（最新在前）/ 专辑（按字母排序）/ 歌手（按字母排序）","manual"],
+    ["E2","按专辑排序 → evermore（champagne problems）排第一","auto"],
+    ["E3","按歌手排序 → exile（ft. Bon Iver）排最后","auto"],
+    ["E4","添加顺序（最早在前）与（最新在前）互为镜像","auto","添加顺序按歌曲目录创建时间排列"],
+    ["E5","点选排序项后歌曲列表立即重排，且当前选中的歌曲保持不变","manual"],
+  ]],
+  ["H. AI 助手（行级问答）", [
+    ["H1","未点击歌词行时提问 → 提示先点击一句歌词","auto"],
+    ["H2","点击某句歌词后右侧显示「💬 正在讨论：…」话题条","auto"],
+    ["H3","未配 API Key 时提问显示 ⚠️ 配置提示","auto"],
+    ["H4","配置 API Key 后提问 → AI 助手流式回复（打字机效果）","manual","key"],
+    ["H5","连续追问同一句歌词，AI 保留上下文","manual","key"],
+    ["H6","换一句歌词后聊天记录清空重新开始","auto"],
+    ["H7","空输入点「提问」不产生消息","auto"],
+  ]],
+  ["I. 艺术家图谱 Tab", [
+    ["I1","时代轴显示 10 个时代（当前歌曲时代带 📍 标记）","auto"],
+    ["I2","主题河流图 / 情感演化趋势图渲染正常","manual"],
+    ["I3","各时代卡片显示专辑、代表主题与情感指纹","manual"],
+  ]],
+  ["J. 添加歌曲 Tab", [
+    ["J1","标题为空点保存 → ⚠️ 提示填写标题（标题是唯一必填项，界面已标注）","auto"],
+    ["J2","填了 LRC 但无时间戳 → ⚠️ 格式错误提示","auto"],
+    ["J3","填写标题 + 合法 LRC 保存 → ✅ 成功并自动切换到该歌曲","auto"],
+    ["J4","重复添加同名歌曲 → ⚠️ 目录已存在提示","auto"],
+    ["J5","上传 .lrc 文件（优先于文本框）保存成功","manual"],
+    ["J6","同时上传音频文件，播放页出现播放器","manual","audio"],
+    ["J7","未保存歌曲时点「生成 AI 批注」→ ⚠️ 提示先保存","auto"],
+    ["J8","保存后点「生成 AI 批注」生成成功并刷新批注数","manual","key"],
+    ["J9","只填标题、其余全部留空 → 保存成功（自动尝试 LRCLIB 获取歌词，失败则创建占位歌词）","auto"],
+    ["J10","Tab 键可在表单各字段间依次跳转","manual"],
+    ["J11","表单无灰色占位提示文字；歌手默认留空（不再预填 Taylor Swift），全部由用户自行填写","manual"],
+    ["J12","鼠标点击表单各输入框可正常获得焦点，输入的文字与光标清晰可见","manual"],
+    ["J13","表单仅剩 标题 / 歌手 / 专辑 / LRC 歌词 / 文件上传（年份、时期 era、主题字段已移除）","manual"],
+  ]],
+  ["K. CLI 与脚本", [
+    ["K1","python -m pytest 全部通过（9 项）","auto"],
+    ["K2","lyric-agent search scarf 命令行搜索正常","auto"],
+    ["K3","lyric-agent build-evolution 重建 evolution.json","auto"],
+    ["K4","lyric-agent fetch-lrc <dir> 从 LRCLIB 拉取歌词","manual","需要外网"],
+    ["K5","lyric-agent generate <dir> 生成批注","manual","key"],
+  ]],
+];
+
+const AUTO_HINT = "self_test.py 端点级验证已通过，可直接勾选";
+const box = document.getElementById("sections");
+let total = 0;
+
+DATA.forEach(([title, items], si) => {
+  const sec = document.createElement("section");
+  const h2 = document.createElement("h2");
+  h2.innerHTML = `<span class="chev">▼</span>${title}<span class="count"></span>`;
+  h2.onclick = () => sec.classList.toggle("collapsed");
+  const wrap = document.createElement("div");
+  wrap.className = "items";
+  items.forEach(([id, text, kind, hint, extra]) => {
+    total++;
+    const key = "lyriclens-test-" + id;
+    const label = document.createElement("label");
+    label.className = "item";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    try { cb.checked = localStorage.getItem(key) === "1"; } catch (e) {}
+    if (cb.checked) label.classList.add("done");
+    cb.onchange = () => {
+      try { localStorage.setItem(key, cb.checked ? "1" : "0"); } catch (e) {}
+      label.classList.toggle("done", cb.checked);
+      refresh();
+    };
+    const tags = [];
+    tags.push(kind === "auto"
+      ? '<span class="tag auto">自动✓</span>'
+      : '<span class="tag manual">手动</span>');
+    if (extra === "audio" || hint === "audio") tags.push('<span class="tag audio">🔊 音频</span>');
+    if (extra === "key" || hint === "key") tags.push('<span class="tag key">🔑 API Key</span>');
+    const hintText = (hint && hint !== "audio" && hint !== "key") ? hint
+                   : (kind === "auto" ? AUTO_HINT : "");
+    const txt = document.createElement("span");
+    txt.className = "txt";
+    txt.innerHTML = `<span class="id">${id}</span>${text}${tags.join("")}` +
+      (hintText ? `<span class="hint">${hintText}</span>` : "");
+    label.appendChild(cb);
+    label.appendChild(txt);
+    wrap.appendChild(label);
+  });
+  sec.appendChild(h2);
+  sec.appendChild(wrap);
+  box.appendChild(sec);
+});
+
+document.getElementById("total-n").textContent = total;
+
+function refresh() {
+  let done = 0;
+  document.querySelectorAll("section").forEach(sec => {
+    const cbs = sec.querySelectorAll("input");
+    const d = [...cbs].filter(c => c.checked).length;
+    done += d;
+    sec.querySelector(".count").textContent = `${d}/${cbs.length}`;
+  });
+  document.getElementById("done-n").textContent = done;
+  document.getElementById("bar-fill").style.width = (total ? (done / total * 100) : 0) + "%";
+}
+refresh();
+
+document.getElementById("reset-btn").onclick = () => {
+  if (!confirm("清除所有勾选状态？")) return;
+  document.querySelectorAll("input[type=checkbox]").forEach(cb => {
+    cb.checked = false;
+    cb.dispatchEvent(new Event("change"));
+  });
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,307 @@
+"""CLI entry point for lyric-agent."""
+
+from __future__ import annotations
+
+import logging
+
+import click
+
+
+@click.group()
+@click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
+def cli(verbose: bool) -> None:
+    """AI-powered lyrics annotation player."""
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
+@cli.command()
+@click.argument("song_dir", type=click.Path(exists=True))
+@click.option("--chunk-size", default=10, help="Lines per LLM call")
+def generate(song_dir: str, chunk_size: int) -> None:
+    """Generate annotations for a song directory."""
+    from .annotator.engine import generate_annotations
+    from .config import load_settings
+
+    settings = load_settings(require_api_key=True)
+    song = generate_annotations(settings, song_dir, chunk_size)
+    click.echo(f"Generated {len(song.annotations)} annotations for '{song.metadata.title}'")
+
+
+@cli.command()
+@click.option("--port", default=None, type=int, help="UI port (default: from .env)")
+def serve(port: int | None) -> None:
+    """Launch the lyrics annotation player UI."""
+    from pathlib import Path
+
+    from .config import load_settings
+    from .ui import create_app, launch_kwargs
+
+    settings = load_settings()
+    app = create_app(settings)
+    app.launch(
+        server_port=port or settings.ui_port,
+        share=False,
+        allowed_paths=[str(Path(settings.songs_dir).resolve())],
+        **launch_kwargs(),
+    )
+
+
+@cli.command("generate-all")
+def generate_all() -> None:
+    """Generate annotations for all songs in the songs directory."""
+    from pathlib import Path
+
+    from .annotator.engine import generate_annotations
+    from .config import load_settings
+
+    settings = load_settings()
+    songs_dir = Path(settings.songs_dir)
+
+    for song_dir in sorted(songs_dir.iterdir()):
+        if not song_dir.is_dir():
+            continue
+        lrc = song_dir / "lyrics.lrc"
+        if not lrc.exists():
+            click.echo(f"Skipping {song_dir.name} (no lyrics.lrc)")
+            continue
+        click.echo(f"Processing {song_dir.name}...")
+        try:
+            song = generate_annotations(settings, song_dir)
+            click.echo(f"  -> {len(song.annotations)} annotations")
+        except Exception as exc:
+            click.echo(f"  -> ERROR: {exc}", err=True)
+
+
+@cli.command("build-evolution")
+def build_evolution() -> None:
+    """Aggregate era data into data/evolution/evolution.json."""
+    from pathlib import Path
+
+    from .config import load_settings
+    from .evolution.engine import build_and_save
+
+    settings = load_settings()
+    out = Path("data/evolution/evolution.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    evo = build_and_save(settings.songs_dir, out)
+    demo = [e for e in evo.eras if e.songs]
+    click.echo(f"Built {len(evo.eras)} eras ({len(demo)} with demo songs) -> {out}")
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--semantic", is_flag=True, help="Use semantic (embedding) search")
+@click.option("--limit", default=10)
+def search(query: str, semantic: bool, limit: int) -> None:
+    """Search lyrics across all songs."""
+    from .config import load_settings
+    from .search import LyricsSearcher
+    from .ui import _discover_songs
+
+    settings = load_settings()
+    searcher = LyricsSearcher(_discover_songs(settings.songs_dir))
+    if semantic:
+        hits, mode = searcher.semantic(query, limit)
+    else:
+        hits, mode = searcher.keyword(query, limit), "keyword"
+    click.echo(f"[{mode}] {len(hits)} hit(s) for '{query}':")
+    for h in hits:
+        mm, ss = divmod(h.timestamp_ms // 1000, 60)
+        click.echo(f"  {h.song_title} [{mm:02d}:{ss:02d}] {h.text}")
+
+
+def _fetch_lrc_for(song_dir) -> int:
+    """Fetch synced lyrics from LRCLIB into song_dir/lyrics.lrc. Returns line count."""
+    import json
+    import urllib.parse
+    import urllib.request
+    from pathlib import Path
+
+    d = Path(song_dir)
+    meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
+    artist = meta.get("artist", "Taylor Swift")
+    query = urllib.parse.quote(f"{artist} {meta['title']}")
+    url = f"https://lrclib.net/api/search?q={query}"
+    req = urllib.request.Request(url, headers={"User-Agent": "lyric-agent/0.1"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        results = json.loads(resp.read().decode("utf-8"))
+    synced = next(
+        (entry["syncedLyrics"] for entry in results if entry.get("syncedLyrics")),
+        None,
+    )
+    if not synced:
+        raise click.ClickException(f"No synced lyrics found on LRCLIB for {d.name}.")
+    (d / "lyrics.lrc").write_text(synced, encoding="utf-8")
+    return len(synced.splitlines())
+
+
+@cli.command("fetch-lrc")
+@click.argument("song_dir", type=click.Path(exists=True))
+def fetch_lrc(song_dir: str) -> None:
+    """Fetch synced lyrics from LRCLIB for a song directory (uses metadata.json)."""
+    n = _fetch_lrc_for(song_dir)
+    click.echo(f"Saved lyrics.lrc ({n} lines) to {song_dir}")
+
+
+@cli.command()
+@click.argument("song_dir", type=click.Path(exists=True))
+def review(song_dir: str) -> None:
+    """Interactively review and edit annotations for a song."""
+    from .annotator.reviewer import review_song
+    review_song(song_dir)
+
+
+@cli.command("review-all")
+def review_all() -> None:
+    """Interactively review annotations for all songs."""
+    from pathlib import Path
+
+    from .annotator.reviewer import review_all as _review_all
+    from .config import load_settings
+
+    settings = load_settings()
+    _review_all(settings.songs_dir)
+
+
+@cli.command()
+def embed() -> None:
+    """Generate sentence embeddings for the lyrics corpus."""
+    from .config import load_settings
+    from .intertextuality.embeddings import generate_embeddings
+
+    settings = load_settings()
+    embeddings, corpus = generate_embeddings(
+        settings.corpus_dir,
+        model_name=settings.embedding_model,
+    )
+    click.echo(f"Generated embeddings: {embeddings.shape[0]} lines, {embeddings.shape[1]} dims")
+
+
+@cli.command("retry-failed")
+@click.argument("song_dir", type=click.Path(exists=True))
+def retry_failed(song_dir: str) -> None:
+    """Retry annotations that failed during generate (placeholder summaries)."""
+    from pathlib import Path
+
+    from .annotator.engine import regenerate_annotation
+    from .annotator.models import Song
+    from .config import load_settings
+
+    ann_path = Path(song_dir) / "annotations.json"
+    if not ann_path.exists():
+        raise click.ClickException(f"No annotations.json in {song_dir}")
+
+    song = Song.load(ann_path)
+    failed = [
+        (i, a) for i, a in enumerate(song.annotations)
+        if a.summary == "[Annotation generation failed]"
+    ]
+    if not failed:
+        click.echo("No failed annotations found.")
+        return
+
+    settings = load_settings(require_api_key=True)
+    click.echo(f"Retrying {len(failed)} failed annotation(s)...")
+    fixed = 0
+    for i, ann in failed:
+        try:
+            song.annotations[i] = regenerate_annotation(
+                settings, song.metadata, ann.line_index, ann.lyric_text
+            )
+            fixed += 1
+            click.echo(f"  line {ann.line_index + 1}: OK")
+        except Exception as exc:
+            click.echo(f"  line {ann.line_index + 1}: FAILED ({exc})", err=True)
+
+    if fixed:
+        song.save(ann_path)
+    click.echo(f"Fixed {fixed}/{len(failed)} — saved to {ann_path}" if fixed
+               else "Nothing fixed; file unchanged.")
+
+
+@cli.command("build-corpus")
+@click.option("--bulk", type=click.Path(exists=True), default=None,
+              help="Optional bulk lyrics JSONL ({title, album, lyrics} per line)")
+def build_corpus_cmd(bulk: str | None) -> None:
+    """Build data/corpus/discography.jsonl from song LRC files."""
+    from .config import load_settings
+    from .intertextuality.corpus import build_corpus
+
+    settings = load_settings()
+    n_songs, n_lines = build_corpus(
+        settings.songs_dir, settings.corpus_dir, bulk,
+        catalog_path="data/catalog/catalog.json",
+    )
+    click.echo(f"Saved {n_songs} songs, {n_lines} lines to {settings.corpus_dir}/discography.jsonl")
+
+
+@cli.command()
+@click.option("--skip-fetch", is_flag=True, help="Skip LRC fetching")
+@click.option("--skip-embed", is_flag=True, help="Skip embedding generation")
+def pipeline(skip_fetch: bool, skip_embed: bool) -> None:
+    """Full pipeline: fetch LRC -> annotate all -> build corpus -> embed -> evolution."""
+    from pathlib import Path
+
+    from .annotator.engine import generate_annotations
+    from .config import load_settings
+    from .evolution.engine import build_and_save
+    from .intertextuality.corpus import build_corpus
+
+    settings = load_settings(require_api_key=True)
+    songs_dir = Path(settings.songs_dir)
+    song_dirs = [d for d in sorted(songs_dir.iterdir()) if d.is_dir()] if songs_dir.exists() else []
+
+    if not skip_fetch:
+        click.echo("== Step 1: fetch LRC from LRCLIB ==")
+        for d in song_dirs:
+            if (d / "lyrics.lrc").exists():
+                click.echo(f"  {d.name}: already has lyrics.lrc, skipping")
+                continue
+            if not (d / "metadata.json").exists():
+                continue
+            try:
+                n = _fetch_lrc_for(d)
+                click.echo(f"  {d.name}: {n} lines")
+            except Exception as exc:
+                click.echo(f"  {d.name}: FAILED ({exc})", err=True)
+
+    click.echo("== Step 2: generate annotations ==")
+    for d in song_dirs:
+        if not (d / "lyrics.lrc").exists():
+            continue
+        try:
+            song = generate_annotations(settings, d)
+            click.echo(f"  {d.name}: {len(song.annotations)} annotations")
+        except Exception as exc:
+            click.echo(f"  {d.name}: FAILED ({exc})", err=True)
+
+    click.echo("== Step 3: build corpus ==")
+    n_songs, n_lines = build_corpus(
+        settings.songs_dir, settings.corpus_dir,
+        catalog_path="data/catalog/catalog.json",
+    )
+    click.echo(f"  {n_songs} songs, {n_lines} lines")
+
+    if not skip_embed:
+        click.echo("== Step 4: generate embeddings ==")
+        from .intertextuality.embeddings import generate_embeddings
+        embeddings, _ = generate_embeddings(
+            settings.corpus_dir, model_name=settings.embedding_model
+        )
+        click.echo(f"  {embeddings.shape[0]} lines embedded")
+
+    click.echo("== Step 5: build evolution ==")
+    out = Path("data/evolution/evolution.json")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    build_and_save(settings.songs_dir, out)
+    click.echo(f"  -> {out}")
+
+    click.echo("Done. Launch the UI with: lyric-agent serve")
+
+
+if __name__ == "__main__":
+    cli()

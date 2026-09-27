@@ -1,0 +1,9 @@
+services:
+  lyric-agent:
+    build: .
+    ports:
+      - "${UI_PORT:-7860}:7860"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data

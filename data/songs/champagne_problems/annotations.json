@@ -1,0 +1,438 @@
+{
+  "song": {
+    "title": "champagne problems",
+    "artist": "Taylor Swift",
+    "album": "evermore",
+    "year": 2020,
+    "era": "evermore",
+    "genre": "indie folk / piano ballad",
+    "themes": [
+      "rejected proposal",
+      "class and wealth",
+      "mental health",
+      "self-sabotage",
+      "letting go"
+    ]
+  },
+  "annotations": [
+    {
+      "line_index": 7,
+      "lyric_text": "Champagne problems",
+      "summary": "标题双关：字面是「香槟级的烦恼」（富人的小事），实际指拒婚这件被旁人轻描淡写、却摧毁两个人的大事。",
+      "metaphor_analysis": null,
+      "allusions": [],
+      "wordplay": "champagne problems 是英语习语「无关痛痒的烦恼」；歌中反讽——对局外人是谈资，对当事人是余生。",
+      "emotional_tone": "regret",
+      "cultural_context": "香槟本该在订婚时开启庆祝，此处成为「庆祝落空」的反讽物。",
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.3,
+      "emotion_arousal": 0.35,
+      "emotion_category": "regret"
+    },
+    {
+      "line_index": 8,
+      "lyric_text": "Your mom's ring in your pocket",
+      "summary": "口袋里的婚戒——一场没有发生的求婚。整首歌是对「拒绝的那一刻」的回放与自责。",
+      "metaphor_analysis": "戒指=承诺的实体。它停留在口袋（未送出），如同这段关系停在未完成时。",
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "regret",
+      "cultural_context": null,
+      "taylor_swift_context": "evermore 时期 Taylor 转向纯虚构叙事，本曲与 Joe Alwyn 合写（化名 William Bowery）。",
+      "related_lines": [
+        {
+          "song": "cardigan",
+          "album": "folklore",
+          "line": "And when I felt like I was an old cardigan under someone's bed",
+          "similarity": 0.62
+        }
+      ],
+      "emotion_valence": 0.3,
+      "emotion_arousal": 0.4,
+      "emotion_category": "regret"
+    },
+    {
+      "line_index": 36,
+      "lyric_text": "\"She would've made such a lovely bride",
+      "summary": "借旁人之口的闲言碎语：「她本该是多美的新娘，可惜她脑子不正常」——污名化拒绝者的社会目光。",
+      "metaphor_analysis": null,
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "sadness",
+      "cultural_context": "「what a shame she's fucked in the head」直录流言的残忍原声，是 Taylor 词作中罕见的粗粝笔触。",
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.2,
+      "emotion_arousal": 0.5,
+      "emotion_category": "sadness"
+    },
+    {
+      "line_index": 46,
+      "lyric_text": "You won't remember all my",
+      "summary": "结尾的自我安慰或诅咒：你会遇到更好的人，忘掉我这些「香槟问题」——温柔表面下是深不见底的自贬。",
+      "metaphor_analysis": null,
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "loss",
+      "cultural_context": null,
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.35,
+      "emotion_arousal": 0.3,
+      "emotion_category": "loss"
+    }
+  ],
+  "emotion_arc": [
+    {
+      "line_index": 0,
+      "t_ms": 23060,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 1,
+      "t_ms": 27720,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 2,
+      "t_ms": 34020,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 3,
+      "t_ms": 39540,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 4,
+      "t_ms": 44410,
+      "valence": 0.65,
+      "arousal": 0.52,
+      "category": "joy"
+    },
+    {
+      "line_index": 5,
+      "t_ms": 48070,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 6,
+      "t_ms": 50620,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 7,
+      "t_ms": 53430,
+      "valence": 0.3,
+      "arousal": 0.35,
+      "category": "regret"
+    },
+    {
+      "line_index": 8,
+      "t_ms": 56740,
+      "valence": 0.3,
+      "arousal": 0.4,
+      "category": "regret"
+    },
+    {
+      "line_index": 9,
+      "t_ms": 59480,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 10,
+      "t_ms": 62350,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 11,
+      "t_ms": 64890,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 12,
+      "t_ms": 79340,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 13,
+      "t_ms": 83890,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 14,
+      "t_ms": 90270,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 15,
+      "t_ms": 95280,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 16,
+      "t_ms": 101090,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 17,
+      "t_ms": 103900,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 18,
+      "t_ms": 106930,
+      "valence": 0.56,
+      "arousal": 0.31,
+      "category": "tenderness"
+    },
+    {
+      "line_index": 19,
+      "t_ms": 109170,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 20,
+      "t_ms": 112860,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 21,
+      "t_ms": 115260,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 22,
+      "t_ms": 118020,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 23,
+      "t_ms": 120550,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 24,
+      "t_ms": 146130,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 25,
+      "t_ms": 148970,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 26,
+      "t_ms": 151820,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 27,
+      "t_ms": 154160,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 28,
+      "t_ms": 157180,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 29,
+      "t_ms": 160740,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 30,
+      "t_ms": 163390,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 31,
+      "t_ms": 167060,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 32,
+      "t_ms": 168570,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 33,
+      "t_ms": 171020,
+      "valence": 0.44,
+      "arousal": 0.43,
+      "category": "regret"
+    },
+    {
+      "line_index": 34,
+      "t_ms": 173990,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 35,
+      "t_ms": 176870,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 36,
+      "t_ms": 179590,
+      "valence": 0.2,
+      "arousal": 0.5,
+      "category": "sadness"
+    },
+    {
+      "line_index": 37,
+      "t_ms": 182320,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 38,
+      "t_ms": 184900,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 39,
+      "t_ms": 188120,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 40,
+      "t_ms": 192100,
+      "valence": 0.62,
+      "arousal": 0.46,
+      "category": "joy"
+    },
+    {
+      "line_index": 41,
+      "t_ms": 193970,
+      "valence": 0.29,
+      "arousal": 0.46,
+      "category": "loss"
+    },
+    {
+      "line_index": 42,
+      "t_ms": 196930,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 43,
+      "t_ms": 199740,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 44,
+      "t_ms": 202650,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 45,
+      "t_ms": 205600,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 46,
+      "t_ms": 207720,
+      "valence": 0.35,
+      "arousal": 0.3,
+      "category": "loss"
+    },
+    {
+      "line_index": 47,
+      "t_ms": 210540,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    },
+    {
+      "line_index": 48,
+      "t_ms": 218100,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 49,
+      "t_ms": 221050,
+      "valence": 0.35,
+      "arousal": 0.49,
+      "category": "self-doubt"
+    }
+  ]
+}
