@@ -129,7 +129,9 @@ def load_settings(require_api_key: bool = False) -> Settings:
         corpus_dir=os.getenv("CORPUS_DIR", "data/corpus"),
         evolution_path=os.getenv("EVOLUTION_PATH", "data/evolution/evolution.json"),
         embedding_provider=os.getenv("EMBEDDING_PROVIDER", "local"),
-        embedding_model=os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
+        # the UI's rebuild-index flow persists the chosen model here
+        embedding_model=user.get("embedding_model", "")
+        or os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
         echo_min_similarity=float(
             os.getenv("ECHO_MIN_SIMILARITY", str(DEFAULT_ECHO_MIN_SIMILARITY))),
         echo_min_similarity_cjk=float(

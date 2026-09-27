@@ -119,3 +119,69 @@ def render_share_card(
     path = out / f"card_{int(time.time() * 1000)}.png"
     img.save(path)
     return str(path)
+
+
+def render_echo_card(
+    artist: str,
+    song_a: str,
+    line_a: str,
+    song_b: str,
+    line_b: str,
+    similarity: float = 0.0,
+    out_dir: str | Path = "data/cards",
+) -> str:
+    """Two-quote 彩蛋 card: a pair of echoing lyric lines side by side."""
+    line_a, line_b = _clean(line_a), _clean(line_b)
+
+    img = _gradient(W, H, (24, 44, 62), (66, 46, 94))
+    draw = ImageDraw.Draw(img)
+    inner = W - 2 * MARGIN
+
+    y = 110
+    draw.text((MARGIN, y), "歌词透镜 · 彩蛋呼应", font=_font(26),
+              fill=(255, 255, 255, 200))
+    y += 100
+
+    lyric_font = _font(40, bold=True)
+    meta_font = _font(24)
+
+    def quote_block(y: int, song: str, line: str) -> int:
+        draw.text((MARGIN - 6, y - 18), "“", font=_font(90, bold=True),
+                  fill=(255, 214, 130))
+        y += 50
+        for ln in _wrap(line, lyric_font, inner)[:3]:
+            draw.text((MARGIN, y), ln, font=lyric_font, fill=(255, 255, 255))
+            y += 58
+        y += 10
+        draw.text((MARGIN, y), f"——《{_clean(song)}》", font=meta_font,
+                  fill=(226, 222, 240))
+        return y + 60
+
+    y = quote_block(y, song_a, line_a)
+
+    # connector between the two quotes
+    mid = y + 26
+    draw.line([(MARGIN, mid), (W - MARGIN, mid)], fill=(255, 214, 130), width=2)
+    badge = "彩蛋呼应" + (f" · 相似度 {similarity}" if similarity else "")
+    badge_font = _font(24, bold=True)
+    bw = badge_font.getlength(badge) + 48
+    bx = (W - bw) / 2
+    draw.rounded_rectangle([bx, mid - 24, bx + bw, mid + 24], radius=24,
+                           fill=(255, 214, 130))
+    draw.text((bx + 24, mid - 16), badge, font=badge_font, fill=(40, 34, 60))
+    y = mid + 70
+
+    quote_block(y, song_b, line_b)
+
+    footer = _clean(artist) or ""
+    if footer:
+        draw.text((MARGIN, H - 130), footer, font=_font(26),
+                  fill=(255, 214, 130))
+    draw.text((MARGIN, H - 86), "彩蛋由「歌词透镜」跨歌曲互文检索发现",
+              font=_font(20), fill=(200, 196, 220))
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"echo_card_{int(time.time() * 1000)}.png"
+    img.save(path)
+    return str(path)

@@ -220,3 +220,62 @@ def search_similar(
         ))
 
     return results
+
+
+# ── Imagery trace (意象追踪) ──────────────────────────────
+
+DEFAULT_IMAGERY_TOP_K = 40
+
+
+@dataclass
+class ImageryHit:
+    """One lyric line matching a traced image/motif."""
+    song: str
+    album: str
+    line: str
+    similarity: float
+    artist: str = ""
+    keyword: bool = False  # literal substring match (vs semantic-only)
+
+
+def trace_imagery(
+    query: str,
+    embeddings: np.ndarray,
+    corpus: list[CorpusLine],
+    model_name: str = DEFAULT_EMBEDDING_MODEL,
+    artist: str | None = None,
+    top_k: int = DEFAULT_IMAGERY_TOP_K,
+    min_similarity: float = DEFAULT_ECHO_SEARCH_SIMILARITY,
+    min_similarity_cjk: float = DEFAULT_ECHO_SEARCH_SIMILARITY_CJK,
+) -> list[ImageryHit]:
+    """Every line carrying an image/motif: literal hits + semantic neighbours.
+
+    Keyword (substring) matches always count; semantic matches obey the
+    similarity thresholds. Sorted keyword-first, then by similarity.
+    """
+    query = (query or "").strip()
+    if not query:
+        return []
+    hits: dict[tuple[str, str], ImageryHit] = {}
+    q_lower = query.lower()
+    for line in corpus:
+        if artist and not artist_matches(artist, line.artist):
+            continue
+        if q_lower in line.text.lower():
+            hits[(line.song, line.text)] = ImageryHit(
+                song=line.song, album=line.album, line=line.text,
+                similarity=1.0, artist=line.artist, keyword=True)
+
+    for r in search_similar(
+            query, embeddings, corpus, model_name=model_name,
+            top_k=top_k, min_similarity=min_similarity,
+            min_similarity_cjk=min_similarity_cjk, artist=artist):
+        key = (r.song, r.line)
+        if key not in hits:
+            hits[key] = ImageryHit(
+                song=r.song, album=r.album, line=r.line,
+                similarity=r.similarity, artist=r.artist)
+
+    ordered = sorted(
+        hits.values(), key=lambda h: (not h.keyword, -h.similarity))
+    return ordered[:top_k]

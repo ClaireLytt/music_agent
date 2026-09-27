@@ -85,7 +85,7 @@ def build_evolution() -> None:
     from .evolution.engine import build_and_save
 
     settings = load_settings()
-    out = Path("data/evolution/evolution.json")
+    out = Path(settings.evolution_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     evo = build_and_save(settings.songs_dir, out)
     demo = [e for e in evo.eras if e.songs]
@@ -103,7 +103,8 @@ def search(query: str, semantic: bool, limit: int) -> None:
     from .ui import _discover_songs
 
     settings = load_settings()
-    searcher = LyricsSearcher(_discover_songs(settings.songs_dir))
+    searcher = LyricsSearcher(_discover_songs(settings.songs_dir),
+                              model_name=settings.embedding_model)
     if semantic:
         hits, mode = searcher.semantic(query, limit)
     else:
@@ -295,7 +296,7 @@ def pipeline(skip_fetch: bool, skip_embed: bool) -> None:
         click.echo(f"  {embeddings.shape[0]} lines embedded")
 
     click.echo("== Step 5: build evolution ==")
-    out = Path("data/evolution/evolution.json")
+    out = Path(settings.evolution_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     build_and_save(settings.songs_dir, out)
     click.echo(f"  -> {out}")
@@ -303,5 +304,31 @@ def pipeline(skip_fetch: bool, skip_embed: bool) -> None:
     click.echo("Done. Launch the UI with: lyric-agent serve")
 
 
+@cli.command()
+def doctor() -> None:
+    """Check library & corpus health (duplicates, stale corpus, embeddings)."""
+    from rich.console import Console
+    from rich.table import Table
+
+    from .config import load_settings
+    from .doctor import run_all
+
+    settings = load_settings()
+    findings = run_all(settings.songs_dir, settings.corpus_dir)
+    console = Console()
+    if not findings:
+        console.print("[green]✅ 曲库、语料库与 embeddings 均无问题。[/green]")
+        return
+    table = Table(title="lyric-agent doctor")
+    table.add_column("级别", width=6)
+    table.add_column("范围", width=10)
+    table.add_column("问题")
+    for f in findings:
+        level = "[red]错误[/red]" if f.severity == "error" else "[yellow]警告[/yellow]"
+        table.add_row(level, f.area, f.message)
+    console.print(table)
+    errors = sum(1 for f in findings if f.severity == "error")
+    console.print(f"共 {len(findings)} 项（错误 {errors} / 警告 {len(findings) - errors}）")
+    raise SystemExit(1 if errors else 0)
 if __name__ == "__main__":
     cli()

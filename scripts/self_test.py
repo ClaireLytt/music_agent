@@ -260,20 +260,64 @@ def main() -> None:
     # ── 4c. 彩蛋地图 tab: artist network graph ──
     try:
         out = call("init_echo_map", [cardigan])
-        dd, map_html = out[0], out[1]
+        dd, focus_dd, map_html = out[0], out[1], out[2]
         choices = [c[0] if isinstance(c, list) else c
                    for c in dd.get("choices", [])] if isinstance(dd, dict) else []
         ok = (dd.get("value") == "Taylor Swift" and len(choices) > 1
-              and "<svg" in str(map_html) and "egg-edge" in str(map_html))
-        check("echo map tab init (dropdown + svg)", bool(ok),
-              f"value={dd.get('value')} artists={len(choices)}")
+              and "<svg" in str(map_html) and "聚焦" in str(map_html)
+              and focus_dd.get("value") == "cardigan")
+        check("echo map tab init (focus view on current song)", bool(ok),
+              f"value={dd.get('value')} focus={focus_dd.get('value')}")
     except Exception as e:
         check("echo map tab init (dropdown + svg)", False, repr(e))
     try:
-        out = call("on_map_artist", ["陈奕迅"])
-        check("echo map switch artist", "陈奕迅" in str(out[0]))
+        out = call("on_map_artist", ["陈奕迅", "focus"])
+        check("echo map switch artist", "陈奕迅" in str(out[1]))
     except Exception as e:
         check("echo map switch artist", False, repr(e))
+    try:
+        out = call("on_map_artist", ["🌐 跨歌手引用（全部歌手）", "net"])
+        check("echo map cross-artist mode",
+              "跨歌手" in str(out[1]) and "<svg" in str(out[1]))
+    except Exception as e:
+        check("echo map cross-artist mode", False, repr(e))
+    try:
+        out = call("on_map_focus", ["cardigan", "Taylor Swift", "focus"])
+        check("echo map focus view quotes visible",
+              "本歌：" in str(out[0]) and "egg-pair" in str(out[0]))
+    except Exception as e:
+        check("echo map focus view quotes visible", False, repr(e))
+    try:
+        out = call("on_map_view", ["net", "Taylor Swift", "cardigan"])
+        check("echo map switch to network view", "egg-edge" in str(out[1]))
+    except Exception as e:
+        check("echo map cross-artist mode", False, repr(e))
+
+    # ── 4d. 意象追踪 ──
+    try:
+        out = call("on_imagery", ["scarf", "Taylor Swift"])
+        check("imagery trace (artist scope)",
+              "img-timeline" in str(out[0]) and "原词" in str(out[0]))
+    except Exception as e:
+        check("imagery trace (artist scope)", False, repr(e))
+    try:
+        out = call("on_imagery", ["", "Taylor Swift"])
+        check("imagery trace empty query -> hint", "输入一个意象" in str(out[0]))
+    except Exception as e:
+        check("imagery trace empty query -> hint", False, repr(e))
+
+    # ── 4e. 歌曲管理 ──
+    try:
+        out = call("on_manage_refresh", [cardigan], session=f"{SESSION}-mgmt")
+        check("library refresh", "已刷新" in str(out[0]))
+    except Exception as e:
+        check("library refresh", False, repr(e))
+    try:
+        out = call("on_manage_delete", [cardigan, False, cardigan],
+                   session=f"{SESSION}-mgmt")
+        check("delete without confirm -> guard", "请勾选确认框" in str(out[0]))
+    except Exception as e:
+        check("delete without confirm -> guard", False, repr(e))
 
     # ── 5. add song ──
     try:

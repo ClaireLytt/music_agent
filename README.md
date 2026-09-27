@@ -39,12 +39,20 @@ lyric-agent serve
   - Accordion-style: opening one closes others
   - Blue annotation indicator dots on annotated lines
 - **彩蛋 · Intertextuality**: cross-song echo tracking within one artist's discography
-  - 🥚 互文追踪：点击歌词行，检索同歌手其他作品中最相似的歌词 Top-K，可让 AI 解释呼应
+  - 🥚 互文追踪：点击歌词行，检索同歌手其他作品中最相似的歌词 Top-K，可让 AI 解释呼应，
+    一键生成两句歌词对照的「彩蛋对照卡」PNG
   - 🥚 全曲标记：切歌后自动扫描整首歌，有强呼应的行尾显示 🥚（悬停给出目标歌曲与相似度）
   - 🗺️ 本歌彩蛋总览：一次列出全部呼应行与目标，点击跳转到对应歌词
-  - 🥚 彩蛋地图页签：歌手级互文网络图（节点=歌曲、连线=呼应，纯服务端 SVG）
+  - 🥚 彩蛋地图页签：歌手级互文网络图（节点=歌曲、连线=呼应，纯服务端 SVG），
+    支持「🌐 跨歌手引用」模式（只看不同歌手间的引用/致敬），可让 AI 解读整张网络
+  - 🔍 意象追踪：输入意象（雨 / scarf / 童年），按专辑时间线看它在曲库中的反复与演变
   - 中文歌词使用更严格的 CJK 阈值 + 共享短语锚定，避免英文向 embedding 模型的假呼应；
     阈值均可通过环境变量调整（见 `.env.example` 的 ECHO_* 配置）
+- **AI 助手**: 行级问答（历史持久化）、🎭 乐评人 vs 粉丝双视角辩论、📖 整歌 AI 导读
+  （生成一次缓存于歌曲目录）
+- **播放体验**: 逐字卡拉OK渐变高亮（按行时间戳估算进度）、官方试听片段自动对齐
+- **曲库管理**: UI 内删除歌曲 / 刷新曲库；设置页可切换 embedding 模型并一键重建索引
+  （中文曲库建议多语模型）；`lyric-agent doctor` 扫描曲库与语料库健康度
 - **Interactive Review**: Rich-based CLI tool for human annotation quality review
 - **Docker Ready**: One-command deployment with docker-compose
 
@@ -67,6 +75,7 @@ lyric-agent serve [--port 7860]    # Launch the player UI
 lyric-agent review <song_dir>      # Interactively review annotations for one song
 lyric-agent review-all             # Review annotations for all songs
 lyric-agent embed                  # Generate sentence embeddings for corpus
+lyric-agent doctor                 # Check library/corpus health (duplicates, stale index)
 ```
 
 ## Pipeline Scripts

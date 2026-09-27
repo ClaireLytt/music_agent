@@ -29,8 +29,9 @@ class SearchHit:
 
 
 class LyricsSearcher:
-    def __init__(self, songs: list[dict]) -> None:
+    def __init__(self, songs: list[dict], model_name: str | None = None) -> None:
         """songs: list of song-info dicts from the UI discovery step."""
+        self._model_name = model_name
         self._entries: list[SearchHit] = []
         for s in songs:
             lrc = Path(s["dir"]) / "lyrics.lrc"
@@ -67,7 +68,8 @@ class LyricsSearcher:
             return True
         try:
             from .intertextuality.search import get_model
-            self._embed_model = get_model()
+            self._embed_model = (get_model(self._model_name)
+                                 if self._model_name else get_model())
             texts = [e.text for e in self._entries]
             self._embeddings = self._embed_model.encode(
                 texts, normalize_embeddings=True, show_progress_bar=False)
