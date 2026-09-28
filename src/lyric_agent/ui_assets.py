@@ -1,0 +1,688 @@
+"""Static front-end assets for the Gradio app: the global JS (Blocks
+head) and the stylesheet. Split out of ui.py — plain string constants,
+no imports."""
+
+_HEAD_JS = """
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.6/wavesurfer.min.js" defer></script>
+<script>
+// force Gradio's light theme so the UI is always white regardless of the
+// OS dark-mode setting (Gradio otherwise follows prefers-color-scheme)
+(function() {
+  try {
+    const u = new URL(window.location);
+    if (u.searchParams.get('__theme') !== 'light') {
+      u.searchParams.set('__theme', 'light');
+      window.location.replace(u);
+    }
+  } catch (e) {}
+})();
+// stale-page guard: after a server restart, an already-open page keeps a dead
+// session and every click silently does nothing — detect the restart via the
+// per-launch app_id and reload automatically
+(function() {
+  let appId = null;
+  setInterval(async () => {
+    try {
+      const r = await fetch('config', { cache: 'no-store' });
+      if (!r.ok) return;
+      const c = await r.json();
+      const id = String(c.app_id || '');
+      if (!id) return;
+      if (appId === null) appId = id;
+      else if (id !== appId) window.location.reload();
+    } catch (e) {}
+  }, 4000);
+})();
+(function() {
+  let userScrolling = false, scrollTimeout = null, lastActive = -2;
+  // player tools state (survives per-song re-renders of the audio block)
+  let abStart = null, abEnd = null;
+  let radioOn = false, rhymeOn = false, radioPending = false;
+  let lastAudioEl = null;
+
+  function getAudio() { return document.getElementById('ll-audio'); }
+  // preview clips start mid-song: lyric-time = audio-time + offset
+  function getOffset(audio) { return parseFloat(audio.dataset.offset || '0'); }
+
+  function fmt(t) {
+    const s = Math.max(0, Math.floor(t));
+    return String(Math.floor(s / 60)).padStart(2, '0') + ':' +
+           String(s % 60).padStart(2, '0');
+  }
+
+  // write into a hidden gradio textbox channel and notify the backend
+  function writeChannel(id, value) {
+    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
+    if (!box) return;
+    box.value = value;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function applyRhyme() {
+    const c = document.getElementById('lyrics-container');
+    if (c) c.classList.toggle('rhyme-on', rhymeOn);
+  }
+
+  // waveform: wavesurfer (CDN) drawing on top of the native audio element;
+  // silently absent when the CDN is unreachable
+  function initWave(a) {
+    const holder = document.getElementById('ll-wave');
+    if (!holder) return;
+    if (!window.WaveSurfer) {
+      // the deferred CDN script may not have loaded yet on first render —
+      // retry for a while (still this song's audio element) before giving up
+      holder.style.display = 'none';
+      a._llWaveTries = (a._llWaveTries || 0) + 1;
+      if (a._llWaveTries <= 20)
+        setTimeout(() => { if (getAudio() === a) initWave(a); }, 500);
+      return;
+    }
+    try {
+      if (window._llWave) { window._llWave.destroy(); window._llWave = null; }
+      holder.style.display = 'block';
+      window._llWave = WaveSurfer.create({
+        container: holder, media: a, height: 54,
+        waveColor: '#c9d4df', progressColor: '#0969da',
+        cursorColor: '#0969da', barWidth: 2, barGap: 1, barRadius: 1,
+      });
+    } catch (err) { holder.style.display = 'none'; }
+  }
+
+  function sync() {
+    const audio = getAudio();
+    const lines = document.querySelectorAll('#lyrics-scroll .lyric-line');
+    if (audio && lines.length) {
+      const ms = audio.currentTime * 1000 + getOffset(audio);
+      let idx = -1;
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (ms >= parseFloat(lines[i].dataset.ts || '0')) { idx = i; break; }
+      }
+      if (idx !== lastActive) {
+        lines.forEach((el, i) => {
+          el.classList.toggle('played', i < idx);
+          el.classList.toggle('active', i === idx);
+          if (i !== idx) {
+            const s = el.querySelector('.lyric-text');
+            if (s && s.style.backgroundImage) s.style.backgroundImage = '';
+          }
+        });
+        if (idx >= 0 && !userScrolling) {
+          // scroll ONLY the lyrics container — scrollIntoView also scrolls the
+          // page itself, hijacking clicks on other controls (e.g. search box)
+          const c = document.getElementById('lyrics-container');
+          const el = lines[idx];
+          if (c && el) {
+            c.scrollTo({
+              top: el.offsetTop - c.clientHeight / 2 + el.offsetHeight / 2,
+              behavior: 'smooth',
+            });
+          }
+        }
+        lastActive = idx;
+      }
+      // A-B loop: jump back to A whenever playback passes B
+      if (abStart !== null && abEnd !== null && !audio.paused
+          && audio.currentTime >= abEnd) {
+        audio.currentTime = abStart;
+      }
+      // karaoke sweep on the active line: estimated per-line progress
+      // (linear between this line's timestamp and the next one's)
+      if (idx >= 0 && !audio.paused) {
+        const el = lines[idx];
+        const t0 = parseFloat(el.dataset.ts || '0');
+        const next = lines[idx + 1];
+        const t1 = next ? parseFloat(next.dataset.ts || '0')
+                        : (audio.duration || 0) * 1000 + getOffset(audio);
+        const p = Math.min(100, Math.max(0, 100 * (ms - t0) / Math.max(t1 - t0, 1)));
+        const s = el.querySelector('.lyric-text');
+        if (s) {
+          s.style.backgroundImage =
+            'linear-gradient(90deg, var(--accent) ' + p.toFixed(1) +
+            '%, var(--karaoke-rest) ' + p.toFixed(1) + '%)';
+        }
+      }
+    }
+    requestAnimationFrame(sync);
+  }
+  requestAnimationFrame(sync);
+
+  // whole-song echo map: backend writes JSON into #ll-echo-map, we decorate
+  // matching lyric lines with a 🥚 marker (idempotent; re-applies after any
+  // lyrics re-render, skips maps that belong to a different song)
+  setInterval(() => {
+    const box = document.querySelector('#ll-echo-map textarea, #ll-echo-map input');
+    if (!box || !box.value) return;
+    let data;
+    try { data = JSON.parse(box.value); } catch (e) { return; }
+    const lines = document.querySelectorAll('#lyrics-scroll .lyric-line');
+    if (!lines.length) return;
+    const title = document.querySelector('.song-title-display');
+    if (!title || title.textContent.trim() !== data.song) return;
+    const want = new Map((data.lines || []).map(o => [o.i, o]));
+    lines.forEach(el => {
+      const has = el.querySelector('.echo-mark');
+      const o = want.get(parseInt(el.dataset.index));
+      if (o && !has) {
+        const m = document.createElement('span');
+        m.className = 'echo-mark';
+        m.title = '彩蛋：与《' + o.song + '》有呼应（相似度 ' + o.sim +
+                  '），点击这行查看详情';
+        m.textContent = '🥚';
+        el.appendChild(m);
+      } else if (!o && has) has.remove();
+    });
+  }, 600);
+
+  // new-song watcher: the audio block is re-rendered per song, so restore
+  // toggle states, rebuild the waveform, reset the A-B loop, and (in radio
+  // mode) play the spoken intro before the song itself
+  setInterval(() => {
+    const a = getAudio();
+    if (!a || a === lastAudioEl) return;
+    lastAudioEl = a;
+    abStart = abEnd = null;
+    const r = document.getElementById('ll-radio-toggle');
+    if (r) r.checked = radioOn;
+    const y = document.getElementById('ll-rhyme-toggle');
+    if (y) y.checked = rhymeOn;
+    applyRhyme();
+    initWave(a);
+    if (radioPending) {
+      radioPending = false;
+      const intro = a.dataset.intro;
+      if (radioOn && intro) {
+        const voice = new Audio(intro);
+        voice.addEventListener('ended', () => a.play().catch(() => {}));
+        // a broken intro file fires 'error', never 'ended' — don't stall
+        voice.addEventListener('error', () => a.play().catch(() => {}));
+        voice.play().catch(() => { a.play().catch(() => {}); });
+      } else if (radioOn) {
+        a.play().catch(() => {});
+      }
+    }
+  }, 500);
+
+  // radio mode: when the song ends, advance to the next one in the list
+  document.addEventListener('ended', function(e) {
+    if (!e.target || e.target.id !== 'll-audio' || !radioOn) return;
+    const inputs = Array.from(
+      document.querySelectorAll('#ll-songs input[type=radio]'));
+    if (!inputs.length) return;
+    const i = inputs.findIndex(x => x.checked);
+    radioPending = true;
+    inputs[(i + 1) % inputs.length].click();
+  }, true);  // 'ended' does not bubble — capture it
+
+  // toggle listeners (delegated: the checkboxes are re-rendered per song)
+  document.addEventListener('change', function(e) {
+    if (!e.target) return;
+    if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
+    if (e.target.id === 'll-rhyme-toggle') {
+      rhymeOn = e.target.checked;
+      applyRhyme();
+    }
+  }, true);
+
+  // player-tool buttons + click-to-backend channels (capture phase so a
+  // delete click doesn't also trigger the note's data-seek)
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest) return;
+    const audio = getAudio();
+    if (e.target.closest('#ll-ab-a') && audio) {
+      abStart = audio.currentTime; abEnd = null;
+      e.target.closest('#ll-ab-a').textContent = '🅰 ' + fmt(abStart);
+      const b = document.getElementById('ll-ab-b');
+      if (b) b.textContent = '🅱 循环';
+      const c = document.getElementById('ll-ab-clear');
+      if (c) c.style.display = 'none';
+      return;
+    }
+    if (e.target.closest('#ll-ab-b') && audio) {
+      if (abStart === null || audio.currentTime <= abStart + 0.3) return;
+      abEnd = audio.currentTime;
+      e.target.closest('#ll-ab-b').textContent = '🅱 ' + fmt(abEnd);
+      const c = document.getElementById('ll-ab-clear');
+      if (c) c.style.display = '';
+      return;
+    }
+    if (e.target.closest('#ll-ab-clear')) {
+      abStart = abEnd = null;
+      const a2 = document.getElementById('ll-ab-a');
+      if (a2) a2.textContent = '🅰 起点';
+      const b2 = document.getElementById('ll-ab-b');
+      if (b2) b2.textContent = '🅱 循环';
+      e.target.closest('#ll-ab-clear').style.display = 'none';
+      return;
+    }
+    const del = e.target.closest('[data-del-note]');
+    if (del) {
+      e.stopPropagation();
+      writeChannel('ll-note-del', del.dataset.delNote + ':' +
+                   (del.dataset.delTs || '') + '\\t' + Date.now());
+      return;
+    }
+    const word = e.target.closest('.cloud-word');
+    if (word) {
+      writeChannel('ll-word-pick', word.dataset.word + '\\t' + Date.now());
+      return;
+    }
+    const emo = e.target.closest('[data-emo-pick]');
+    if (emo) {
+      writeChannel('ll-emo-pick', emo.dataset.emoPick + '\\t' + Date.now());
+      return;
+    }
+    const fp = e.target.closest('[data-focus-pick]');
+    if (fp) {
+      writeChannel('ll-focus-pick', fp.dataset.focusPick + '\\t' + Date.now());
+    }
+  }, true);
+
+  // current playback position → hidden channel (used by 听歌笔记)
+  setInterval(() => {
+    const a = getAudio();
+    const box = document.querySelector('#ll-cur-time textarea, #ll-cur-time input');
+    if (!box) return;
+    // no audio on this song: reset instead of keeping the previous song's
+    // position (a note added here would inherit that stale timestamp)
+    const v = a ? a.currentTime.toFixed(2) : '0';
+    if (box.value !== v) {
+      box.value = v;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }, 700);
+
+  // keep the AI chat scrolled to the bottom while streaming (only when near bottom)
+  setInterval(() => {
+    const c = document.getElementById('chat-scroll');
+    if (!c) return;
+    if (c.scrollHeight - c.scrollTop - c.clientHeight < 140) c.scrollTop = c.scrollHeight;
+  }, 400);
+
+  document.addEventListener('wheel', function(e) {
+    if (e.target.closest && e.target.closest('#lyrics-container')) {
+      userScrolling = true;
+      clearTimeout(scrollTimeout);
+      scrollTimeout = setTimeout(() => { userScrolling = false; }, 5000);
+    }
+  }, { passive: true });
+
+  // focus assist on pointerdown (fires before click; more reliable when
+  // some other handler swallows the click): pressing anywhere on the
+  // search field focuses its input
+  document.addEventListener('pointerdown', function(e) {
+    if (!e.target.closest) return;
+    const sw = e.target.closest('#ll-search');
+    if (sw) {
+      const inp = sw.querySelector('textarea, input');
+      if (inp) setTimeout(() => inp.focus(), 0);
+    }
+  }, true);
+
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest) return;
+    if (e.target.closest('#ll-search')) return;
+
+    const audio = getAudio();
+
+    // 彩蛋总览 entry: jump to (and select) the referenced lyric line
+    const ov = e.target.closest('[data-goto-line]');
+    if (ov) {
+      const line = document.querySelector(
+        '#lyrics-scroll .lyric-line[data-index="' + ov.dataset.gotoLine + '"]');
+      if (line) {
+        const c = document.getElementById('lyrics-container');
+        if (c) {
+          c.scrollTo({
+            top: line.offsetTop - c.clientHeight / 2 + line.offsetHeight / 2,
+            behavior: 'smooth',
+          });
+        }
+        line.click();
+      }
+      return;
+    }
+
+    const seekEl = e.target.closest('[data-seek]');
+    if (seekEl && audio) {
+      audio.currentTime = Math.max(0,
+        (parseFloat(seekEl.dataset.seek) - getOffset(audio)) / 1000);
+      audio.play().catch(() => {});
+      return;
+    }
+
+    const line = e.target.closest('#lyrics-scroll .lyric-line');
+    if (line) {
+      document.querySelectorAll('.lyric-line.picked').forEach(el => el.classList.remove('picked'));
+      line.classList.add('picked');
+      // tell the backend which line is selected (feeds the AI assistant panel)
+      const pick = document.querySelector('#ll-line-pick textarea, #ll-line-pick input');
+      if (pick) {
+        pick.value = line.dataset.index;
+        pick.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (audio && line.dataset.ts) {
+        audio.currentTime = Math.max(0,
+          (parseFloat(line.dataset.ts) - getOffset(audio)) / 1000);
+        audio.play().catch(() => {});
+      }
+    }
+  });
+
+  document.addEventListener('keydown', function(e) {
+    // only text-entry elements swallow the shortcuts — radios/checkboxes
+    // (e.g. the song list, where focus lands after picking a song) must not,
+    // or space/arrows stop working right after the most common action
+    const t = e.target;
+    const tag = (t.tagName || '').toLowerCase();
+    const type = (t.type || '').toLowerCase();
+    if (tag === 'textarea' || tag === 'select' || t.isContentEditable) return;
+    if (tag === 'input' &&
+        !['radio', 'checkbox', 'button', 'range'].includes(type)) return;
+    const audio = getAudio();
+    if (!audio) return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      audio.paused ? audio.play().catch(() => {}) : audio.pause();
+    } else if (e.key === 'ArrowLeft') {
+      audio.currentTime = Math.max(0, audio.currentTime - 5);
+    } else if (e.key === 'ArrowRight') {
+      audio.currentTime = Math.min(audio.duration || 1e9, audio.currentTime + 5);
+    }
+  });
+})();
+</script>
+"""
+
+# ── CSS ───────────────────────────────────────────────────
+
+_CSS = """\
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f8fa;
+  --bg-card: #f6f8fa;
+  --bg-card-hover: #eaeef2;
+  --text-primary: #1f2328;
+  --text-secondary: #656d76;
+  --text-played: #a9b1ba;
+  --accent: #0969da;
+  --accent-soft: rgba(9, 105, 218, 0.08);
+  --accent-glow: rgba(9, 105, 218, 0.15);
+  --border: #d0d7de;
+  --karaoke-rest: #57606a; /* un-sung part of the active karaoke line */
+}
+
+body, .gradio-container { background: var(--bg-primary) !important; }
+
+/* hide gradio footer (Runs / API / Gradio links) */
+footer, .gradio-container footer { display: none !important; }
+
+/* song list & catalog: one song per line, never side by side */
+#ll-songs .wrap, #ll-songs [data-testid="radio"], #ll-songs fieldset,
+#ll-catalog .wrap, #ll-catalog [data-testid="radio"], #ll-catalog fieldset {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 4px !important;
+}
+#ll-songs label, #ll-catalog label { width: 100%; }
+#ll-catalog { max-height: 46vh; overflow-y: auto; }
+
+/* white theme: every field on white with clearly visible text + caret */
+.gradio-container input:not([type="checkbox"]):not([type="radio"]),
+.gradio-container textarea,
+.gradio-container select {
+  background: #ffffff !important;
+  color: var(--text-primary) !important;
+  caret-color: var(--accent) !important;
+  border: 1px solid var(--border) !important;
+}
+.gradio-container input:focus, .gradio-container textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent-soft) !important;
+}
+.gradio-container input::placeholder, .gradio-container textarea::placeholder {
+  color: var(--text-secondary) !important; opacity: 0.6;
+}
+
+.app-header { text-align: center; padding: 16px 0 4px; }
+.app-header h1 { color: var(--accent); font-size: 26px; margin: 0; font-weight: 700; }
+.app-header p { color: var(--text-secondary); margin: 4px 0 0; font-size: 14px; }
+
+/* ── Prominent tab navigation ── */
+.gradio-container .tab-nav, .gradio-container div[role="tablist"] {
+  justify-content: center; gap: 10px; border-bottom: 1px solid var(--border);
+  padding-bottom: 0; margin-bottom: 10px;
+}
+.gradio-container .tab-nav button, .gradio-container button[role="tab"] {
+  font-size: 17px !important; font-weight: 700 !important;
+  padding: 12px 30px !important; border-radius: 12px 12px 0 0 !important;
+  color: var(--text-secondary) !important; background: transparent !important;
+  border: none !important; border-bottom: 3px solid transparent !important;
+  transition: all 0.2s ease;
+}
+.gradio-container .tab-nav button:hover, .gradio-container button[role="tab"]:hover {
+  color: var(--text-primary) !important; background: var(--bg-card-hover) !important;
+}
+.gradio-container .tab-nav button.selected,
+.gradio-container button[role="tab"][aria-selected="true"] {
+  color: var(--accent) !important; background: var(--accent-soft) !important;
+  border-bottom: 3px solid var(--accent) !important;
+}
+
+.ll-hidden { display: none !important; }
+
+.side-panel-title {
+  font-size: 15px; font-weight: 700; color: var(--text-primary);
+  padding: 4px 2px 6px; border-bottom: 2px solid var(--accent-soft); margin-bottom: 8px;
+}
+
+/* Song header */
+.song-header {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px;
+}
+.song-title-display { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.song-meta-display { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+.no-audio-hint {
+  padding: 10px 16px; margin: 8px 0; border-radius: 8px; font-size: 13px;
+  background: var(--bg-card); border: 1px dashed var(--border);
+  color: var(--text-secondary);
+}
+.preview-hint {
+  margin-top: 4px; font-size: 11px; color: var(--text-secondary);
+}
+.echo-mark {
+  margin-left: 6px; font-size: 12px; opacity: 0.7; user-select: none;
+}
+.lyric-line:hover .echo-mark { opacity: 1; }
+
+.lyrics-hint { text-align: center; color: var(--text-secondary); font-size: 12px; padding: 6px 0; opacity: 0.7; }
+
+/* Lyrics */
+#lyrics-container {
+  position: relative; /* anchors .lyric-line offsetTop for container-scoped scroll */
+  max-height: 66vh; overflow-y: auto; padding: 8px 12px;
+  scroll-behavior: smooth; scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#lyrics-container::-webkit-scrollbar { width: 6px; }
+#lyrics-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+#lyrics-scroll { display: flex; flex-direction: column; gap: 2px; }
+
+.lyric-line {
+  padding: 8px 16px; border-radius: 8px; cursor: pointer;
+  transition: all 0.25s ease; border-left: 3px solid transparent;
+}
+.lyric-line:hover { background: var(--bg-card-hover); }
+.lyric-line.picked { background: var(--accent-soft); border-left-color: var(--accent); }
+.lyric-line.played .lyric-text { color: var(--text-played); }
+.lyric-line.active { background: var(--accent-glow); border-left-color: var(--accent); transform: scale(1.01); }
+.lyric-line.active .lyric-text { color: var(--accent); font-weight: 600; font-size: 17px; }
+/* karaoke sweep: JS drives a gradient over the active line's text; the
+   estimated progress paints sung characters accent-blue */
+@supports (-webkit-background-clip: text) or (background-clip: text) {
+  .lyric-line.active .lyric-text[style*="background-image"] {
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent; -webkit-text-fill-color: transparent;
+  }
+}
+.lyric-text { font-size: 15px; color: var(--text-primary); transition: all 0.25s ease; line-height: 1.65; }
+
+/* Search */
+#ll-search { position: relative; z-index: 5; }
+#ll-search textarea, #ll-search input {
+  pointer-events: auto !important; cursor: text;
+}
+.search-mode-tag { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+.search-hit {
+  padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; margin-bottom: 6px;
+}
+.search-hit.seekable { cursor: pointer; }
+.search-hit.seekable:hover { border-color: var(--accent); }
+.search-line { font-size: 13px; color: var(--text-primary); font-style: italic; }
+.search-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+.search-none { color: var(--text-secondary); font-size: 13px; padding: 8px; }
+
+/* AI assistant chat */
+.chat-topic {
+  font-size: 13px; color: var(--accent); padding: 8px 12px;
+  background: var(--accent-soft); border-radius: 8px; margin-bottom: 8px;
+}
+.chat-topic.dim { color: var(--text-secondary); background: var(--bg-card); }
+.chat-empty { color: var(--text-secondary); font-size: 13px; padding: 10px; line-height: 1.7; }
+#chat-scroll {
+  max-height: 56vh; overflow-y: auto; display: flex; flex-direction: column;
+  gap: 8px; padding: 4px 2px; scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.chat-bubble {
+  padding: 10px 14px; border-radius: 12px; font-size: 13px;
+  line-height: 1.7; max-width: 94%;
+}
+.chat-bubble b { display: block; font-size: 12px; margin-bottom: 4px; color: var(--accent); }
+.chat-bubble p { margin: 0; color: var(--text-primary); white-space: pre-wrap; }
+.chat-bubble.ai { background: rgba(9,105,218,0.06); border: 1px solid rgba(9,105,218,0.22); align-self: flex-start; }
+.chat-bubble.user { background: var(--bg-card); border: 1px solid var(--border); align-self: flex-end; }
+.chat-bubble.streaming { border-style: dashed; opacity: 0.92; }
+/* debate personas get their own tints */
+.chat-bubble.critic { background: rgba(130,80,223,0.07); border-color: rgba(130,80,223,0.30); }
+.chat-bubble.critic b { color: #8250df; }
+.chat-bubble.fan { background: rgba(191,57,137,0.07); border-color: rgba(191,57,137,0.30); }
+.chat-bubble.fan b { color: #bf3989; }
+
+/* whole-song AI intro */
+.song-intro {
+  font-size: 13px; line-height: 1.8; color: var(--text-primary);
+  padding: 10px 12px; background: var(--bg-card); border-radius: 10px;
+  white-space: pre-wrap;
+}
+
+.add-status { font-size: 14px; line-height: 1.8; }
+
+/* Easter-egg intertextuality tracker */
+.echo-list { display: flex; flex-direction: column; gap: 6px; }
+.echo-card {
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-card);
+}
+.echo-line { font-size: 13px; font-style: italic; color: var(--text-primary); }
+.echo-meta { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+.echo-explain { font-size: 13px; line-height: 1.7; }
+
+/* player tools (chorus / A-B loop / toggles) */
+#ll-wave { width: 100%; min-height: 0; }
+.player-tools {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 6px 2px 0;
+}
+.ptool {
+  font-size: 12px; padding: 3px 10px; border-radius: 14px; cursor: pointer;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.ptool:hover { border-color: var(--accent); color: var(--accent); }
+.ptool-toggle {
+  font-size: 12px; color: var(--text-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+
+/* end-rhyme dots: hidden until the 🎯 韵脚 toggle adds .rhyme-on */
+.rhyme-mark {
+  display: none; width: 9px; height: 9px; border-radius: 50%;
+  margin-left: 8px; vertical-align: middle;
+}
+#lyrics-container.rhyme-on .rhyme-mark { display: inline-block; }
+
+/* listening notes */
+.note-list { display: flex; flex-direction: column; gap: 5px; max-height: 32vh; overflow-y: auto; }
+.note-item {
+  display: flex; gap: 8px; align-items: baseline; cursor: pointer;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); font-size: 13px;
+}
+.note-item:hover { border-color: var(--accent); }
+.note-ts { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.note-text { flex: 1; color: var(--text-primary); }
+.note-del { color: var(--text-secondary); padding: 0 4px; }
+.note-del:hover { color: #cf222e; }
+
+/* daily quote card */
+.daily-card {
+  background: linear-gradient(135deg, rgba(9,105,218,0.07), rgba(130,80,223,0.07));
+  border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px;
+}
+.daily-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.daily-line { font-size: 19px; font-weight: 700; color: var(--text-primary); font-style: italic; }
+.daily-meta { font-size: 13px; color: var(--accent); margin: 6px 0 8px; }
+.daily-insight { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+
+/* word cloud */
+.cloud-hint { font-size: 12px; color: var(--text-secondary); margin: 4px 0 8px; }
+.word-cloud {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: baseline;
+  padding: 10px 4px;
+}
+.cloud-word { color: var(--accent); cursor: pointer; line-height: 1.1; }
+.cloud-word:hover { text-decoration: underline; }
+
+/* emotion map */
+.emo-axis { stroke: var(--border); stroke-dasharray: 4 4; }
+.emo-axis-label { font-size: 12px; fill: var(--text-secondary); }
+.emo-node { cursor: pointer; }
+.emo-node circle { stroke: #ffffff; stroke-width: 1.5; }
+.emo-node:hover circle { stroke: var(--accent); stroke-width: 2.5; }
+.emo-label { font-size: 11px; fill: var(--text-secondary); }
+
+/* UI probe report table */
+.probe-table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+.probe-table th, .probe-table td {
+  border: 1px solid var(--border); padding: 4px 8px; text-align: left;
+}
+.probe-table th { background: var(--bg-card); }
+.probe-detail { color: #cf222e; }
+
+/* quiz */
+.quiz-line {
+  font-size: 18px; font-weight: 700; font-style: italic;
+  color: var(--text-primary); padding: 14px 18px;
+  background: var(--bg-card); border-radius: 12px;
+}
+.quiz-meta { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+
+/* whole-song easter-egg overview (🗺️ 本歌彩蛋总览) */
+.echo-ov-head { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.echo-ov-list { max-height: 40vh; overflow-y: auto; scrollbar-width: thin; }
+.echo-ov-item {
+  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-card); margin-bottom: 6px; cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+.echo-ov-item:hover { border-color: var(--accent); }
+.echo-ov-src { font-size: 13px; font-style: italic; color: var(--text-primary); }
+.echo-ov-dst { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+.echo-ov-sim { margin-left: 6px; font-size: 11px; color: var(--accent); }
+"""
+
+
