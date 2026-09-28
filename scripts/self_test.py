@@ -306,6 +306,85 @@ def main() -> None:
     except Exception as e:
         check("imagery trace empty query -> hint", False, repr(e))
 
+    # ── 4d2. 播放器工具（波形/副歌/A-B/韵脚/电台开关随音频渲染） ──
+    try:
+        out = call("on_song_select", ["北京昨夜下了雪"],
+                   session=f"{SESSION}-tools")
+        lyr = str(out[0])
+        ok = ('id="ll-wave"' in lyr and "副歌" in lyr and "ll-ab-a" in lyr
+              and "ll-rhyme-toggle" in lyr and "ll-radio-toggle" in lyr
+              and lyr.count("rhyme-mark") > 10)
+        check("player tools rendered for audio song", bool(ok))
+    except Exception as e:
+        check("player tools rendered for audio song", False, repr(e))
+    try:
+        out = call("on_song_select", [cardigan], session=f"{SESSION}-tools")
+        check("no player tools without audio",
+              "ll-ab-a" not in str(out[0]) and "rhyme-mark" in str(out[0]))
+    except Exception as e:
+        check("no player tools without audio", False, repr(e))
+
+    # ── 4d3. 听歌笔记 ──
+    try:
+        out = call("on_add_note", [cardigan, "selftest 笔记", "12.5"],
+                   session=f"{SESSION}-note")
+        html_notes = str(out[0])
+        ok = "note-item" in html_notes and "selftest 笔记" in html_notes
+        # delete exactly the note we just added (the user may have others)
+        m = re.search(r'selftest 笔记</span><span class="note-del" '
+                      r'data-del-note="(\d+)"', html_notes)
+        idx = m.group(1) if m else "0"
+        out = call("on_del_note", [f"{idx}\t1", cardigan],
+                   session=f"{SESSION}-note")
+        check("notes add + delete", ok and "selftest 笔记" not in str(out[0]))
+    except Exception as e:
+        check("notes add + delete", False, repr(e))
+
+    # ── 4d4. 曲库洞察 ──
+    try:
+        out = call("init_insights", [cardigan], session=f"{SESSION}-ins")
+        daily, _dd, cloud, emo, story = out
+        ok = ("每日一句" in str(daily) and str(cloud).count("cloud-word") > 10
+              and str(emo).count("emo-node") >= 1
+              and len(story.get("choices", [])) >= 2)
+        check("insights init (daily/cloud/emotion/story)", bool(ok))
+    except Exception as e:
+        check("insights init (daily/cloud/emotion/story)", False, repr(e))
+    try:
+        out = call("on_word_pick", ["time\t1", "Taylor Swift"],
+                   session=f"{SESSION}-ins")
+        check("word cloud click -> imagery", "img-timeline" in str(out[0]))
+    except Exception as e:
+        check("word cloud click -> imagery", False, repr(e))
+    try:
+        out = call("on_emo_pick", ["cardigan\t1"], session=f"{SESSION}-ins")
+        check("emotion map click -> play song",
+              out[0].get("value") == cardigan)
+    except Exception as e:
+        check("emotion map click -> play song", False, repr(e))
+
+    # ── 4d5. 歌词竞猜 ──
+    # gr.State round-trips as null over the raw HTTP API; the session keeps
+    # the real state server-side, so chain calls within one session and
+    # assert on the score line instead of the hidden answer
+    try:
+        out = call("on_quiz_new", [None], session=f"{SESSION}-quiz")
+        _state, qhtml, opts, _ = out
+        choices = [c[0] if isinstance(c, list) else c
+                   for c in opts.get("choices", [])]
+        ok = "quiz-line" in str(qhtml) and len(choices) >= 2
+        out = call("on_quiz_submit", [None, choices[0]],
+                   session=f"{SESSION}-quiz")
+        verdict = str(out[1])
+        check("quiz question + scored answer",
+              bool(ok) and ("答对" in verdict or "不对" in verdict)
+              and "/ 1" in verdict)
+        out = call("on_quiz_submit", [None, choices[0]],
+                   session=f"{SESSION}-quiz")
+        check("quiz double-submit guard", "先点" in str(out[1]))
+    except Exception as e:
+        check("quiz double-submit guard", False, repr(e))
+
     # ── 4e. 歌曲管理 ──
     try:
         out = call("on_manage_refresh", [cardigan], session=f"{SESSION}-mgmt")

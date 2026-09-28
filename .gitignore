@@ -19,3 +19,6 @@ data/corpus/index.faiss
 data/cards/
 .claude/
 logs/
+
+# per-user listening notes & generated radio intros
+data/songs/*/notes.json

@@ -26,8 +26,18 @@ embeddings = [
     "sentence-transformers>=2.2",
     "numpy>=1.24",
 ]
+# 韵脚高亮 / 词云中文分词 / AI 电台 TTS / 听歌识曲
+features = [
+    "pypinyin>=0.50",
+    "pronouncing>=0.2",
+    "jieba>=0.42",
+    "edge-tts>=6.1",
+    "scipy>=1.10",
+    "pydub>=0.25",
+    "Pillow>=10.0",
+]
 all = [
-    "lyric-agent[llm,ui,embeddings]",
+    "lyric-agent[llm,ui,embeddings,features]",
 ]
 dev = [
     "lyric-agent[all]",

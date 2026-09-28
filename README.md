@@ -1,150 +1,173 @@
-# Lyric Lens — AI 歌词批注播放器
+# 歌词透镜 Lyric Lens — AI 歌词批注播放器
 
 > 让每位听众都能成为歌词研究者。
 
-播放歌曲时歌词逐句同步高亮，点击任意一句即可展开 AI 生成的深度解读：隐喻分析、典故引用、双关解读、情感基调、跨歌曲意象互文追踪。
+播放歌曲时歌词逐句同步高亮（含逐字卡拉OK渐变），点击任意一句即可展开 AI 深度解读；
+在整个曲库维度上，还能追踪歌与歌之间的互文「彩蛋」、意象演变与情绪版图。
 
 ## Quick Start
 
 ```bash
-# 1. Clone & install
-git clone https://github.com/ClaireLytt/lyric_agent.git
-cd lyric_agent
+# 1. 克隆并安装（all = LLM + UI + embeddings + 全部扩展功能）
+git clone https://github.com/ClaireLytt/music_agent.git
+cd music_agent
 pip install -e ".[all]"
 
-# 2. Configure
+# 2. 配置
 cp .env.example .env
-# Edit .env: fill in API_KEY, choose LLM_PROVIDER
+# 编辑 .env：填入 API_KEY、选择 LLM_PROVIDER（也可以稍后在界面「⚙️ 设置」页填）
 
-# 3. Fetch lyrics & generate annotations
-python scripts/fetch_lrc.py          # download LRC files from LRCLIB
-# Add audio.mp3 files to data/songs/*/
-lyric-agent generate-all             # generate AI annotations
+# 3. 准备数据（仓库已带 8 首演示歌的歌词与批注，可直接跳到第 4 步）
+python scripts/fetch_lrc.py          # 从 LRCLIB 抓取带时间戳歌词
+lyric-agent generate-all             # 为歌曲生成 AI 批注
+python scripts/build_corpus.py       # 构建互文语料库
+lyric-agent embed                    # 生成语料库 embeddings（彩蛋/语义搜索需要）
 
-# 4. Launch
+# 4. 启动
 lyric-agent serve
-# Open http://localhost:7860
+# 打开 http://127.0.0.1:7860
 ```
 
-## Features
+可选的系统依赖：
 
-- **Synced Lyrics**: LRC-based real-time lyric highlighting synced to audio playback
-  - Active line highlighted with accent glow and scale
-  - Played/unplayed lines visually distinguished
-  - Auto-scroll follows playback (pauses on user scroll for 5s)
-- **AI Annotations**: Click any line to expand multi-dimensional analysis:
-  - 📖 Metaphor analysis / 📚 Allusions & references / 🔤 Wordplay
-  - 💫 Emotional tone / 🌍 Cultural context / 🎤 Taylor Swift biographical context
-  - 🎵 Related lines from other songs (intertextuality)
-  - Accordion-style: opening one closes others
-  - Blue annotation indicator dots on annotated lines
-- **彩蛋 · Intertextuality**: cross-song echo tracking within one artist's discography
-  - 🥚 互文追踪：点击歌词行，检索同歌手其他作品中最相似的歌词 Top-K，可让 AI 解释呼应，
-    一键生成两句歌词对照的「彩蛋对照卡」PNG
-  - 🥚 全曲标记：切歌后自动扫描整首歌，有强呼应的行尾显示 🥚（悬停给出目标歌曲与相似度）
-  - 🗺️ 本歌彩蛋总览：一次列出全部呼应行与目标，点击跳转到对应歌词
-  - 🥚 彩蛋地图页签：歌手级互文网络图（节点=歌曲、连线=呼应，纯服务端 SVG），
-    支持「🌐 跨歌手引用」模式（只看不同歌手间的引用/致敬），可让 AI 解读整张网络
-  - 🔍 意象追踪：输入意象（雨 / scarf / 童年），按专辑时间线看它在曲库中的反复与演变
-  - 中文歌词使用更严格的 CJK 阈值 + 共享短语锚定，避免英文向 embedding 模型的假呼应；
-    阈值均可通过环境变量调整（见 `.env.example` 的 ECHO_* 配置）
-- **AI 助手**: 行级问答（历史持久化）、🎭 乐评人 vs 粉丝双视角辩论、📖 整歌 AI 导读
-  （生成一次缓存于歌曲目录）
-- **播放体验**: 逐字卡拉OK渐变高亮（按行时间戳估算进度）、官方试听片段自动对齐
-- **曲库管理**: UI 内删除歌曲 / 刷新曲库；设置页可切换 embedding 模型并一键重建索引
-  （中文曲库建议多语模型）；`lyric-agent doctor` 扫描曲库与语料库健康度
-- **Interactive Review**: Rich-based CLI tool for human annotation quality review
-- **Docker Ready**: One-command deployment with docker-compose
+| 依赖 | 影响的功能 | 缺失时的行为 |
+|---|---|---|
+| **ffmpeg**（加入 PATH） | 🎙️ 听歌识曲对 mp3/m4a 曲目建索引 | 明确列出未入索引的歌曲并提示安装；wav 不受影响 |
+| 网络（cdnjs） | 🌊 波形进度条（wavesurfer） | 波形区自动隐藏，播放器功能完整 |
+| 网络（Microsoft TTS） | 📻 电台串场语音合成 | 生成时报错提示，其余电台功能可用 |
+
+## 功能总览（7 个页签）
+
+### 🎧 播放解读
+- **同步歌词**：LRC 时间轴逐句高亮 + 自动滚动；**逐字卡拉OK渐变**（按行时间戳估算进度）；
+  官方试听片段自动对齐（`audio_offset_ms`）
+- **播放工具**：🌊 波形进度条（点击跳转）· ⏩ 一键跳副歌（重复行检测）·
+  🅰🅱 A-B 区间循环跟唱 · 🎯 韵脚高亮（中文按韵辙、英文按 CMU 词典，同韵同色圆点）
+- **AI 助手**：点一句歌词提问（批注作为上下文、历史持久化）；
+  🎭 **乐评人 vs 粉丝双视角辩论**（两个人格接连流式发言）
+- **📖 歌曲导读**：AI 通读全词生成 120–180 字导读，缓存于歌曲目录
+- **🥚 彩蛋 · 互文追踪**：点句检索同歌手其他作品的相似歌词 Top-K，可让 AI 解释，
+  可生成两句对照的**彩蛋对照卡** PNG；全曲 🥚 标记 + 本歌彩蛋总览（点击跳行）
+- **📝 听歌笔记**：带播放位置时间戳的感想，点笔记跳回该位置
+- **📻 AI 电台**：播完自动切下一首；配合 edge-tts 生成的**串场语音**，进歌前先 DJ 播报
+- **🖼️ 分享卡片**：歌词金句卡（歌词 + AI 解读排版成图）
+
+### 🗺️ 艺术家图谱
+时代时间轴、主题河流图、修辞密度趋势、时代雷达对比（纯服务端 SVG）。
+
+### 🥚 彩蛋地图
+- **⭐ 单曲聚焦**（默认）：一首歌为中心的星形图，辐条带呼应数徽章，
+  下方直接铺开每对歌词（本歌 vs 对方 + 相似度）
+- **🕸️ 整体网络**：全曲库歌曲互文网络（节点=歌曲、连线粗细=呼应数、悬停看歌词）
+- **🌐 跨歌手引用**模式：只看不同歌手之间的呼应（引用/致敬）
+- **✨ AI 解读网络**：把最强歌曲对喂给 LLM，区分真呼应与字面撞车
+- **🔍 意象追踪**：输入意象（雨 / scarf / 童年），原词命中 + 语义近邻按专辑时间线分组
+- 中文歌词使用更严格的 CJK 阈值 + 共享短语锚定，避免英文向 embedding 的假呼应
+  （阈值均可用 `ECHO_*` 环境变量调整，见 `.env.example`）
+
+### 📊 曲库洞察
+- **📅 每日一句**：每天确定性地推一句带 AI 解读的歌词
+- **☁️ 高频意象词云**：按歌手统计（中文 jieba 分词 + 双语停用词），点词直接溯源到具体歌词
+- **🎭 情绪地图**：以批注的逐行 valence/arousal 均值把歌曲散点在情绪平面上，点击即播放
+- **📖 歌单故事线**：勾选几首歌，AI 按情绪弧线排序并讲出歌单的故事
+
+### 🎮 互动
+- **🎯 歌词竞猜**：随机抽句猜出处（防剧透过滤、同歌手干扰项、战绩累计）
+- **🎙️ 听歌识曲**：录音/上传片段，本地 Shazam 式声纹（STFT 峰值星座哈希）
+  识别曲库歌曲与片段位置
+
+### ➕ 添加歌曲
+内置约 140 首中外热门曲库一键添加；手动添加仅歌名必填（歌词自动从 LRCLIB 补全）；
+🗂️ 管理列表（删除歌曲 / 刷新曲库）。
+
+### ⚙️ 设置
+界面内填 API Key 即时生效；可切换 embedding 模型（中文曲库建议
+`paraphrase-multilingual-MiniLM-L12-v2`）并一键重建语料库索引。
 
 ## Demo Songs
 
-| Song | Album | Era | Why |
-|------|-------|-----|-----|
-| cardigan | folklore (2020) | folklore | Extended metaphor, cardigan trilogy |
-| champagne problems | evermore (2020) | evermore | Narrative complexity, class metaphors |
-| All Too Well (10 Min) | Red TV (2021) | Red | Most analyzed TS song, dense imagery |
-| exile ft. Bon Iver | folklore (2020) | folklore | Dual perspective, communication breakdown |
-| Anti-Hero | Midnights (2022) | Midnights | Self-referential, ironic tone |
+| Song | Album | 亮点 |
+|------|-------|------|
+| cardigan | folklore (2020) | 隐喻密集、cardigan 三部曲互文 |
+| champagne problems | evermore (2020) | 叙事复杂度、阶级隐喻 |
+| All Too Well (10 Min) | Red TV (2021) | 意象密度最高的 TS 曲目 |
+| exile ft. Bon Iver | folklore (2020) | 双视角对话（ft. 歌手模糊匹配演示） |
+| Anti-Hero | Midnights (2022) | 自我指涉与反讽 |
+| Save Your Tears | After Hours (2020) | 跨歌手引用演示 |
+| 北京昨夜下了雪 / 今晚月色真美 | — | 中文歌词、试听片段对齐、CJK 彩蛋阈值演示 |
 
 ## CLI Commands
 
 ```bash
-lyric-agent generate <song_dir>    # Generate annotations for one song
-lyric-agent generate-all           # Generate annotations for all songs
-lyric-agent serve [--port 7860]    # Launch the player UI
-lyric-agent review <song_dir>      # Interactively review annotations for one song
-lyric-agent review-all             # Review annotations for all songs
-lyric-agent embed                  # Generate sentence embeddings for corpus
-lyric-agent doctor                 # Check library/corpus health (duplicates, stale index)
+lyric-agent serve [--port 7860]    # 启动播放器 UI
+lyric-agent generate <song_dir>    # 为一首歌生成 AI 批注
+lyric-agent generate-all           # 为全部歌曲生成批注
+lyric-agent embed                  # 生成语料库 embeddings
+lyric-agent doctor                 # 曲库/语料库健康检查（重复收录、过期索引等）
+lyric-agent search <query> [-s]    # 命令行歌词搜索（-s 语义模式）
+lyric-agent review <song_dir>      # 交互式人工复核批注
+lyric-agent build-evolution        # 聚合艺术家演化数据
 ```
 
 ## Pipeline Scripts
 
 ```bash
-python scripts/fetch_lrc.py        # Fetch LRC files from LRCLIB API
-python scripts/build_corpus.py     # Build lyrics corpus for intertextuality
-python scripts/generate_all.py     # Run full pipeline end-to-end
-python scripts/import_playlist.py --list   # List TME Hackathon reference playlist
-python scripts/import_playlist.py 9 12     # Import songs (timestamped lyrics +
-                                           # official 60s preview clip, auto-aligned)
+python scripts/fetch_lrc.py        # LRCLIB 抓取带时间戳歌词
+python scripts/build_corpus.py     # 构建互文语料库（曲库歌曲 + 内置曲库）
+python scripts/generate_all.py     # 端到端跑完整管线
+python scripts/import_playlist.py --list   # 列出 TME Hackathon 官方参考歌单
+python scripts/import_playlist.py 9 12     # 按序号导入（歌词 + 60s 官方试听自动对齐）
 ```
+
+## 测试
+
+三层测试，见 `TESTING.html`（46+ 条功能验收单，标注自动/手动与验证方式）：
+
+```bash
+# 1. 单元测试（31 项：LRC 解析、彩蛋检索、图构建、韵脚、竞猜、声纹指纹等）
+pytest
+
+# 2. 端到端自测（50 项：对着运行中的服务器打真实 HTTP API）
+lyric-agent serve            # 先在一个终端启动【新】服务器
+python scripts/self_test.py  # 另一终端运行；UI_PORT 环境变量可改端口
+```
+
+注意：`self_test.py` 需对**新启动**的服务器运行（它的加歌测试会清理磁盘目录，
+旧服务器内存中的曲库不会同步）。
 
 ## 公开部署（Public Mode）
 
 设置环境变量 `PUBLIC_MODE=1` 后启动，即切换为可公开访问的多用户模式：
 
 - **API Key 按访客隔离**：每位访客在「⚙️ 设置」页填入自己的 Key，只存于其浏览器
-  localStorage（`gr.BrowserState`），不上传、不落盘，访客之间互不可见；
-  服务器 `.env` 中的 Key 不会被访客使用
-- **只读曲库**：隐藏「添加歌曲」页签与音频上传入口，访客不能改动服务器文件
-- **问答不落盘**：AI 问答历史不写入服务器磁盘，访客之间互不可见
-- **版权守卫**：`source: tme_hackathon_playlist` 的歌曲自动从歌单中排除
-  （比赛素材仅限赛内演示，不得公开上线）
+  localStorage（`gr.BrowserState`），不上传、不落盘，访客之间互不可见
+- **只读曲库**：隐藏添加/删除歌曲、音频上传、索引重建、串场语音生成等写入口
+- **不落盘**：AI 问答历史与听歌笔记不写服务器磁盘
+- **版权守卫**：`source: tme_hackathon_playlist` 的比赛素材自动从歌单排除
+
+## 项目结构
+
+```
+src/lyric_agent/
+├── ui.py                  # Gradio 界面（7 页签 + 全部前端 JS/CSS）
+├── cli.py                 # 命令行入口
+├── config.py              # 全部可调参数（env 可覆盖）与共享常量
+├── llm.py / debate.py     # LLM 客户端 / 多人格对话（助手、乐评人、粉丝）
+├── annotator/             # 批注生成引擎 + 数据模型 + 人工复核
+├── intertextuality/       # 彩蛋检索：语料库、embeddings、相似检索、网络图
+├── evolution/             # 艺术家演化图谱
+├── insights.py            # 词云 / 情绪地图 / 每日一句 / 副歌检测
+├── rhyme.py               # 中英文韵脚分组
+├── quiz.py                # 歌词竞猜出题
+├── fingerprint.py         # 听歌识曲（声纹指纹）
+├── radio.py               # 电台串场语音（edge-tts）
+├── doctor.py              # 曲库健康检查
+├── share_card.py          # 金句卡 / 彩蛋对照卡渲染
+└── search.py / lrc_parser.py / audio_provider.py
+```
+
+## Docker
 
 ```bash
-# Docker 部署（推荐腾讯云轻量应用服务器，IP:端口 访问无需 ICP 备案）
-# 在 .env 中加一行 PUBLIC_MODE=1，然后：
-docker compose up -d
-# 或魔搭创空间（ModelScope，免费、国内可访问）：上传仓库，
-# 空间环境变量里设 PUBLIC_MODE=1，SDK 选 Gradio
+docker compose up --build   # 见 docker-compose.yml / Dockerfile
 ```
-
-## Tech Stack
-
-| Component | Technology |
-|-----------|-----------|
-| Language | Python 3.10+ |
-| Web UI | Gradio 4.0+ with custom HTML/JS |
-| LLM | Anthropic Claude / OpenAI-compatible (DeepSeek, etc.) |
-| Embeddings | sentence-transformers (all-MiniLM-L6-v2) |
-| Audio Sync | HTML5 Audio + requestAnimationFrame JS |
-
-## Project Structure
-
-```
-lyric_agent/
-├── src/lyric_agent/
-│   ├── config.py           # Settings from .env
-│   ├── llm.py              # Dual-provider LLM client
-│   ├── lrc_parser.py       # LRC file parser
-│   ├── cli.py              # CLI entry point
-│   ├── ui.py               # Gradio player UI
-│   ├── annotator/          # Annotation engine
-│   │   ├── models.py       # Data models
-│   │   ├── engine.py       # Batch LLM annotation
-│   │   ├── prompts.py      # System prompts
-│   │   └── reviewer.py     # Human review tool
-│   └── intertextuality/    # Cross-song search
-│       ├── corpus.py       # Lyrics corpus loader
-│       ├── embeddings.py   # Sentence embeddings
-│       └── search.py       # Similarity search
-├── data/
-│   ├── songs/*/            # Per-song: audio.mp3, lyrics.lrc, metadata.json, annotations.json
-│   └── corpus/             # discography.jsonl, embeddings.npy
-├── scripts/                # Pipeline scripts
-└── tests/                  # Unit tests
-```
-
-## License
-
-MIT

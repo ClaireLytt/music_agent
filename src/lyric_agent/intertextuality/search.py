@@ -67,12 +67,22 @@ def artist_matches(want: str, have: str) -> bool:
 
 
 def get_model(model_name: str = DEFAULT_EMBEDDING_MODEL):
-    """Shared, cached SentenceTransformer instance (used by both search layers)."""
+    """Shared, cached SentenceTransformer instance (used by both search layers).
+
+    Tries the local HF cache first: without this, a flaky connection to
+    huggingface.co blocks model init for minutes on online revision checks
+    even though the model is fully cached.
+    """
     if model_name not in _MODEL_CACHE:
         from sentence_transformers import SentenceTransformer
 
         logger.info("Loading sentence-transformer model: %s", model_name)
-        _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+        try:
+            _MODEL_CACHE[model_name] = SentenceTransformer(
+                model_name, local_files_only=True)
+        except Exception:
+            # not cached yet — first-time download path
+            _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
     return _MODEL_CACHE[model_name]
 
 

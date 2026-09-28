@@ -2,8 +2,10 @@
 
 页签 1  🎧 播放解读 — 同步歌词、点一句歌词、右侧问 AI 助手
 页签 2  🗺️ 艺术家图谱 — 艺术家演化地图
-页签 3  🥚 彩蛋地图 — 同歌手全曲库歌词互文网络图
-页签 4  ➕ 添加歌曲 — 用户自行添加歌曲（LRC + 元数据 + 可选音频）
+页签 3  🥚 彩蛋地图 — 同歌手全曲库歌词互文网络图（含意象追踪）
+页签 4  📊 曲库洞察 — 每日一句 / 词云 / 情绪地图 / 歌单故事线
+页签 5  🎮 互动   — 歌词竞猜 / 曲库内听歌识曲
+页签 6  ➕ 添加歌曲 — 用户自行添加歌曲（LRC + 元数据 + 可选音频）
 
 All JavaScript lives in gr.Blocks(head=...) because Gradio 6 injects
 gr.HTML content via innerHTML (embedded <script> tags do not execute).
@@ -151,6 +153,52 @@ def _save_chat_history(song_dir: str | Path, line_index: int,
         logger.exception("Failed to save chat history")
 
 
+# per-song listening notes: [{"ts_ms": int, "text": str}]
+_NOTES_FILENAME = "notes.json"
+
+
+def _load_notes(song_dir: str | Path) -> list[dict]:
+    path = Path(song_dir) / _NOTES_FILENAME
+    try:
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+    except Exception:
+        logger.exception("Failed reading notes for %s", song_dir)
+    return []
+
+
+def _save_notes(song_dir: str | Path, notes: list[dict]) -> None:
+    (Path(song_dir) / _NOTES_FILENAME).write_text(
+        json.dumps(notes, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def _render_notes(notes: list[dict]) -> str:
+    if not notes:
+        return ('<div class="chat-empty">播放到喜欢的位置，写句感想点「添加」——'
+                '笔记会带上时间戳，点笔记即可跳回该位置。</div>')
+    items = []
+    for i, n in enumerate(notes):
+        ts = int(n.get("ts_ms", 0))
+        mm, ss = divmod(ts // 1000, 60)
+        items.append(
+            f'<div class="note-item" data-seek="{ts}">'
+            f'<span class="note-ts">▶ {mm:02d}:{ss:02d}</span>'
+            f'<span class="note-text">{_esc(n.get("text", ""))}</span>'
+            f'<span class="note-del" data-del-note="{i}" data-del-ts="{ts}" '
+            'title="删除">✕</span>'
+            '</div>'
+        )
+    return '<div class="note-list">' + "".join(items) + "</div>"
+
+
+# distinct colors for end-rhyme groups (cycled when a song has more groups)
+_RHYME_COLORS = [
+    "#0969da", "#bf3989", "#1a7f37", "#bc4c00", "#8250df",
+    "#cf222e", "#0550ae", "#9a6700", "#6639ba", "#2da44e",
+]
+
 # whole-song AI intro, generated once and cached in the song directory
 _INTRO_FILENAME = "intro.txt"
 _INTRO_EMPTY = ('<div class="chat-empty">尚未生成本歌导读 — '
@@ -195,28 +243,71 @@ def _load_song_data(song_dir: str) -> dict[str, Any]:
         song = Song.load(ann_path)
         for ann in song.annotations:
             annotations[ann.line_index] = ann
-    data = {"timed_lines": timed_lines, "annotations": annotations}
+    try:
+        from .rhyme import line_rhyme_groups
+        rhymes = line_rhyme_groups([ln.text for ln in timed_lines])
+    except Exception:
+        logger.exception("Rhyme grouping failed for %s", song_dir)
+        rhymes = [None] * len(timed_lines)
+    from .insights import find_chorus_ts
+    data = {
+        "timed_lines": timed_lines,
+        "annotations": annotations,
+        "rhymes": rhymes,
+        "chorus_ts": find_chorus_ts(timed_lines),
+    }
     _SONG_DATA_CACHE[song_dir] = (stamp, data)
     return data
 
 
 # ── HTML renderers ────────────────────────────────────────
 
-def _render_audio_html(song_info: dict) -> str:
+def _file_url(path: str | Path) -> str:
+    return "/gradio_api/file=" + str(Path(path).resolve()).replace("\\", "/")
+
+
+def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
+    """Chorus jump, A-B loop, rhyme + radio toggles (wired up in _HEAD_JS)."""
+    chorus = (f'<button class="ptool" data-seek="{chorus_ts}" '
+              'title="跳到检测出的副歌位置">⏩ 副歌</button>'
+              if chorus_ts is not None else "")
+    return (
+        '<div class="player-tools">'
+        + chorus +
+        '<button class="ptool" id="ll-ab-a" title="以当前位置为循环起点">🅰 起点</button>'
+        '<button class="ptool" id="ll-ab-b" title="以当前位置为循环终点并开始循环">🅱 循环</button>'
+        '<button class="ptool" id="ll-ab-clear" style="display:none">✕ 停止循环</button>'
+        '<label class="ptool-toggle" title="同韵脚的歌词行标同色圆点">'
+        '<input type="checkbox" id="ll-rhyme-toggle"> 🎯 韵脚</label>'
+        '<label class="ptool-toggle" '
+        'title="播完自动切下一首；有串场语音时先播报再进歌">'
+        '<input type="checkbox" id="ll-radio-toggle"> 📻 电台模式</label>'
+        '</div>'
+    )
+
+
+def _render_audio_html(song_info: dict, chorus_ts: int | None = None) -> str:
     a_type, src = song_info["audio_type"], song_info["audio_src"]
     offset = song_info.get("audio_offset_ms", 0)
     hint = ('<div class="preview-hint">🎧 官方试听片段 · 歌词已自动对齐</div>'
             if offset else "")
-    if a_type == "local":
-        url = "/gradio_api/file=" + str(Path(src).resolve()).replace("\\", "/")
-        return (f'<audio id="ll-audio" controls preload="metadata" '
-                f'data-offset="{offset}" '
-                f'src="{_esc(url)}" style="width:100%"></audio>{hint}')
-    if a_type == "url":
-        return (f'<audio id="ll-audio" controls preload="metadata" '
-                f'data-offset="{offset}" '
-                f'src="{_esc(src)}" style="width:100%"></audio>{hint}')
-    return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>'
+    if a_type not in ("local", "url"):
+        return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>'
+    url = _file_url(src) if a_type == "local" else src
+    # cached radio intro (电台串场语音), if generated for this song
+    from .radio import intro_audio_path
+    intro = ""
+    if song_info.get("dir"):
+        p = intro_audio_path(song_info["dir"])
+        if p.exists():
+            intro = f' data-intro="{_esc(_file_url(p))}"'
+    return (
+        '<div id="ll-wave" title="波形加载中（需联网加载 wavesurfer）"></div>'
+        f'<audio id="ll-audio" controls preload="metadata" '
+        f'data-offset="{offset}"{intro} '
+        f'src="{_esc(url)}" style="width:100%"></audio>'
+        + _player_tools(song_info, chorus_ts) + hint
+    )
 
 
 def _render_search_results(hits: list, current_song: str, mode_used: str) -> str:
@@ -339,26 +430,126 @@ def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
   </div>
 </div>"""
 
+    rhymes = song_data.get("rhymes") or [None] * len(lines)
     parts = []
-    for ln in lines:
+    for ln, group in zip(lines, rhymes):
+        mark = ""
+        if group is not None:
+            color = _RHYME_COLORS[group % len(_RHYME_COLORS)]
+            mark = (f'<span class="rhyme-mark" style="background:{color}" '
+                    f'title="韵脚组 {group + 1}"></span>')
         parts.append(
             f'<div class="lyric-line" data-index="{ln.line_index}" '
             f'data-ts="{ln.timestamp_ms}">'
-            f'<span class="lyric-text">{_esc(ln.text)}</span></div>'
+            f'<span class="lyric-text">{_esc(ln.text)}</span>{mark}</div>'
         )
 
     return (
         header_html
-        + _render_audio_html(song_info)
+        + _render_audio_html(song_info, song_data.get("chorus_ts"))
         + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
           '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'
         + f'<div id="lyrics-container"><div id="lyrics-scroll">{"".join(parts)}</div></div>'
     )
 
 
+# ── Insights renderers (曲库洞察) ─────────────────────────
+
+def _render_daily_quote(q: dict | None) -> str:
+    if not q:
+        return ('<div class="chat-empty">曲库中还没有带 AI 批注的歌曲，'
+                '生成批注后这里每天会推一句值得品的歌词。</div>')
+    return (
+        '<div class="daily-card">'
+        '<div class="daily-label">📅 每日一句</div>'
+        f'<div class="daily-line">“{_esc(q["line"])}”</div>'
+        f'<div class="daily-meta">——《{_esc(q["song"])}》· {_esc(q["artist"])}</div>'
+        f'<div class="daily-insight">{_esc(q["insight"])}</div>'
+        '</div>'
+    )
+
+
+def _render_word_cloud(freqs: list[tuple[str, int]], scope: str) -> str:
+    if not freqs:
+        return (f'<div class="chat-empty">{_esc(scope)} 的语料不足，'
+                '暂无法生成高频意象。</div>')
+    top = freqs[0][1]
+    spans = []
+    for word, n in freqs:
+        # font size 13-34px by relative frequency
+        size = 13 + 21 * (n / top) ** 0.6
+        spans.append(
+            f'<span class="cloud-word" data-word="{_esc(word)}" '
+            f'style="font-size:{size:.0f}px" '
+            f'title="出现 {n} 次，点击查看具体歌词">{_esc(word)}</span>'
+        )
+    return ('<div class="cloud-hint">词越大出现越多 · 点任意词看它出现在哪些歌词里</div>'
+            f'<div class="word-cloud">{"".join(spans)}</div>')
+
+
+_EMO_W, _EMO_H, _EMO_PAD = 860, 460, 60
+
+_TONE_COLORS = {
+    "nostalgia": "#bc4c00", "love": "#bf3989", "joy": "#1a7f37",
+    "regret": "#57606a", "anger": "#cf222e", "sadness": "#0969da",
+    "self-doubt": "#8250df", "hope": "#2da44e", "defiance": "#9a6700",
+}
+
+
+def _render_emotion_map(emotions: list) -> str:
+    """Valence (x) × arousal (y) scatter; click a song dot to play it."""
+    if not emotions:
+        return ('<div class="chat-empty">曲库中还没有带 AI 批注的歌曲 —— '
+                '情绪坐标来自批注里的逐行 valence/arousal。</div>')
+    plot_w = _EMO_W - 2 * _EMO_PAD
+    plot_h = _EMO_H - 2 * _EMO_PAD
+    parts = [
+        # quadrant guides
+        f'<line x1="{_EMO_W / 2:.0f}" y1="{_EMO_PAD}" x2="{_EMO_W / 2:.0f}" '
+        f'y2="{_EMO_H - _EMO_PAD}" class="emo-axis"/>',
+        f'<line x1="{_EMO_PAD}" y1="{_EMO_H / 2:.0f}" x2="{_EMO_W - _EMO_PAD}" '
+        f'y2="{_EMO_H / 2:.0f}" class="emo-axis"/>',
+        f'<text x="{_EMO_W - _EMO_PAD}" y="{_EMO_H / 2 - 8:.0f}" '
+        f'text-anchor="end" class="emo-axis-label">正向 →</text>',
+        f'<text x="{_EMO_PAD}" y="{_EMO_H / 2 - 8:.0f}" '
+        f'class="emo-axis-label">← 低落</text>',
+        f'<text x="{_EMO_W / 2 + 6:.0f}" y="{_EMO_PAD + 12}" '
+        f'class="emo-axis-label">激昂 ↑</text>',
+        f'<text x="{_EMO_W / 2 + 6:.0f}" y="{_EMO_H - _EMO_PAD - 4}" '
+        f'class="emo-axis-label">平静 ↓</text>',
+    ]
+    for e in emotions:
+        x = _EMO_PAD + plot_w * max(0.0, min(1.0, e.valence))
+        y = _EMO_H - _EMO_PAD - plot_h * max(0.0, min(1.0, e.arousal))
+        color = _TONE_COLORS.get(e.tone, "#0969da")
+        tip = (f'《{e.title}》· {e.artist}\n情绪基调：{e.tone or "未知"} · '
+               f'正负向 {e.valence:.2f} · 能量 {e.arousal:.2f}\n点击播放这首歌')
+        parts.append(
+            f'<g class="emo-node" data-emo-pick="{_esc(e.title)}">'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="9" fill="{color}">'
+            f'<title>{_esc(tip)}</title></circle>'
+            f'<text x="{x:.1f}" y="{y - 14:.1f}" text-anchor="middle" '
+            f'class="emo-label">{_esc(e.title[:12])}</text></g>'
+        )
+    legend = "".join(
+        f'<span class="evo-legend-item"><span class="evo-legend-swatch" '
+        f'style="background:{c}"></span>{_esc(t)}</span>'
+        for t, c in _TONE_COLORS.items()
+        if any(e.tone == t for e in emotions)
+    )
+    return (
+        '<div class="cloud-hint">每个点是一首歌（基于 AI 批注的逐行情绪均值）'
+        '· 点击任意歌曲直接播放</div>'
+        f'<div class="evo-legend">{legend}</div>'
+        f'<svg viewBox="0 0 {_EMO_W} {_EMO_H}" class="egg-svg" role="img">'
+        + "".join(parts) + '</svg>'
+    )
+
+
 # ── Global JS (Blocks head) ──────────────────────────────
 
 _HEAD_JS = """
+<script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.6/wavesurfer.min.js" defer></script>
 <script>
 // force Gradio's light theme so the UI is always white regardless of the
 // OS dark-mode setting (Gradio otherwise follows prefers-color-scheme)
@@ -390,10 +581,58 @@ _HEAD_JS = """
 })();
 (function() {
   let userScrolling = false, scrollTimeout = null, lastActive = -2;
+  // player tools state (survives per-song re-renders of the audio block)
+  let abStart = null, abEnd = null;
+  let radioOn = false, rhymeOn = false, radioPending = false;
+  let lastAudioEl = null;
 
   function getAudio() { return document.getElementById('ll-audio'); }
   // preview clips start mid-song: lyric-time = audio-time + offset
   function getOffset(audio) { return parseFloat(audio.dataset.offset || '0'); }
+
+  function fmt(t) {
+    const s = Math.max(0, Math.floor(t));
+    return String(Math.floor(s / 60)).padStart(2, '0') + ':' +
+           String(s % 60).padStart(2, '0');
+  }
+
+  // write into a hidden gradio textbox channel and notify the backend
+  function writeChannel(id, value) {
+    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
+    if (!box) return;
+    box.value = value;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  function applyRhyme() {
+    const c = document.getElementById('lyrics-container');
+    if (c) c.classList.toggle('rhyme-on', rhymeOn);
+  }
+
+  // waveform: wavesurfer (CDN) drawing on top of the native audio element;
+  // silently absent when the CDN is unreachable
+  function initWave(a) {
+    const holder = document.getElementById('ll-wave');
+    if (!holder) return;
+    if (!window.WaveSurfer) {
+      // the deferred CDN script may not have loaded yet on first render —
+      // retry for a while (still this song's audio element) before giving up
+      holder.style.display = 'none';
+      a._llWaveTries = (a._llWaveTries || 0) + 1;
+      if (a._llWaveTries <= 20)
+        setTimeout(() => { if (getAudio() === a) initWave(a); }, 500);
+      return;
+    }
+    try {
+      if (window._llWave) { window._llWave.destroy(); window._llWave = null; }
+      holder.style.display = 'block';
+      window._llWave = WaveSurfer.create({
+        container: holder, media: a, height: 54,
+        waveColor: '#c9d4df', progressColor: '#0969da',
+        cursorColor: '#0969da', barWidth: 2, barGap: 1, barRadius: 1,
+      });
+    } catch (err) { holder.style.display = 'none'; }
+  }
 
   function sync() {
     const audio = getAudio();
@@ -426,6 +665,11 @@ _HEAD_JS = """
           }
         }
         lastActive = idx;
+      }
+      // A-B loop: jump back to A whenever playback passes B
+      if (abStart !== null && abEnd !== null && !audio.paused
+          && audio.currentTime >= abEnd) {
+        audio.currentTime = abStart;
       }
       // karaoke sweep on the active line: estimated per-line progress
       // (linear between this line's timestamp and the next one's)
@@ -474,6 +718,119 @@ _HEAD_JS = """
       } else if (!o && has) has.remove();
     });
   }, 600);
+
+  // new-song watcher: the audio block is re-rendered per song, so restore
+  // toggle states, rebuild the waveform, reset the A-B loop, and (in radio
+  // mode) play the spoken intro before the song itself
+  setInterval(() => {
+    const a = getAudio();
+    if (!a || a === lastAudioEl) return;
+    lastAudioEl = a;
+    abStart = abEnd = null;
+    const r = document.getElementById('ll-radio-toggle');
+    if (r) r.checked = radioOn;
+    const y = document.getElementById('ll-rhyme-toggle');
+    if (y) y.checked = rhymeOn;
+    applyRhyme();
+    initWave(a);
+    if (radioPending) {
+      radioPending = false;
+      const intro = a.dataset.intro;
+      if (radioOn && intro) {
+        const voice = new Audio(intro);
+        voice.addEventListener('ended', () => a.play().catch(() => {}));
+        // a broken intro file fires 'error', never 'ended' — don't stall
+        voice.addEventListener('error', () => a.play().catch(() => {}));
+        voice.play().catch(() => { a.play().catch(() => {}); });
+      } else if (radioOn) {
+        a.play().catch(() => {});
+      }
+    }
+  }, 500);
+
+  // radio mode: when the song ends, advance to the next one in the list
+  document.addEventListener('ended', function(e) {
+    if (!e.target || e.target.id !== 'll-audio' || !radioOn) return;
+    const inputs = Array.from(
+      document.querySelectorAll('#ll-songs input[type=radio]'));
+    if (!inputs.length) return;
+    const i = inputs.findIndex(x => x.checked);
+    radioPending = true;
+    inputs[(i + 1) % inputs.length].click();
+  }, true);  // 'ended' does not bubble — capture it
+
+  // toggle listeners (delegated: the checkboxes are re-rendered per song)
+  document.addEventListener('change', function(e) {
+    if (!e.target) return;
+    if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
+    if (e.target.id === 'll-rhyme-toggle') {
+      rhymeOn = e.target.checked;
+      applyRhyme();
+    }
+  }, true);
+
+  // player-tool buttons + click-to-backend channels (capture phase so a
+  // delete click doesn't also trigger the note's data-seek)
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest) return;
+    const audio = getAudio();
+    if (e.target.closest('#ll-ab-a') && audio) {
+      abStart = audio.currentTime; abEnd = null;
+      e.target.closest('#ll-ab-a').textContent = '🅰 ' + fmt(abStart);
+      const b = document.getElementById('ll-ab-b');
+      if (b) b.textContent = '🅱 循环';
+      const c = document.getElementById('ll-ab-clear');
+      if (c) c.style.display = 'none';
+      return;
+    }
+    if (e.target.closest('#ll-ab-b') && audio) {
+      if (abStart === null || audio.currentTime <= abStart + 0.3) return;
+      abEnd = audio.currentTime;
+      e.target.closest('#ll-ab-b').textContent = '🅱 ' + fmt(abEnd);
+      const c = document.getElementById('ll-ab-clear');
+      if (c) c.style.display = '';
+      return;
+    }
+    if (e.target.closest('#ll-ab-clear')) {
+      abStart = abEnd = null;
+      const a2 = document.getElementById('ll-ab-a');
+      if (a2) a2.textContent = '🅰 起点';
+      const b2 = document.getElementById('ll-ab-b');
+      if (b2) b2.textContent = '🅱 循环';
+      e.target.closest('#ll-ab-clear').style.display = 'none';
+      return;
+    }
+    const del = e.target.closest('[data-del-note]');
+    if (del) {
+      e.stopPropagation();
+      writeChannel('ll-note-del', del.dataset.delNote + ':' +
+                   (del.dataset.delTs || '') + '\\t' + Date.now());
+      return;
+    }
+    const word = e.target.closest('.cloud-word');
+    if (word) {
+      writeChannel('ll-word-pick', word.dataset.word + '\\t' + Date.now());
+      return;
+    }
+    const emo = e.target.closest('[data-emo-pick]');
+    if (emo) {
+      writeChannel('ll-emo-pick', emo.dataset.emoPick + '\\t' + Date.now());
+    }
+  }, true);
+
+  // current playback position → hidden channel (used by 听歌笔记)
+  setInterval(() => {
+    const a = getAudio();
+    const box = document.querySelector('#ll-cur-time textarea, #ll-cur-time input');
+    if (!box) return;
+    // no audio on this song: reset instead of keeping the previous song's
+    // position (a note added here would inherit that stale timestamp)
+    const v = a ? a.currentTime.toFixed(2) : '0';
+    if (box.value !== v) {
+      box.value = v;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  }, 700);
 
   // keep the AI chat scrolled to the bottom while streaming (only when near bottom)
   setInterval(() => {
@@ -768,6 +1125,78 @@ footer, .gradio-container footer { display: none !important; }
 .echo-meta { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
 .echo-explain { font-size: 13px; line-height: 1.7; }
 
+/* player tools (chorus / A-B loop / toggles) */
+#ll-wave { width: 100%; min-height: 0; }
+.player-tools {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 6px 2px 0;
+}
+.ptool {
+  font-size: 12px; padding: 3px 10px; border-radius: 14px; cursor: pointer;
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--text-primary);
+}
+.ptool:hover { border-color: var(--accent); color: var(--accent); }
+.ptool-toggle {
+  font-size: 12px; color: var(--text-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+}
+
+/* end-rhyme dots: hidden until the 🎯 韵脚 toggle adds .rhyme-on */
+.rhyme-mark {
+  display: none; width: 9px; height: 9px; border-radius: 50%;
+  margin-left: 8px; vertical-align: middle;
+}
+#lyrics-container.rhyme-on .rhyme-mark { display: inline-block; }
+
+/* listening notes */
+.note-list { display: flex; flex-direction: column; gap: 5px; max-height: 32vh; overflow-y: auto; }
+.note-item {
+  display: flex; gap: 8px; align-items: baseline; cursor: pointer;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); font-size: 13px;
+}
+.note-item:hover { border-color: var(--accent); }
+.note-ts { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.note-text { flex: 1; color: var(--text-primary); }
+.note-del { color: var(--text-secondary); padding: 0 4px; }
+.note-del:hover { color: #cf222e; }
+
+/* daily quote card */
+.daily-card {
+  background: linear-gradient(135deg, rgba(9,105,218,0.07), rgba(130,80,223,0.07));
+  border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px;
+}
+.daily-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+.daily-line { font-size: 19px; font-weight: 700; color: var(--text-primary); font-style: italic; }
+.daily-meta { font-size: 13px; color: var(--accent); margin: 6px 0 8px; }
+.daily-insight { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+
+/* word cloud */
+.cloud-hint { font-size: 12px; color: var(--text-secondary); margin: 4px 0 8px; }
+.word-cloud {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: baseline;
+  padding: 10px 4px;
+}
+.cloud-word { color: var(--accent); cursor: pointer; line-height: 1.1; }
+.cloud-word:hover { text-decoration: underline; }
+
+/* emotion map */
+.emo-axis { stroke: var(--border); stroke-dasharray: 4 4; }
+.emo-axis-label { font-size: 12px; fill: var(--text-secondary); }
+.emo-node { cursor: pointer; }
+.emo-node circle { stroke: #ffffff; stroke-width: 1.5; }
+.emo-node:hover circle { stroke: var(--accent); stroke-width: 2.5; }
+.emo-label { font-size: 11px; fill: var(--text-secondary); }
+
+/* quiz */
+.quiz-line {
+  font-size: 18px; font-weight: 700; font-style: italic;
+  color: var(--text-primary); padding: 14px 18px;
+  background: var(--bg-card); border-radius: 12px;
+}
+.quiz-meta { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+
 /* whole-song easter-egg overview (🗺️ 本歌彩蛋总览) */
 .echo-ov-head { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
 .echo-ov-list { max-height: 40vh; overflow-y: auto; scrollbar-width: thin; }
@@ -813,8 +1242,13 @@ def create_app(settings: Settings) -> gr.Blocks:
             threading.Thread(target=searcher.warm_up, daemon=True).start()
         ctx["evolution"] = load_or_build(
             settings.songs_dir, Path(settings.evolution_path))
-        # library changes invalidate the in-library highlights on echo graphs
+        # library changes invalidate the in-library highlights on echo graphs,
+        # the audio fingerprint index, and (when no corpus is built, so the
+        # word cloud falls back to library lyrics) the insights caches
         ctx.pop("echo_graphs", None)
+        ctx.pop("fp_index", None)
+        ctx.pop("corpus_lines", None)
+        ctx.pop("clouds", None)
 
     refresh_library()
 
@@ -950,9 +1384,9 @@ def create_app(settings: Settings) -> gr.Blocks:
             '<p>点一句歌词，问懂一句歌词</p></div>'
         )
 
-        with gr.Tabs():
+        with gr.Tabs() as tabs:
             # ══ 页签 1: 播放解读 ══
-            with gr.Tab("🎧 播放解读"):
+            with gr.Tab("🎧 播放解读", id="play"):
                 with gr.Row():
                     # ── 左栏: 歌曲 + 搜索 ──
                     with gr.Column(scale=1, min_width=230):
@@ -1036,6 +1470,25 @@ def create_app(settings: Settings) -> gr.Blocks:
                         with gr.Accordion("🗺️ 本歌彩蛋总览", open=False,
                                           elem_id="ll-echo-overview"):
                             echo_overview = gr.HTML(_ECHO_OVERVIEW_EMPTY)
+                        with gr.Accordion("📝 听歌笔记", open=False,
+                                          elem_id="ll-notes"):
+                            notes_html = gr.HTML(_render_notes([]))
+                            with gr.Row():
+                                note_input = gr.Textbox(
+                                    placeholder="在当前播放位置记一句感想…",
+                                    show_label=False, scale=4, container=False)
+                                note_add_btn = gr.Button("添加", scale=1, size="sm")
+                        if not public:
+                            with gr.Accordion("📻 AI 电台", open=False,
+                                              elem_id="ll-radio-acc"):
+                                gr.Markdown(
+                                    "勾选播放器下方的「📻 电台模式」后，"
+                                    "歌曲播完会自动切到下一首；为歌曲生成过"
+                                    "**串场语音**（把「歌曲导读」朗读成 DJ 播报）"
+                                    "的话，进歌前会先播报再放歌。")
+                                radio_gen_btn = gr.Button(
+                                    "🎙️ 为本歌生成串场语音（需先有导读）", size="sm")
+                                radio_status = gr.Markdown("")
                         line_pick = gr.Textbox(
                             value="", visible=True, elem_id="ll-line-pick",
                             elem_classes=["ll-hidden"], show_label=False,
@@ -1043,6 +1496,16 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # backend -> JS channel: whole-song echo map (🥚 markers)
                         echo_map_box = gr.Textbox(
                             value="", visible=True, elem_id="ll-echo-map",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                        # JS -> backend: current audio position (for notes)
+                        cur_time_box = gr.Textbox(
+                            value="0", visible=True, elem_id="ll-cur-time",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                        # JS -> backend: delete-note clicks (note index)
+                        note_del_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-note-del",
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
 
@@ -1086,7 +1549,58 @@ def create_app(settings: Settings) -> gr.Blocks:
                     imagery_btn = gr.Button("追踪", scale=1, variant="primary")
                 imagery_html = gr.HTML("")
 
-            # ══ 页签 4: 添加歌曲（公开版为只读曲库，不提供） ══
+            # ══ 页签 4: 曲库洞察 ══
+            with gr.Tab("📊 曲库洞察"):
+                daily_html = gr.HTML("")
+                gr.Markdown("### ☁️ 高频意象词云")
+                cloud_artist = gr.Dropdown(
+                    choices=[], value=None, label="选择歌手（含全部）",
+                    allow_custom_value=True, elem_id="ll-cloud-artist")
+                cloud_html = gr.HTML("")
+                word_trace_html = gr.HTML("")
+                # JS -> backend: clicked word in the cloud
+                word_pick_box = gr.Textbox(
+                    value="", visible=True, elem_id="ll-word-pick",
+                    elem_classes=["ll-hidden"], show_label=False,
+                    container=False)
+                gr.Markdown("### 🎭 曲库情绪地图")
+                emotion_html = gr.HTML("")
+                # JS -> backend: clicked song on the emotion map
+                emo_pick_box = gr.Textbox(
+                    value="", visible=True, elem_id="ll-emo-pick",
+                    elem_classes=["ll-hidden"], show_label=False,
+                    container=False)
+                gr.Markdown("### 📖 歌单故事线\n"
+                            "勾选几首歌，AI 按情绪弧线给出播放顺序，"
+                            "并讲出这个歌单串成的故事。")
+                story_songs = gr.CheckboxGroup(choices=[], label="选择歌曲")
+                story_btn = gr.Button("✨ 生成故事线", size="sm")
+                story_out = gr.Markdown("", elem_classes=["echo-explain"])
+
+            # ══ 页签 5: 互动（竞猜 + 听歌识曲） ══
+            with gr.Tab("🎮 互动"):
+                gr.Markdown("### 🎯 歌词竞猜\n"
+                            "从你的歌曲列表随机抽一句歌词，猜猜它出自哪首歌。")
+                quiz_state = gr.State({"score": 0, "total": 0, "answer": ""})
+                quiz_html = gr.HTML(
+                    '<div class="chat-empty">点「开始/下一题」抽一句歌词。</div>')
+                quiz_options = gr.Radio(choices=[], label="它出自哪首歌？",
+                                        visible=False)
+                with gr.Row():
+                    quiz_new_btn = gr.Button("🎲 开始 / 下一题", variant="primary",
+                                             scale=1)
+                    quiz_submit_btn = gr.Button("提交答案", scale=1)
+                quiz_result = gr.Markdown("")
+
+                gr.Markdown("---\n### 🎙️ 听歌识曲（曲库内）\n"
+                            "用麦克风录一段（或上传一段音频片段），"
+                            "在你的本地曲库中识别是哪首歌、唱到了哪里。")
+                fp_audio = gr.Audio(sources=["microphone", "upload"],
+                                    type="numpy", label="录一段或上传片段")
+                fp_btn = gr.Button("🔍 识别", variant="primary")
+                fp_result = gr.Markdown("")
+
+            # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
             if not public:
                 with gr.Tab("➕ 添加歌曲"):
                     catalog = _load_catalog()
@@ -1146,7 +1660,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                             manage_refresh_btn = gr.Button("🔄 刷新曲库", scale=1)
                         manage_status = gr.Markdown("")
 
-            # ══ 页签 5: 设置 ══
+            # ══ 页签 7: 设置 ══
             with gr.Tab("⚙️ 设置"):
                 if public:
                     gr.Markdown(
@@ -1211,7 +1725,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                 return ("", None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
                         render_evolution_html(ctx["evolution"], lang="zh"),
                         None, _ECHO_HINT, "", "", gr.Image(visible=False),
-                        _INTRO_EMPTY, "", gr.Image(visible=False))
+                        _INTRO_EMPTY, "", gr.Image(visible=False),
+                        _render_notes([]))
             info = find_song(choice)
             audio = resolve_audio(info["dir"])
             info["audio_type"], info["audio_src"] = audio.type, audio.path_or_url or ""
@@ -1223,11 +1738,11 @@ def create_app(settings: Settings) -> gr.Blocks:
             intro = _render_intro(_load_intro(info["dir"]))
             return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT, evo,
                     None, _ECHO_HINT, "", "", gr.Image(visible=False),
-                    intro, "", gr.Image(visible=False))
+                    intro, "", gr.Image(visible=False), _notes_for(info))
 
         song_outputs = [lyrics_html, chat_state, chat_topic, chat_html, evolution_html,
                         echo_state, echo_html, echo_out, card_status, card_img,
-                        intro_html, echo_card_status, echo_card_img]
+                        intro_html, echo_card_status, echo_card_img, notes_html]
 
         def on_echo_map(choice: str) -> tuple[str, str]:
             if not ctx["songs"]:
@@ -1414,6 +1929,210 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         imagery_btn.click(on_imagery, [imagery_box, map_artist], [imagery_html])
         imagery_box.submit(on_imagery, [imagery_box, map_artist], [imagery_html])
+
+        # ── 曲库洞察 ──
+
+        _ALL_ARTISTS_CHOICE = "🌍 全部歌手"
+
+        def _corpus_text_lines() -> list[tuple[str, str]]:
+            """(text, artist) pairs — corpus when built, else library lyrics."""
+            if "corpus_lines" not in ctx:
+                from .intertextuality.corpus import load_corpus
+                corpus = load_corpus(settings.corpus_dir)
+                if corpus:
+                    ctx["corpus_lines"] = [(l.text, l.artist) for l in corpus]
+                else:
+                    ctx["corpus_lines"] = [
+                        (ln.text, s["artist"])
+                        for s in ctx["songs"]
+                        if (Path(s["dir"]) / "lyrics.lrc").exists()
+                        for ln in _load_song_data(s["dir"])["timed_lines"]
+                    ]
+            return ctx["corpus_lines"]
+
+        def on_cloud_artist(artist: str) -> str:
+            from .insights import word_frequencies
+            scope = None if (not artist or artist == _ALL_ARTISTS_CHOICE) \
+                else artist
+            cache = ctx.setdefault("clouds", {})
+            if artist not in cache:
+                freqs = word_frequencies(_corpus_text_lines(), scope)
+                cache[artist] = _render_word_cloud(
+                    freqs, scope or "全部歌手")
+            return cache[artist]
+
+        def on_word_pick(word: str, artist: str) -> str:
+            word = (word or "").split("	")[0].strip()
+            if not word:
+                return ""
+            return on_imagery(word, "" if artist == _ALL_ARTISTS_CHOICE
+                              else artist)
+
+        def on_emo_pick(title: str):
+            """Emotion-map click: jump to that song on the play tab."""
+            title = (title or "").split("	")[0].strip()
+            label = next((song_choice_label(s) for s in ctx["songs"]
+                          if s["title"] == title), None)
+            if label is None:
+                return gr.skip(), gr.skip()
+            return gr.Radio(value=label), gr.Tabs(selected="play")
+
+        def init_insights(choice: str):
+            from .insights import daily_quote, library_emotions
+            daily = _render_daily_quote(daily_quote(ctx["songs"]))
+            artists = _corpus_artists()
+            cloud_choices = [_ALL_ARTISTS_CHOICE] + artists
+            current = find_song(choice).get("artist", "") if ctx["songs"] else ""
+            from .intertextuality.search import artist_matches
+            value = next(
+                (a for a in artists if current and artist_matches(a, current)),
+                _ALL_ARTISTS_CHOICE)
+            emotions = _render_emotion_map(library_emotions(ctx["songs"]))
+            titles = [s["title"] for s in ctx["songs"]]
+            return (daily,
+                    gr.Dropdown(choices=cloud_choices, value=value),
+                    on_cloud_artist(value), emotions,
+                    gr.CheckboxGroup(choices=titles))
+
+        cloud_artist.input(on_cloud_artist, [cloud_artist], [cloud_html])
+        word_pick_box.change(on_word_pick, [word_pick_box, cloud_artist],
+                             [word_trace_html])
+        emo_pick_box.change(on_emo_pick, [emo_pick_box],
+                            [song_radio, tabs])
+        app.load(init_insights, [song_radio],
+                 [daily_html, cloud_artist, cloud_html, emotion_html,
+                  story_songs])
+
+        def on_storyline(selected: list[str], user_cfg):
+            if not selected or len(selected) < 2:
+                yield "⚠️ 请至少勾选 2 首歌。"
+                return
+            req_settings = _request_settings(user_cfg)
+            if not req_settings.api_key:
+                yield ("⚠️ 未配置 API Key。请到「⚙️ 设置」页签填写。"
+                       if not public else _PUBLIC_KEY_HINT)
+                return
+            yield "🤔 AI 正在为这组歌编排情绪弧线……"
+            from .insights import library_emotions
+            emos = {e.title: e for e in library_emotions(ctx["songs"])}
+            desc = []
+            for t in selected:
+                info = next((s for s in ctx["songs"] if s["title"] == t), {})
+                e = emos.get(t)
+                emo_part = (f"情绪 valence={e.valence:.2f} arousal={e.arousal:.2f}"
+                            f" 基调={e.tone}" if e else "无情绪数据")
+                intro = _load_intro(info.get("dir", "")) if info else ""
+                desc.append(f"- 《{t}》（{info.get('artist', '')} · "
+                            f"{info.get('album', '') or '未知专辑'}）：{emo_part}"
+                            + (f"；导读：{intro[:80]}" if intro else ""))
+            user_msg = (
+                "以下是一组歌曲及其情绪数据：\n" + "\n".join(desc) +
+                "\n\n请把它们编排成一个有情绪弧线的歌单：\n"
+                "1. 给出推荐播放顺序（编号列表）；\n"
+                "2. 用 100-150 字讲这个歌单串成了一个什么故事"
+                "（开头什么心境、中段如何转折、结尾落在哪里）。\n"
+                "用简体中文，直接输出。"
+            )
+            from .llm import LLMClient
+            try:
+                resp = LLMClient(req_settings).generate(
+                    system_prompt="你是擅长编排歌单情绪弧线的音乐编辑，简体中文回答。",
+                    user_message=user_msg,
+                )
+                yield (resp.reply_text or "").strip() or "⚠️ AI 未返回内容，请重试。"
+            except Exception as exc:
+                logger.exception("Storyline failed")
+                yield f"⚠️ LLM 调用失败：{str(exc)[:200]}"
+
+        story_btn.click(on_storyline, [story_songs, user_llm], [story_out])
+
+        # ── 歌词竞猜 ──
+
+        def _quiz_pool() -> dict:
+            # skip songs whose directory vanished since library discovery
+            # (e.g. deleted on disk without a 刷新曲库)
+            return {
+                s["title"]: (s["artist"],
+                             [ln.text for ln in
+                              _load_song_data(s["dir"])["timed_lines"]])
+                for s in ctx["songs"]
+                if (Path(s["dir"]) / "lyrics.lrc").exists()
+            }
+
+        def on_quiz_new(state: dict):
+            from .quiz import make_question
+            q = make_question(_quiz_pool())
+            if q is None:
+                # drop any previous question so 提交 can't grade a stale one
+                return (dict(state or {}, answer=""),
+                        '<div class="chat-empty">歌曲列表至少需要 2 首歌'
+                        '才能出题。</div>',
+                        gr.Radio(choices=[], visible=False), "")
+            state = dict(state or {}, answer=q.answer)
+            html_q = (f'<div class="quiz-line">“{_esc(q.line)}”</div>'
+                      f'<div class="quiz-meta">歌手：{_esc(q.artist)}</div>')
+            return (state, html_q,
+                    gr.Radio(choices=q.options, value=None, visible=True), "")
+
+        def on_quiz_submit(state: dict, choice: str):
+            state = dict(state or {})
+            answer = state.get("answer", "")
+            if not answer:
+                return state, "⚠️ 先点「开始 / 下一题」抽题。"
+            if not choice:
+                return state, "⚠️ 请先选择一个选项。"
+            state["total"] = state.get("total", 0) + 1
+            if choice == answer:
+                state["score"] = state.get("score", 0) + 1
+                verdict = f"✅ 答对了！正是《{answer}》。"
+            else:
+                verdict = f"❌ 不对，这句出自《{answer}》。"
+            state["answer"] = ""  # one submission per question
+            return (state, f"{verdict}　当前战绩 "
+                    f"**{state.get('score', 0)} / {state['total']}**")
+
+        quiz_new_btn.click(on_quiz_new, [quiz_state],
+                           [quiz_state, quiz_html, quiz_options, quiz_result])
+        quiz_submit_btn.click(on_quiz_submit, [quiz_state, quiz_options],
+                              [quiz_state, quiz_result])
+
+        # ── 听歌识曲 ──
+
+        def on_identify(sample):
+            if sample is None:
+                yield "⚠️ 请先录一段或上传一段音频。"
+                return
+            from .fingerprint import build_index, match_sample
+            if "fp_index" not in ctx:
+                yield "⏳ 首次识别：正在为曲库音频建立声纹索引……"
+                ctx["fp_index"] = build_index(ctx["songs"])
+            index = ctx["fp_index"]
+            skipped = ""
+            if index.skipped:
+                skipped = ("\n\n⚠️ 以下歌曲的音频无法解码、未入索引："
+                           + "、".join(f"《{t}》" for t in index.skipped)
+                           + "（mp3 解码需要安装 ffmpeg 并加入 PATH）")
+            n_url = sum(1 for s in ctx["songs"]
+                        if s.get("audio_type") == "url")
+            if n_url:
+                skipped += (f"\n\nℹ️ 另有 {n_url} 首歌只有在线试听片段，"
+                            "不参与声纹索引。")
+            if not index.indexed:
+                yield ("⚠️ 曲库中没有可解码的音频，无法识别。" + skipped)
+                return
+            yield "🔎 正在比对声纹……"
+            sr, data = sample
+            result = match_sample(index, sr, data)
+            if result is None:
+                yield ("🤷 没有找到匹配（片段太短、噪声太大，或不在曲库中）。"
+                       f"当前已索引 {len(index.indexed)} 首。" + skipped)
+                return
+            title, offset_s, conf = result
+            mm, ss = divmod(int(offset_s), 60)
+            yield (f"🎯 识别结果：**《{title}》**，片段大约在 "
+                   f"**{mm:02d}:{ss:02d}** 处（置信度 {conf:.0%}）。" + skipped)
+
+        fp_btn.click(on_identify, [fp_audio], [fp_result])
 
         def on_audio_upload(fpath, choice: str):
             if not fpath:
@@ -1665,6 +2384,93 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         echo_card_btn.click(on_echo_card, [echo_state, song_radio],
                             [echo_card_status, echo_card_img])
+
+        # ── 听歌笔记 ──
+
+        _NOTES_PUBLIC_HINT = ('<div class="chat-empty">公开体验版不提供听歌笔记'
+                              '（不写服务器磁盘）。</div>')
+
+        def _notes_for(info: dict) -> str:
+            if public:
+                return _NOTES_PUBLIC_HINT
+            return _render_notes(_load_notes(info["dir"])) if info.get("dir") \
+                else _render_notes([])
+
+        def on_add_note(choice: str, text: str, cur_time: str):
+            text = (text or "").strip()
+            info = find_song(choice)
+            if public:
+                return _NOTES_PUBLIC_HINT, gr.skip()
+            if not text or not info.get("dir"):
+                return gr.skip(), gr.skip()
+            try:
+                ts_ms = int(float(cur_time or "0") * 1000)
+            except ValueError:
+                ts_ms = 0
+            # preview clips: note timestamps live on the lyric timeline
+            ts_ms += int(info.get("audio_offset_ms", 0) or 0)
+            notes = _load_notes(info["dir"])
+            notes.append({"ts_ms": ts_ms, "text": text})
+            notes.sort(key=lambda n: n.get("ts_ms", 0))
+            _save_notes(info["dir"], notes)
+            return _render_notes(notes), ""
+
+        def on_del_note(idx_str: str, choice: str):
+            payload = (idx_str or "").split("	")[0].strip()
+            idx_part, _, ts_part = payload.partition(":")
+            if public or not idx_part.isdigit():
+                return gr.skip()
+            info = find_song(choice)
+            if not info.get("dir"):
+                return gr.skip()
+            notes = _load_notes(info["dir"])
+            idx = int(idx_part)
+            # the timestamp guards against deleting the wrong note off a
+            # stale list (e.g. another tab changed notes.json since render);
+            # on mismatch just re-render the fresh list
+            if 0 <= idx < len(notes) and (
+                    not ts_part.isdigit()
+                    or int(notes[idx].get("ts_ms", 0)) == int(ts_part)):
+                notes.pop(idx)
+                _save_notes(info["dir"], notes)
+            return _render_notes(notes)
+
+        note_add_btn.click(on_add_note, [song_radio, note_input, cur_time_box],
+                           [notes_html, note_input])
+        note_input.submit(on_add_note, [song_radio, note_input, cur_time_box],
+                          [notes_html, note_input])
+        note_del_box.change(on_del_note, [note_del_box, song_radio],
+                            [notes_html])
+
+        # ── AI 电台串场语音 ──
+
+        def on_gen_radio_intro(choice: str):
+            info = find_song(choice)
+            if not info.get("dir"):
+                return "⚠️ 请先选择一首歌。", gr.skip()
+            intro_text = _load_intro(info["dir"])
+            if not intro_text:
+                return ("⚠️ 本歌还没有导读文本 —— 先在「📖 歌曲导读」里点"
+                        "「生成 30 秒导读」，再来生成串场语音。"), gr.skip()
+            from .radio import synthesize_intro
+            try:
+                speech = (f"接下来这首，是{info.get('artist', '')}的"
+                          f"《{info.get('title', '')}》。{intro_text}")
+                synthesize_intro(info["dir"], speech)
+            except Exception as exc:
+                logger.exception("TTS failed")
+                return f"⚠️ 串场语音生成失败：{str(exc)[:150]}", gr.skip()
+            data = _load_song_data(info["dir"])
+            audio = resolve_audio(info["dir"])
+            info["audio_type"], info["audio_src"] = \
+                audio.type, audio.path_or_url or ""
+            return ("✅ 串场语音已生成。勾选播放器下方「📻 电台模式」，"
+                    "自动切到这首歌时会先播报再进歌。",
+                    _render_lyrics_html(data, info))
+
+        if not public:
+            radio_gen_btn.click(on_gen_radio_intro, [song_radio],
+                                [radio_status, lyrics_html])
 
         def on_echo_explain(echo, user_cfg):
             if not echo or not echo.get("results"):
@@ -1974,9 +2780,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                 current = {}
             current["embedding_model"] = model_name
             save_user_settings(current)
-            # all cached echo results were computed with the old index
+            # all cached echo results were computed with the old index,
+            # and the corpus text itself may have changed
             ctx.pop("echo_index", None)
             ctx.pop("echo_maps", None)
+            ctx.pop("corpus_lines", None)
+            ctx.pop("clouds", None)
             refresh_library()  # rebuilds the searcher on the new model
             yield (f"✅ 索引已重建：{embeddings.shape[0]} 行 × "
                    f"{embeddings.shape[1]} 维（模型：{model_name}）。"

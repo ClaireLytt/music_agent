@@ -27,8 +27,8 @@ def generate_embeddings(
 
     logger.info("Generating embeddings for %d lines with %s", len(corpus), model_name)
 
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer(model_name)
+    from .search import get_model
+    model = get_model(model_name)
     texts = [line.text for line in corpus]
     embeddings = model.encode(texts, show_progress_bar=True, convert_to_numpy=True)
 
