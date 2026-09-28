@@ -8,11 +8,9 @@ Provides an interactive terminal workflow to:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.prompt import Confirm, Prompt
 from rich.table import Table

@@ -159,8 +159,6 @@ def review(song_dir: str) -> None:
 @cli.command("review-all")
 def review_all() -> None:
     """Interactively review annotations for all songs."""
-    from pathlib import Path
-
     from .annotator.reviewer import review_all as _review_all
     from .config import load_settings
 

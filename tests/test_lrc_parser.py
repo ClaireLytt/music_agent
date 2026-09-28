@@ -1,6 +1,6 @@
 """Tests for LRC parser."""
 
-from lyric_agent.lrc_parser import LrcMetadata, TimedLine, parse_lrc
+from lyric_agent.lrc_parser import parse_lrc
 
 
 def test_parse_basic():
