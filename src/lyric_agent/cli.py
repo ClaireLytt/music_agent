@@ -33,7 +33,9 @@ def generate(song_dir: str, chunk_size: int) -> None:
 
 @cli.command()
 @click.option("--port", default=None, type=int, help="UI port (default: from .env)")
-def serve(port: int | None) -> None:
+@click.option("--no-browser", is_flag=True,
+              help="don't auto-open the page in the default browser")
+def serve(port: int | None, no_browser: bool) -> None:
     """Launch the lyrics annotation player UI."""
     from pathlib import Path
 
@@ -45,6 +47,8 @@ def serve(port: int | None) -> None:
     app.launch(
         server_port=port or settings.ui_port,
         share=False,
+        # public deployments run headless — never pop a browser there
+        inbrowser=not no_browser and not settings.public_mode,
         allowed_paths=[str(Path(settings.songs_dir).resolve())],
         **launch_kwargs(),
     )

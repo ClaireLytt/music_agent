@@ -22,3 +22,4 @@ logs/
 
 # per-user listening notes & generated radio intros
 data/songs/*/notes.json
+data/ui_probe/
