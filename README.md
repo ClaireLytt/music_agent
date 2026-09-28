@@ -131,7 +131,7 @@ pytest
 lyric-agent serve            # 先在一个终端启动【新】服务器
 python scripts/self_test.py  # 另一终端运行；UI_PORT 环境变量可改端口
 
-# 3. UI 巡检（22+ 项：真实浏览器逐页签走查交互、抓 JS 报错与服务端异常）
+# 3. UI 巡检（40 项：真实浏览器逐页签走查交互与守卫路径、抓 JS 报错与服务端异常）
 python scripts/ui_probe.py           # 自起独立服务器；--port 7860 可附加现有服务器
 python scripts/ui_agent.py           # 闭环模式：巡检 → claude 自动修复 → 复测
 python scripts/ui_agent.py --dry-run # 只巡检出报告，不修复

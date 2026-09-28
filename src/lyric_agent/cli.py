@@ -122,22 +122,14 @@ def search(query: str, semantic: bool, limit: int) -> None:
 def _fetch_lrc_for(song_dir) -> int:
     """Fetch synced lyrics from LRCLIB into song_dir/lyrics.lrc. Returns line count."""
     import json
-    import urllib.parse
-    import urllib.request
     from pathlib import Path
+
+    from .lrc_sources import fetch_synced_lyrics
 
     d = Path(song_dir)
     meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
-    artist = meta.get("artist", "Taylor Swift")
-    query = urllib.parse.quote(f"{artist} {meta['title']}")
-    url = f"https://lrclib.net/api/search?q={query}"
-    req = urllib.request.Request(url, headers={"User-Agent": "lyric-agent/0.1"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        results = json.loads(resp.read().decode("utf-8"))
-    synced = next(
-        (entry["syncedLyrics"] for entry in results if entry.get("syncedLyrics")),
-        None,
-    )
+    synced = fetch_synced_lyrics(meta.get("title", d.name),
+                                 meta.get("artist", ""), timeout=30)
     if not synced:
         raise click.ClickException(f"No synced lyrics found on LRCLIB for {d.name}.")
     (d / "lyrics.lrc").write_text(synced, encoding="utf-8")

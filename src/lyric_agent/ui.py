@@ -13,7 +13,6 @@ gr.HTML content via innerHTML (embedded <script> tags do not execute).
 
 from __future__ import annotations
 
-import html
 import json
 import logging
 import re
@@ -27,7 +26,6 @@ import gradio as gr
 
 from dataclasses import replace
 
-from .annotator.models import Song
 from .audio_provider import resolve as resolve_audio
 from .config import (
     HACKATHON_PLAYLIST_SOURCE,
@@ -38,7 +36,7 @@ from .config import (
 from .debate import PERSONAS, DebateSession, speak as ai_speak
 from .evolution.engine import load_or_build
 from .evolution.ui import EVOLUTION_CSS, render_evolution_html
-from .lrc_parser import load_lrc_file, parse_lrc
+from .lrc_parser import parse_lrc
 from .search import LyricsSearcher
 
 try:
@@ -48,1177 +46,41 @@ except ImportError:  # embeddings extra not installed — tab shows a hint inste
 
 logger = logging.getLogger(__name__)
 
-_CHAT_HINT = (
-    '<div class="chat-empty">点击左侧任意一句歌词，然后在这里向 AI 助手提问，'
-    '比如：这句用了什么修辞？背后有什么故事？</div>'
+from .ui_assets import _CSS, _HEAD_JS
+from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
+    _CATALOG_PATH,
+    _CHAT_HINT,
+    _CHAT_TOPIC_DEFAULT,
+    _ECHO_HINT,
+    _ECHO_NO_INDEX,
+    _ECHO_OVERVIEW_EMPTY,
+    _ECHO_SCAN_CACHE_DIR,
+    _INTRO_EMPTY,
+    _INTRO_FILENAME,
+    _PLACEHOLDER_LRC,
+    _SONG_DATA_CACHE,
+    _chat_topic_html,
+    _discover_songs,
+    _esc,
+    _fetch_lrc_from_lrclib,
+    _load_catalog,
+    _load_chat_history,
+    _load_intro,
+    _load_notes,
+    _load_song_data,
+    _render_chat,
+    _render_daily_quote,
+    _render_echo_html,
+    _render_echo_overview,
+    _render_emotion_map,
+    _render_intro,
+    _render_lyrics_html,
+    _render_notes,
+    _render_search_results,
+    _render_word_cloud,
+    _save_chat_history,
+    _save_notes,
 )
-_CHAT_TOPIC_DEFAULT = '<div class="chat-topic dim">尚未选择歌词行</div>'
-_NO_AUDIO_HINT = (
-    "🎧 未检测到音频 — 当前为纯阅读模式。将 audio.mp3 放入歌曲目录即可启用播放同步。"
-)
-
-
-def _esc(text: str) -> str:
-    return html.escape(str(text))
-
-
-# ── Song loading ──────────────────────────────────────────
-
-def _discover_songs(songs_dir: str,
-                    exclude_sources: set[str] | None = None) -> list[dict[str, Any]]:
-    base = Path(songs_dir)
-    if not base.exists():
-        return []
-    songs = []
-    for d in sorted(base.iterdir()):
-        if not d.is_dir() or not (d / "lyrics.lrc").exists():
-            continue
-        meta = {}
-        if (d / "metadata.json").exists():
-            meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
-        if exclude_sources and meta.get("source") in exclude_sources:
-            continue
-        audio = resolve_audio(d)
-        era = meta.get("era", "").lower()
-        songs.append({
-            "dir": str(d), "name": d.name,
-            "title": meta.get("title", d.name.replace("_", " ").title()),
-            "artist": meta.get("artist", "未知歌手"),
-            "album": meta.get("album", ""), "year": meta.get("year", 0),
-            "era": era,
-            "audio_type": audio.type, "audio_src": audio.path_or_url or "",
-            # preview clips start mid-song; shift lyric sync by this many ms
-            "audio_offset_ms": int(meta.get("audio_offset_ms", 0) or 0),
-            # Windows: st_ctime is directory creation time = when the song was added
-            "added_ts": d.stat().st_ctime,
-        })
-    return songs
-
-
-def _fetch_lrc_from_lrclib(title: str, artist: str) -> str | None:
-    """Best-effort synced-lyrics lookup on LRCLIB; None when nothing found."""
-    import urllib.parse
-    import urllib.request
-    try:
-        query = urllib.parse.quote(f"{artist} {title}".strip())
-        req = urllib.request.Request(
-            f"https://lrclib.net/api/search?q={query}",
-            headers={"User-Agent": "lyric-agent/0.1"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            results = json.loads(resp.read().decode("utf-8"))
-        return next(
-            (e["syncedLyrics"] for e in results if e.get("syncedLyrics")), None)
-    except Exception:
-        return None
-
-
-_PLACEHOLDER_LRC = "[00:00.00] （暂无歌词 — 可编辑本目录下的 lyrics.lrc 补充）\n"
-
-_CATALOG_PATH = Path("data/catalog/catalog.json")
-
-
-def _load_catalog() -> list[dict]:
-    try:
-        if _CATALOG_PATH.exists():
-            data = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return data
-    except Exception:
-        pass
-    return []
-
-
-def _load_chat_history(song_dir: str | Path) -> dict:
-    """Per-line saved chats: {"<line_index>": {"line": str, "turns": [...]}}"""
-    path = Path(song_dir) / "chat_history.json"
-    try:
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-    except Exception:
-        pass
-    return {}
-
-
-def _save_chat_history(song_dir: str | Path, line_index: int,
-                       lyric_line: str, turns: list[dict]) -> None:
-    data = _load_chat_history(song_dir)
-    data[str(line_index)] = {"line": lyric_line, "turns": turns}
-    path = Path(song_dir) / "chat_history.json"
-    try:
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=1),
-                        encoding="utf-8")
-    except Exception:
-        logger.exception("Failed to save chat history")
-
-
-# per-song listening notes: [{"ts_ms": int, "text": str}]
-_NOTES_FILENAME = "notes.json"
-
-
-def _load_notes(song_dir: str | Path) -> list[dict]:
-    path = Path(song_dir) / _NOTES_FILENAME
-    try:
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return data
-    except Exception:
-        logger.exception("Failed reading notes for %s", song_dir)
-    return []
-
-
-def _save_notes(song_dir: str | Path, notes: list[dict]) -> None:
-    (Path(song_dir) / _NOTES_FILENAME).write_text(
-        json.dumps(notes, ensure_ascii=False, indent=1), encoding="utf-8")
-
-
-def _render_notes(notes: list[dict]) -> str:
-    if not notes:
-        return ('<div class="chat-empty">播放到喜欢的位置，写句感想点「添加」——'
-                '笔记会带上时间戳，点笔记即可跳回该位置。</div>')
-    items = []
-    for i, n in enumerate(notes):
-        ts = int(n.get("ts_ms", 0))
-        mm, ss = divmod(ts // 1000, 60)
-        items.append(
-            f'<div class="note-item" data-seek="{ts}">'
-            f'<span class="note-ts">▶ {mm:02d}:{ss:02d}</span>'
-            f'<span class="note-text">{_esc(n.get("text", ""))}</span>'
-            f'<span class="note-del" data-del-note="{i}" data-del-ts="{ts}" '
-            'title="删除">✕</span>'
-            '</div>'
-        )
-    return '<div class="note-list">' + "".join(items) + "</div>"
-
-
-# distinct colors for end-rhyme groups (cycled when a song has more groups)
-_RHYME_COLORS = [
-    "#0969da", "#bf3989", "#1a7f37", "#bc4c00", "#8250df",
-    "#cf222e", "#0550ae", "#9a6700", "#6639ba", "#2da44e",
-]
-
-# whole-song AI intro, generated once and cached in the song directory
-_INTRO_FILENAME = "intro.txt"
-_INTRO_EMPTY = ('<div class="chat-empty">尚未生成本歌导读 — '
-                '点击下方按钮由 AI 生成（需 API Key，几秒钟）。</div>')
-
-
-def _load_intro(song_dir: str | Path) -> str:
-    path = Path(song_dir) / _INTRO_FILENAME
-    try:
-        if path.exists():
-            return path.read_text(encoding="utf-8").strip()
-    except Exception:
-        logger.exception("Failed reading intro for %s", song_dir)
-    return ""
-
-
-def _render_intro(text: str) -> str:
-    if not text:
-        return _INTRO_EMPTY
-    return f'<div class="song-intro">{_esc(text)}</div>'
-
-
-# mtime-keyed cache: repeated song selections skip re-parsing lrc/annotations
-_SONG_DATA_CACHE: dict[str, tuple[tuple[float, float], dict]] = {}
-
-
-def _load_song_data(song_dir: str) -> dict[str, Any]:
-    d = Path(song_dir)
-    lrc_path = d / "lyrics.lrc"
-    ann_path = d / "annotations.json"
-    stamp = (
-        lrc_path.stat().st_mtime if lrc_path.exists() else 0.0,
-        ann_path.stat().st_mtime if ann_path.exists() else 0.0,
-    )
-    cached = _SONG_DATA_CACHE.get(song_dir)
-    if cached and cached[0] == stamp:
-        return cached[1]
-
-    _meta, timed_lines = load_lrc_file(str(lrc_path))
-    annotations = {}
-    if ann_path.exists():
-        song = Song.load(ann_path)
-        for ann in song.annotations:
-            annotations[ann.line_index] = ann
-    try:
-        from .rhyme import line_rhyme_groups
-        rhymes = line_rhyme_groups([ln.text for ln in timed_lines])
-    except Exception:
-        logger.exception("Rhyme grouping failed for %s", song_dir)
-        rhymes = [None] * len(timed_lines)
-    from .insights import find_chorus_ts
-    data = {
-        "timed_lines": timed_lines,
-        "annotations": annotations,
-        "rhymes": rhymes,
-        "chorus_ts": find_chorus_ts(timed_lines),
-    }
-    _SONG_DATA_CACHE[song_dir] = (stamp, data)
-    return data
-
-
-# ── HTML renderers ────────────────────────────────────────
-
-def _file_url(path: str | Path) -> str:
-    return "/gradio_api/file=" + str(Path(path).resolve()).replace("\\", "/")
-
-
-def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
-    """Chorus jump, A-B loop, rhyme + radio toggles (wired up in _HEAD_JS)."""
-    chorus = (f'<button class="ptool" data-seek="{chorus_ts}" '
-              'title="跳到检测出的副歌位置">⏩ 副歌</button>'
-              if chorus_ts is not None else "")
-    return (
-        '<div class="player-tools">'
-        + chorus +
-        '<button class="ptool" id="ll-ab-a" title="以当前位置为循环起点">🅰 起点</button>'
-        '<button class="ptool" id="ll-ab-b" title="以当前位置为循环终点并开始循环">🅱 循环</button>'
-        '<button class="ptool" id="ll-ab-clear" style="display:none">✕ 停止循环</button>'
-        '<label class="ptool-toggle" title="同韵脚的歌词行标同色圆点">'
-        '<input type="checkbox" id="ll-rhyme-toggle"> 🎯 韵脚</label>'
-        '<label class="ptool-toggle" '
-        'title="播完自动切下一首；有串场语音时先播报再进歌">'
-        '<input type="checkbox" id="ll-radio-toggle"> 📻 电台模式</label>'
-        '</div>'
-    )
-
-
-def _render_audio_html(song_info: dict, chorus_ts: int | None = None) -> str:
-    a_type, src = song_info["audio_type"], song_info["audio_src"]
-    offset = song_info.get("audio_offset_ms", 0)
-    hint = ('<div class="preview-hint">🎧 官方试听片段 · 歌词已自动对齐</div>'
-            if offset else "")
-    if a_type not in ("local", "url"):
-        return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>'
-    url = _file_url(src) if a_type == "local" else src
-    # cached radio intro (电台串场语音), if generated for this song
-    from .radio import intro_audio_path
-    intro = ""
-    if song_info.get("dir"):
-        p = intro_audio_path(song_info["dir"])
-        if p.exists():
-            intro = f' data-intro="{_esc(_file_url(p))}"'
-    return (
-        '<div id="ll-wave" title="波形加载中（需联网加载 wavesurfer）"></div>'
-        f'<audio id="ll-audio" controls preload="metadata" '
-        f'data-offset="{offset}"{intro} '
-        f'src="{_esc(url)}" style="width:100%"></audio>'
-        + _player_tools(song_info, chorus_ts) + hint
-    )
-
-
-def _render_search_results(hits: list, current_song: str, mode_used: str) -> str:
-    if not hits:
-        return '<div class="search-none">没有找到匹配的歌词。</div>'
-    items = []
-    for h in hits:
-        same = h.song_name == current_song
-        seek = f' data-seek="{h.timestamp_ms}"' if same else ""
-        cls = "search-hit seekable" if same else "search-hit"
-        mm, ss = divmod(h.timestamp_ms // 1000, 60)
-        score = f' · {h.score:.2f}' if mode_used == "semantic" else ""
-        items.append(
-            f'<div class="{cls}"{seek}>'
-            f'<div class="search-line">"{_esc(h.text)}"</div>'
-            f'<div class="search-meta">{_esc(h.song_title)} · '
-            f'{mm:02d}:{ss:02d}{score}{" · ▶" if same else ""}</div></div>'
-        )
-    tag = "🧠 语义匹配" if mode_used == "semantic" else "🔤 关键词匹配"
-    return f'<div class="search-mode-tag">{tag}</div>' + "".join(items)
-
-
-_SPEAKER_CLASSES = {"🎭 文学评论家": "critic", "🎵 粉丝考据家": "fan"}
-
-
-def _render_chat(
-    session: DebateSession | None,
-    live: str | None = None,
-    live_speaker: str = "🤖 AI 助手",
-) -> str:
-    """Render assistant chat; `live` = partial streaming text."""
-    if session is None or (not session.history and live is None):
-        return _CHAT_HINT
-
-    def bubble(speaker: str, text: str, streaming: bool = False) -> str:
-        cls = "chat-bubble ai " + _SPEAKER_CLASSES.get(speaker, "")
-        cls += " streaming" if streaming else ""
-        cursor = "▌" if streaming else ""
-        return (f'<div class="{cls.strip()}"><b>{_esc(speaker)}</b>'
-                f'<p>{_esc(text)}{cursor}</p></div>')
-
-    bubbles = []
-    for turn in session.history:
-        if turn["speaker"] == "user":
-            bubbles.append(
-                f'<div class="chat-bubble user"><p>{_esc(turn["text"])}</p></div>')
-        else:
-            bubbles.append(bubble(turn["speaker"], turn["text"]))
-    if live is not None:
-        bubbles.append(bubble(live_speaker, live, streaming=True))
-    return f'<div id="chat-scroll">{"".join(bubbles)}</div>'
-
-
-def _chat_topic_html(line_text: str) -> str:
-    return f'<div class="chat-topic">💬 正在讨论：「{_esc(line_text)}」</div>'
-
-
-_ECHO_HINT = ('<div class="chat-empty">点击一句歌词，自动在同一歌手的其他作品里'
-              '检索相似的意象与措辞，发现歌与歌之间的"彩蛋"呼应。</div>')
-
-_ECHO_NO_INDEX = ('<div class="chat-empty">⚠️ 歌词语料库尚未构建，'
-                  '请先运行 <code>python scripts/build_corpus.py</code> '
-                  '并生成 embeddings。</div>')
-
-
-_ECHO_OVERVIEW_EMPTY = ('<div class="chat-empty">本歌暂未发现与同歌手其他作品的'
-                        '强呼应彩蛋。</div>')
-
-
-def _render_echo_overview(hits: list[tuple[Any, Any]], artist: str) -> str:
-    """Whole-song echo overview: every 🥚 line and its strongest target.
-
-    hits: (TimedLine, EchoLine) pairs; each entry is clickable and jumps to
-    the lyric line (data-goto-line is handled in _HEAD_JS).
-    """
-    if not hits:
-        return _ECHO_OVERVIEW_EMPTY
-    items = []
-    for ln, e in hits:
-        album = f" · {_esc(e.album)}" if e.album else ""
-        items.append(
-            f'<div class="echo-ov-item" data-goto-line="{ln.line_index}" '
-            f'title="点击跳转到这句歌词">'
-            f'<div class="echo-ov-src">“{_esc(ln.text)}”</div>'
-            f'<div class="echo-ov-dst">↔ 《{_esc(e.song)}》{album}：'
-            f'“{_esc(e.line)}”<span class="echo-ov-sim">{e.similarity}</span>'
-            '</div></div>'
-        )
-    head = (f'<div class="echo-ov-head">共 {len(hits)} 处与'
-            f'{_esc(artist or "同歌手")}其他作品的呼应 · 点击条目跳转</div>')
-    return f'<div class="echo-ov-list">{head}{"".join(items)}</div>'
-
-
-def _render_echo_html(results: list[dict], artist: str) -> str:
-    if not results:
-        return (f'<div class="chat-empty">未在 {_esc(artist or "该歌手")} '
-                '的其他作品中找到明显呼应（相似度不足）。</div>')
-    cards = []
-    for r in results:
-        album = f' · {_esc(r["album"])}' if r["album"] else ""
-        cards.append(
-            '<div class="echo-card">'
-            f'<div class="echo-line">“{_esc(r["line"])}”</div>'
-            f'<div class="echo-meta">《{_esc(r["song"])}》{album}</div></div>'
-        )
-    return '<div class="echo-list">' + "".join(cards) + "</div>"
-
-
-def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
-    lines = song_data["timed_lines"]
-
-    artist = song_info["artist"]
-    album = song_info["album"]
-    meta_text = " · ".join(x for x in (artist, album) if x)
-    header_html = f"""\
-<div class="song-header">
-  <div>
-    <h2 class="song-title-display">{_esc(song_info["title"])}</h2>
-    <p class="song-meta-display">{_esc(meta_text)}</p>
-  </div>
-</div>"""
-
-    rhymes = song_data.get("rhymes") or [None] * len(lines)
-    parts = []
-    for ln, group in zip(lines, rhymes):
-        mark = ""
-        if group is not None:
-            color = _RHYME_COLORS[group % len(_RHYME_COLORS)]
-            mark = (f'<span class="rhyme-mark" style="background:{color}" '
-                    f'title="韵脚组 {group + 1}"></span>')
-        parts.append(
-            f'<div class="lyric-line" data-index="{ln.line_index}" '
-            f'data-ts="{ln.timestamp_ms}">'
-            f'<span class="lyric-text">{_esc(ln.text)}</span>{mark}</div>'
-        )
-
-    return (
-        header_html
-        + _render_audio_html(song_info, song_data.get("chorus_ts"))
-        + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
-          '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'
-        + f'<div id="lyrics-container"><div id="lyrics-scroll">{"".join(parts)}</div></div>'
-    )
-
-
-# ── Insights renderers (曲库洞察) ─────────────────────────
-
-def _render_daily_quote(q: dict | None) -> str:
-    if not q:
-        return ('<div class="chat-empty">曲库中还没有带 AI 批注的歌曲，'
-                '生成批注后这里每天会推一句值得品的歌词。</div>')
-    return (
-        '<div class="daily-card">'
-        '<div class="daily-label">📅 每日一句</div>'
-        f'<div class="daily-line">“{_esc(q["line"])}”</div>'
-        f'<div class="daily-meta">——《{_esc(q["song"])}》· {_esc(q["artist"])}</div>'
-        f'<div class="daily-insight">{_esc(q["insight"])}</div>'
-        '</div>'
-    )
-
-
-def _render_word_cloud(freqs: list[tuple[str, int]], scope: str) -> str:
-    if not freqs:
-        return (f'<div class="chat-empty">{_esc(scope)} 的语料不足，'
-                '暂无法生成高频意象。</div>')
-    top = freqs[0][1]
-    spans = []
-    for word, n in freqs:
-        # font size 13-34px by relative frequency
-        size = 13 + 21 * (n / top) ** 0.6
-        spans.append(
-            f'<span class="cloud-word" data-word="{_esc(word)}" '
-            f'style="font-size:{size:.0f}px" '
-            f'title="出现 {n} 次，点击查看具体歌词">{_esc(word)}</span>'
-        )
-    return ('<div class="cloud-hint">词越大出现越多 · 点任意词看它出现在哪些歌词里</div>'
-            f'<div class="word-cloud">{"".join(spans)}</div>')
-
-
-_EMO_W, _EMO_H, _EMO_PAD = 860, 460, 60
-
-_TONE_COLORS = {
-    "nostalgia": "#bc4c00", "love": "#bf3989", "joy": "#1a7f37",
-    "regret": "#57606a", "anger": "#cf222e", "sadness": "#0969da",
-    "self-doubt": "#8250df", "hope": "#2da44e", "defiance": "#9a6700",
-}
-
-
-def _render_emotion_map(emotions: list) -> str:
-    """Valence (x) × arousal (y) scatter; click a song dot to play it."""
-    if not emotions:
-        return ('<div class="chat-empty">曲库中还没有带 AI 批注的歌曲 —— '
-                '情绪坐标来自批注里的逐行 valence/arousal。</div>')
-    plot_w = _EMO_W - 2 * _EMO_PAD
-    plot_h = _EMO_H - 2 * _EMO_PAD
-    parts = [
-        # quadrant guides
-        f'<line x1="{_EMO_W / 2:.0f}" y1="{_EMO_PAD}" x2="{_EMO_W / 2:.0f}" '
-        f'y2="{_EMO_H - _EMO_PAD}" class="emo-axis"/>',
-        f'<line x1="{_EMO_PAD}" y1="{_EMO_H / 2:.0f}" x2="{_EMO_W - _EMO_PAD}" '
-        f'y2="{_EMO_H / 2:.0f}" class="emo-axis"/>',
-        f'<text x="{_EMO_W - _EMO_PAD}" y="{_EMO_H / 2 - 8:.0f}" '
-        f'text-anchor="end" class="emo-axis-label">正向 →</text>',
-        f'<text x="{_EMO_PAD}" y="{_EMO_H / 2 - 8:.0f}" '
-        f'class="emo-axis-label">← 低落</text>',
-        f'<text x="{_EMO_W / 2 + 6:.0f}" y="{_EMO_PAD + 12}" '
-        f'class="emo-axis-label">激昂 ↑</text>',
-        f'<text x="{_EMO_W / 2 + 6:.0f}" y="{_EMO_H - _EMO_PAD - 4}" '
-        f'class="emo-axis-label">平静 ↓</text>',
-    ]
-    for e in emotions:
-        x = _EMO_PAD + plot_w * max(0.0, min(1.0, e.valence))
-        y = _EMO_H - _EMO_PAD - plot_h * max(0.0, min(1.0, e.arousal))
-        color = _TONE_COLORS.get(e.tone, "#0969da")
-        tip = (f'《{e.title}》· {e.artist}\n情绪基调：{e.tone or "未知"} · '
-               f'正负向 {e.valence:.2f} · 能量 {e.arousal:.2f}\n点击播放这首歌')
-        parts.append(
-            f'<g class="emo-node" data-emo-pick="{_esc(e.title)}">'
-            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="9" fill="{color}">'
-            f'<title>{_esc(tip)}</title></circle>'
-            f'<text x="{x:.1f}" y="{y - 14:.1f}" text-anchor="middle" '
-            f'class="emo-label">{_esc(e.title[:12])}</text></g>'
-        )
-    legend = "".join(
-        f'<span class="evo-legend-item"><span class="evo-legend-swatch" '
-        f'style="background:{c}"></span>{_esc(t)}</span>'
-        for t, c in _TONE_COLORS.items()
-        if any(e.tone == t for e in emotions)
-    )
-    return (
-        '<div class="cloud-hint">每个点是一首歌（基于 AI 批注的逐行情绪均值）'
-        '· 点击任意歌曲直接播放</div>'
-        f'<div class="evo-legend">{legend}</div>'
-        f'<svg viewBox="0 0 {_EMO_W} {_EMO_H}" class="egg-svg" role="img">'
-        + "".join(parts) + '</svg>'
-    )
-
-
-# ── Global JS (Blocks head) ──────────────────────────────
-
-_HEAD_JS = """
-<script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.6/wavesurfer.min.js" defer></script>
-<script>
-// force Gradio's light theme so the UI is always white regardless of the
-// OS dark-mode setting (Gradio otherwise follows prefers-color-scheme)
-(function() {
-  try {
-    const u = new URL(window.location);
-    if (u.searchParams.get('__theme') !== 'light') {
-      u.searchParams.set('__theme', 'light');
-      window.location.replace(u);
-    }
-  } catch (e) {}
-})();
-// stale-page guard: after a server restart, an already-open page keeps a dead
-// session and every click silently does nothing — detect the restart via the
-// per-launch app_id and reload automatically
-(function() {
-  let appId = null;
-  setInterval(async () => {
-    try {
-      const r = await fetch('config', { cache: 'no-store' });
-      if (!r.ok) return;
-      const c = await r.json();
-      const id = String(c.app_id || '');
-      if (!id) return;
-      if (appId === null) appId = id;
-      else if (id !== appId) window.location.reload();
-    } catch (e) {}
-  }, 4000);
-})();
-(function() {
-  let userScrolling = false, scrollTimeout = null, lastActive = -2;
-  // player tools state (survives per-song re-renders of the audio block)
-  let abStart = null, abEnd = null;
-  let radioOn = false, rhymeOn = false, radioPending = false;
-  let lastAudioEl = null;
-
-  function getAudio() { return document.getElementById('ll-audio'); }
-  // preview clips start mid-song: lyric-time = audio-time + offset
-  function getOffset(audio) { return parseFloat(audio.dataset.offset || '0'); }
-
-  function fmt(t) {
-    const s = Math.max(0, Math.floor(t));
-    return String(Math.floor(s / 60)).padStart(2, '0') + ':' +
-           String(s % 60).padStart(2, '0');
-  }
-
-  // write into a hidden gradio textbox channel and notify the backend
-  function writeChannel(id, value) {
-    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
-    if (!box) return;
-    box.value = value;
-    box.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
-  function applyRhyme() {
-    const c = document.getElementById('lyrics-container');
-    if (c) c.classList.toggle('rhyme-on', rhymeOn);
-  }
-
-  // waveform: wavesurfer (CDN) drawing on top of the native audio element;
-  // silently absent when the CDN is unreachable
-  function initWave(a) {
-    const holder = document.getElementById('ll-wave');
-    if (!holder) return;
-    if (!window.WaveSurfer) {
-      // the deferred CDN script may not have loaded yet on first render —
-      // retry for a while (still this song's audio element) before giving up
-      holder.style.display = 'none';
-      a._llWaveTries = (a._llWaveTries || 0) + 1;
-      if (a._llWaveTries <= 20)
-        setTimeout(() => { if (getAudio() === a) initWave(a); }, 500);
-      return;
-    }
-    try {
-      if (window._llWave) { window._llWave.destroy(); window._llWave = null; }
-      holder.style.display = 'block';
-      window._llWave = WaveSurfer.create({
-        container: holder, media: a, height: 54,
-        waveColor: '#c9d4df', progressColor: '#0969da',
-        cursorColor: '#0969da', barWidth: 2, barGap: 1, barRadius: 1,
-      });
-    } catch (err) { holder.style.display = 'none'; }
-  }
-
-  function sync() {
-    const audio = getAudio();
-    const lines = document.querySelectorAll('#lyrics-scroll .lyric-line');
-    if (audio && lines.length) {
-      const ms = audio.currentTime * 1000 + getOffset(audio);
-      let idx = -1;
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (ms >= parseFloat(lines[i].dataset.ts || '0')) { idx = i; break; }
-      }
-      if (idx !== lastActive) {
-        lines.forEach((el, i) => {
-          el.classList.toggle('played', i < idx);
-          el.classList.toggle('active', i === idx);
-          if (i !== idx) {
-            const s = el.querySelector('.lyric-text');
-            if (s && s.style.backgroundImage) s.style.backgroundImage = '';
-          }
-        });
-        if (idx >= 0 && !userScrolling) {
-          // scroll ONLY the lyrics container — scrollIntoView also scrolls the
-          // page itself, hijacking clicks on other controls (e.g. search box)
-          const c = document.getElementById('lyrics-container');
-          const el = lines[idx];
-          if (c && el) {
-            c.scrollTo({
-              top: el.offsetTop - c.clientHeight / 2 + el.offsetHeight / 2,
-              behavior: 'smooth',
-            });
-          }
-        }
-        lastActive = idx;
-      }
-      // A-B loop: jump back to A whenever playback passes B
-      if (abStart !== null && abEnd !== null && !audio.paused
-          && audio.currentTime >= abEnd) {
-        audio.currentTime = abStart;
-      }
-      // karaoke sweep on the active line: estimated per-line progress
-      // (linear between this line's timestamp and the next one's)
-      if (idx >= 0 && !audio.paused) {
-        const el = lines[idx];
-        const t0 = parseFloat(el.dataset.ts || '0');
-        const next = lines[idx + 1];
-        const t1 = next ? parseFloat(next.dataset.ts || '0')
-                        : (audio.duration || 0) * 1000 + getOffset(audio);
-        const p = Math.min(100, Math.max(0, 100 * (ms - t0) / Math.max(t1 - t0, 1)));
-        const s = el.querySelector('.lyric-text');
-        if (s) {
-          s.style.backgroundImage =
-            'linear-gradient(90deg, var(--accent) ' + p.toFixed(1) +
-            '%, var(--karaoke-rest) ' + p.toFixed(1) + '%)';
-        }
-      }
-    }
-    requestAnimationFrame(sync);
-  }
-  requestAnimationFrame(sync);
-
-  // whole-song echo map: backend writes JSON into #ll-echo-map, we decorate
-  // matching lyric lines with a 🥚 marker (idempotent; re-applies after any
-  // lyrics re-render, skips maps that belong to a different song)
-  setInterval(() => {
-    const box = document.querySelector('#ll-echo-map textarea, #ll-echo-map input');
-    if (!box || !box.value) return;
-    let data;
-    try { data = JSON.parse(box.value); } catch (e) { return; }
-    const lines = document.querySelectorAll('#lyrics-scroll .lyric-line');
-    if (!lines.length) return;
-    const title = document.querySelector('.song-title-display');
-    if (!title || title.textContent.trim() !== data.song) return;
-    const want = new Map((data.lines || []).map(o => [o.i, o]));
-    lines.forEach(el => {
-      const has = el.querySelector('.echo-mark');
-      const o = want.get(parseInt(el.dataset.index));
-      if (o && !has) {
-        const m = document.createElement('span');
-        m.className = 'echo-mark';
-        m.title = '彩蛋：与《' + o.song + '》有呼应（相似度 ' + o.sim +
-                  '），点击这行查看详情';
-        m.textContent = '🥚';
-        el.appendChild(m);
-      } else if (!o && has) has.remove();
-    });
-  }, 600);
-
-  // new-song watcher: the audio block is re-rendered per song, so restore
-  // toggle states, rebuild the waveform, reset the A-B loop, and (in radio
-  // mode) play the spoken intro before the song itself
-  setInterval(() => {
-    const a = getAudio();
-    if (!a || a === lastAudioEl) return;
-    lastAudioEl = a;
-    abStart = abEnd = null;
-    const r = document.getElementById('ll-radio-toggle');
-    if (r) r.checked = radioOn;
-    const y = document.getElementById('ll-rhyme-toggle');
-    if (y) y.checked = rhymeOn;
-    applyRhyme();
-    initWave(a);
-    if (radioPending) {
-      radioPending = false;
-      const intro = a.dataset.intro;
-      if (radioOn && intro) {
-        const voice = new Audio(intro);
-        voice.addEventListener('ended', () => a.play().catch(() => {}));
-        // a broken intro file fires 'error', never 'ended' — don't stall
-        voice.addEventListener('error', () => a.play().catch(() => {}));
-        voice.play().catch(() => { a.play().catch(() => {}); });
-      } else if (radioOn) {
-        a.play().catch(() => {});
-      }
-    }
-  }, 500);
-
-  // radio mode: when the song ends, advance to the next one in the list
-  document.addEventListener('ended', function(e) {
-    if (!e.target || e.target.id !== 'll-audio' || !radioOn) return;
-    const inputs = Array.from(
-      document.querySelectorAll('#ll-songs input[type=radio]'));
-    if (!inputs.length) return;
-    const i = inputs.findIndex(x => x.checked);
-    radioPending = true;
-    inputs[(i + 1) % inputs.length].click();
-  }, true);  // 'ended' does not bubble — capture it
-
-  // toggle listeners (delegated: the checkboxes are re-rendered per song)
-  document.addEventListener('change', function(e) {
-    if (!e.target) return;
-    if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
-    if (e.target.id === 'll-rhyme-toggle') {
-      rhymeOn = e.target.checked;
-      applyRhyme();
-    }
-  }, true);
-
-  // player-tool buttons + click-to-backend channels (capture phase so a
-  // delete click doesn't also trigger the note's data-seek)
-  document.addEventListener('click', function(e) {
-    if (!e.target.closest) return;
-    const audio = getAudio();
-    if (e.target.closest('#ll-ab-a') && audio) {
-      abStart = audio.currentTime; abEnd = null;
-      e.target.closest('#ll-ab-a').textContent = '🅰 ' + fmt(abStart);
-      const b = document.getElementById('ll-ab-b');
-      if (b) b.textContent = '🅱 循环';
-      const c = document.getElementById('ll-ab-clear');
-      if (c) c.style.display = 'none';
-      return;
-    }
-    if (e.target.closest('#ll-ab-b') && audio) {
-      if (abStart === null || audio.currentTime <= abStart + 0.3) return;
-      abEnd = audio.currentTime;
-      e.target.closest('#ll-ab-b').textContent = '🅱 ' + fmt(abEnd);
-      const c = document.getElementById('ll-ab-clear');
-      if (c) c.style.display = '';
-      return;
-    }
-    if (e.target.closest('#ll-ab-clear')) {
-      abStart = abEnd = null;
-      const a2 = document.getElementById('ll-ab-a');
-      if (a2) a2.textContent = '🅰 起点';
-      const b2 = document.getElementById('ll-ab-b');
-      if (b2) b2.textContent = '🅱 循环';
-      e.target.closest('#ll-ab-clear').style.display = 'none';
-      return;
-    }
-    const del = e.target.closest('[data-del-note]');
-    if (del) {
-      e.stopPropagation();
-      writeChannel('ll-note-del', del.dataset.delNote + ':' +
-                   (del.dataset.delTs || '') + '\\t' + Date.now());
-      return;
-    }
-    const word = e.target.closest('.cloud-word');
-    if (word) {
-      writeChannel('ll-word-pick', word.dataset.word + '\\t' + Date.now());
-      return;
-    }
-    const emo = e.target.closest('[data-emo-pick]');
-    if (emo) {
-      writeChannel('ll-emo-pick', emo.dataset.emoPick + '\\t' + Date.now());
-    }
-  }, true);
-
-  // current playback position → hidden channel (used by 听歌笔记)
-  setInterval(() => {
-    const a = getAudio();
-    const box = document.querySelector('#ll-cur-time textarea, #ll-cur-time input');
-    if (!box) return;
-    // no audio on this song: reset instead of keeping the previous song's
-    // position (a note added here would inherit that stale timestamp)
-    const v = a ? a.currentTime.toFixed(2) : '0';
-    if (box.value !== v) {
-      box.value = v;
-      box.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  }, 700);
-
-  // keep the AI chat scrolled to the bottom while streaming (only when near bottom)
-  setInterval(() => {
-    const c = document.getElementById('chat-scroll');
-    if (!c) return;
-    if (c.scrollHeight - c.scrollTop - c.clientHeight < 140) c.scrollTop = c.scrollHeight;
-  }, 400);
-
-  document.addEventListener('wheel', function(e) {
-    if (e.target.closest && e.target.closest('#lyrics-container')) {
-      userScrolling = true;
-      clearTimeout(scrollTimeout);
-      scrollTimeout = setTimeout(() => { userScrolling = false; }, 5000);
-    }
-  }, { passive: true });
-
-  // focus assist on pointerdown (fires before click; more reliable when
-  // some other handler swallows the click): pressing anywhere on the
-  // search field focuses its input
-  document.addEventListener('pointerdown', function(e) {
-    if (!e.target.closest) return;
-    const sw = e.target.closest('#ll-search');
-    if (sw) {
-      const inp = sw.querySelector('textarea, input');
-      if (inp) setTimeout(() => inp.focus(), 0);
-    }
-  }, true);
-
-  document.addEventListener('click', function(e) {
-    if (!e.target.closest) return;
-    if (e.target.closest('#ll-search')) return;
-
-    const audio = getAudio();
-
-    // 彩蛋总览 entry: jump to (and select) the referenced lyric line
-    const ov = e.target.closest('[data-goto-line]');
-    if (ov) {
-      const line = document.querySelector(
-        '#lyrics-scroll .lyric-line[data-index="' + ov.dataset.gotoLine + '"]');
-      if (line) {
-        const c = document.getElementById('lyrics-container');
-        if (c) {
-          c.scrollTo({
-            top: line.offsetTop - c.clientHeight / 2 + line.offsetHeight / 2,
-            behavior: 'smooth',
-          });
-        }
-        line.click();
-      }
-      return;
-    }
-
-    const seekEl = e.target.closest('[data-seek]');
-    if (seekEl && audio) {
-      audio.currentTime = Math.max(0,
-        (parseFloat(seekEl.dataset.seek) - getOffset(audio)) / 1000);
-      audio.play().catch(() => {});
-      return;
-    }
-
-    const line = e.target.closest('#lyrics-scroll .lyric-line');
-    if (line) {
-      document.querySelectorAll('.lyric-line.picked').forEach(el => el.classList.remove('picked'));
-      line.classList.add('picked');
-      // tell the backend which line is selected (feeds the AI assistant panel)
-      const pick = document.querySelector('#ll-line-pick textarea, #ll-line-pick input');
-      if (pick) {
-        pick.value = line.dataset.index;
-        pick.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      if (audio && line.dataset.ts) {
-        audio.currentTime = Math.max(0,
-          (parseFloat(line.dataset.ts) - getOffset(audio)) / 1000);
-        audio.play().catch(() => {});
-      }
-    }
-  });
-
-  document.addEventListener('keydown', function(e) {
-    const tag = (e.target.tagName || '').toLowerCase();
-    if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
-    const audio = getAudio();
-    if (!audio) return;
-    if (e.code === 'Space') {
-      e.preventDefault();
-      audio.paused ? audio.play().catch(() => {}) : audio.pause();
-    } else if (e.key === 'ArrowLeft') {
-      audio.currentTime = Math.max(0, audio.currentTime - 5);
-    } else if (e.key === 'ArrowRight') {
-      audio.currentTime = Math.min(audio.duration || 1e9, audio.currentTime + 5);
-    }
-  });
-})();
-</script>
-"""
-
-# ── CSS ───────────────────────────────────────────────────
-
-_CSS = """\
-:root {
-  --bg-primary: #ffffff;
-  --bg-secondary: #f6f8fa;
-  --bg-card: #f6f8fa;
-  --bg-card-hover: #eaeef2;
-  --text-primary: #1f2328;
-  --text-secondary: #656d76;
-  --text-played: #a9b1ba;
-  --accent: #0969da;
-  --accent-soft: rgba(9, 105, 218, 0.08);
-  --accent-glow: rgba(9, 105, 218, 0.15);
-  --border: #d0d7de;
-  --karaoke-rest: #57606a; /* un-sung part of the active karaoke line */
-}
-
-body, .gradio-container { background: var(--bg-primary) !important; }
-
-/* hide gradio footer (Runs / API / Gradio links) */
-footer, .gradio-container footer { display: none !important; }
-
-/* song list & catalog: one song per line, never side by side */
-#ll-songs .wrap, #ll-songs [data-testid="radio"], #ll-songs fieldset,
-#ll-catalog .wrap, #ll-catalog [data-testid="radio"], #ll-catalog fieldset {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: stretch !important;
-  gap: 4px !important;
-}
-#ll-songs label, #ll-catalog label { width: 100%; }
-#ll-catalog { max-height: 46vh; overflow-y: auto; }
-
-/* white theme: every field on white with clearly visible text + caret */
-.gradio-container input:not([type="checkbox"]):not([type="radio"]),
-.gradio-container textarea,
-.gradio-container select {
-  background: #ffffff !important;
-  color: var(--text-primary) !important;
-  caret-color: var(--accent) !important;
-  border: 1px solid var(--border) !important;
-}
-.gradio-container input:focus, .gradio-container textarea:focus {
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 2px var(--accent-soft) !important;
-}
-.gradio-container input::placeholder, .gradio-container textarea::placeholder {
-  color: var(--text-secondary) !important; opacity: 0.6;
-}
-
-.app-header { text-align: center; padding: 16px 0 4px; }
-.app-header h1 { color: var(--accent); font-size: 26px; margin: 0; font-weight: 700; }
-.app-header p { color: var(--text-secondary); margin: 4px 0 0; font-size: 14px; }
-
-/* ── Prominent tab navigation ── */
-.gradio-container .tab-nav, .gradio-container div[role="tablist"] {
-  justify-content: center; gap: 10px; border-bottom: 1px solid var(--border);
-  padding-bottom: 0; margin-bottom: 10px;
-}
-.gradio-container .tab-nav button, .gradio-container button[role="tab"] {
-  font-size: 17px !important; font-weight: 700 !important;
-  padding: 12px 30px !important; border-radius: 12px 12px 0 0 !important;
-  color: var(--text-secondary) !important; background: transparent !important;
-  border: none !important; border-bottom: 3px solid transparent !important;
-  transition: all 0.2s ease;
-}
-.gradio-container .tab-nav button:hover, .gradio-container button[role="tab"]:hover {
-  color: var(--text-primary) !important; background: var(--bg-card-hover) !important;
-}
-.gradio-container .tab-nav button.selected,
-.gradio-container button[role="tab"][aria-selected="true"] {
-  color: var(--accent) !important; background: var(--accent-soft) !important;
-  border-bottom: 3px solid var(--accent) !important;
-}
-
-.ll-hidden { display: none !important; }
-
-.side-panel-title {
-  font-size: 15px; font-weight: 700; color: var(--text-primary);
-  padding: 4px 2px 6px; border-bottom: 2px solid var(--accent-soft); margin-bottom: 8px;
-}
-
-/* Song header */
-.song-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 12px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px;
-}
-.song-title-display { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
-.song-meta-display { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
-
-.no-audio-hint {
-  padding: 10px 16px; margin: 8px 0; border-radius: 8px; font-size: 13px;
-  background: var(--bg-card); border: 1px dashed var(--border);
-  color: var(--text-secondary);
-}
-.preview-hint {
-  margin-top: 4px; font-size: 11px; color: var(--text-secondary);
-}
-.echo-mark {
-  margin-left: 6px; font-size: 12px; opacity: 0.7; user-select: none;
-}
-.lyric-line:hover .echo-mark { opacity: 1; }
-
-.lyrics-hint { text-align: center; color: var(--text-secondary); font-size: 12px; padding: 6px 0; opacity: 0.7; }
-
-/* Lyrics */
-#lyrics-container {
-  position: relative; /* anchors .lyric-line offsetTop for container-scoped scroll */
-  max-height: 66vh; overflow-y: auto; padding: 8px 12px;
-  scroll-behavior: smooth; scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-#lyrics-container::-webkit-scrollbar { width: 6px; }
-#lyrics-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-#lyrics-scroll { display: flex; flex-direction: column; gap: 2px; }
-
-.lyric-line {
-  padding: 8px 16px; border-radius: 8px; cursor: pointer;
-  transition: all 0.25s ease; border-left: 3px solid transparent;
-}
-.lyric-line:hover { background: var(--bg-card-hover); }
-.lyric-line.picked { background: var(--accent-soft); border-left-color: var(--accent); }
-.lyric-line.played .lyric-text { color: var(--text-played); }
-.lyric-line.active { background: var(--accent-glow); border-left-color: var(--accent); transform: scale(1.01); }
-.lyric-line.active .lyric-text { color: var(--accent); font-weight: 600; font-size: 17px; }
-/* karaoke sweep: JS drives a gradient over the active line's text; the
-   estimated progress paints sung characters accent-blue */
-@supports (-webkit-background-clip: text) or (background-clip: text) {
-  .lyric-line.active .lyric-text[style*="background-image"] {
-    -webkit-background-clip: text; background-clip: text;
-    color: transparent; -webkit-text-fill-color: transparent;
-  }
-}
-.lyric-text { font-size: 15px; color: var(--text-primary); transition: all 0.25s ease; line-height: 1.65; }
-
-/* Search */
-#ll-search { position: relative; z-index: 5; }
-#ll-search textarea, #ll-search input {
-  pointer-events: auto !important; cursor: text;
-}
-.search-mode-tag { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
-.search-hit {
-  padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
-  border-radius: 8px; margin-bottom: 6px;
-}
-.search-hit.seekable { cursor: pointer; }
-.search-hit.seekable:hover { border-color: var(--accent); }
-.search-line { font-size: 13px; color: var(--text-primary); font-style: italic; }
-.search-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
-.search-none { color: var(--text-secondary); font-size: 13px; padding: 8px; }
-
-/* AI assistant chat */
-.chat-topic {
-  font-size: 13px; color: var(--accent); padding: 8px 12px;
-  background: var(--accent-soft); border-radius: 8px; margin-bottom: 8px;
-}
-.chat-topic.dim { color: var(--text-secondary); background: var(--bg-card); }
-.chat-empty { color: var(--text-secondary); font-size: 13px; padding: 10px; line-height: 1.7; }
-#chat-scroll {
-  max-height: 56vh; overflow-y: auto; display: flex; flex-direction: column;
-  gap: 8px; padding: 4px 2px; scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-.chat-bubble {
-  padding: 10px 14px; border-radius: 12px; font-size: 13px;
-  line-height: 1.7; max-width: 94%;
-}
-.chat-bubble b { display: block; font-size: 12px; margin-bottom: 4px; color: var(--accent); }
-.chat-bubble p { margin: 0; color: var(--text-primary); white-space: pre-wrap; }
-.chat-bubble.ai { background: rgba(9,105,218,0.06); border: 1px solid rgba(9,105,218,0.22); align-self: flex-start; }
-.chat-bubble.user { background: var(--bg-card); border: 1px solid var(--border); align-self: flex-end; }
-.chat-bubble.streaming { border-style: dashed; opacity: 0.92; }
-/* debate personas get their own tints */
-.chat-bubble.critic { background: rgba(130,80,223,0.07); border-color: rgba(130,80,223,0.30); }
-.chat-bubble.critic b { color: #8250df; }
-.chat-bubble.fan { background: rgba(191,57,137,0.07); border-color: rgba(191,57,137,0.30); }
-.chat-bubble.fan b { color: #bf3989; }
-
-/* whole-song AI intro */
-.song-intro {
-  font-size: 13px; line-height: 1.8; color: var(--text-primary);
-  padding: 10px 12px; background: var(--bg-card); border-radius: 10px;
-  white-space: pre-wrap;
-}
-
-.add-status { font-size: 14px; line-height: 1.8; }
-
-/* Easter-egg intertextuality tracker */
-.echo-list { display: flex; flex-direction: column; gap: 6px; }
-.echo-card {
-  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--bg-card);
-}
-.echo-line { font-size: 13px; font-style: italic; color: var(--text-primary); }
-.echo-meta { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
-.echo-explain { font-size: 13px; line-height: 1.7; }
-
-/* player tools (chorus / A-B loop / toggles) */
-#ll-wave { width: 100%; min-height: 0; }
-.player-tools {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  padding: 6px 2px 0;
-}
-.ptool {
-  font-size: 12px; padding: 3px 10px; border-radius: 14px; cursor: pointer;
-  background: var(--bg-card); border: 1px solid var(--border);
-  color: var(--text-primary);
-}
-.ptool:hover { border-color: var(--accent); color: var(--accent); }
-.ptool-toggle {
-  font-size: 12px; color: var(--text-secondary); cursor: pointer;
-  display: inline-flex; align-items: center; gap: 4px;
-}
-
-/* end-rhyme dots: hidden until the 🎯 韵脚 toggle adds .rhyme-on */
-.rhyme-mark {
-  display: none; width: 9px; height: 9px; border-radius: 50%;
-  margin-left: 8px; vertical-align: middle;
-}
-#lyrics-container.rhyme-on .rhyme-mark { display: inline-block; }
-
-/* listening notes */
-.note-list { display: flex; flex-direction: column; gap: 5px; max-height: 32vh; overflow-y: auto; }
-.note-item {
-  display: flex; gap: 8px; align-items: baseline; cursor: pointer;
-  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-card); font-size: 13px;
-}
-.note-item:hover { border-color: var(--accent); }
-.note-ts { color: var(--accent); font-size: 12px; white-space: nowrap; }
-.note-text { flex: 1; color: var(--text-primary); }
-.note-del { color: var(--text-secondary); padding: 0 4px; }
-.note-del:hover { color: #cf222e; }
-
-/* daily quote card */
-.daily-card {
-  background: linear-gradient(135deg, rgba(9,105,218,0.07), rgba(130,80,223,0.07));
-  border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px;
-}
-.daily-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-.daily-line { font-size: 19px; font-weight: 700; color: var(--text-primary); font-style: italic; }
-.daily-meta { font-size: 13px; color: var(--accent); margin: 6px 0 8px; }
-.daily-insight { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
-
-/* word cloud */
-.cloud-hint { font-size: 12px; color: var(--text-secondary); margin: 4px 0 8px; }
-.word-cloud {
-  display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: baseline;
-  padding: 10px 4px;
-}
-.cloud-word { color: var(--accent); cursor: pointer; line-height: 1.1; }
-.cloud-word:hover { text-decoration: underline; }
-
-/* emotion map */
-.emo-axis { stroke: var(--border); stroke-dasharray: 4 4; }
-.emo-axis-label { font-size: 12px; fill: var(--text-secondary); }
-.emo-node { cursor: pointer; }
-.emo-node circle { stroke: #ffffff; stroke-width: 1.5; }
-.emo-node:hover circle { stroke: var(--accent); stroke-width: 2.5; }
-.emo-label { font-size: 11px; fill: var(--text-secondary); }
-
-/* UI probe report table */
-.probe-table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
-.probe-table th, .probe-table td {
-  border: 1px solid var(--border); padding: 4px 8px; text-align: left;
-}
-.probe-table th { background: var(--bg-card); }
-.probe-detail { color: #cf222e; }
-
-/* quiz */
-.quiz-line {
-  font-size: 18px; font-weight: 700; font-style: italic;
-  color: var(--text-primary); padding: 14px 18px;
-  background: var(--bg-card); border-radius: 12px;
-}
-.quiz-meta { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
-
-/* whole-song easter-egg overview (🗺️ 本歌彩蛋总览) */
-.echo-ov-head { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-.echo-ov-list { max-height: 40vh; overflow-y: auto; scrollbar-width: thin; }
-.echo-ov-item {
-  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--bg-card); margin-bottom: 6px; cursor: pointer;
-  transition: border-color 0.15s ease;
-}
-.echo-ov-item:hover { border-color: var(--accent); }
-.echo-ov-src { font-size: 13px; font-style: italic; color: var(--text-primary); }
-.echo-ov-dst { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
-.echo-ov-sim { margin-left: 6px; font-size: 11px; color: var(--accent); }
-"""
-
 
 # ── App factory ───────────────────────────────────────────
 
@@ -1345,12 +207,33 @@ def create_app(settings: Settings) -> gr.Blocks:
         index = _echo_index()
         if index is None:
             return "", _ECHO_NO_INDEX
+        # cache key: anything that changes the scan result invalidates it —
+        # the song's lyrics, the corpus embeddings, model and thresholds
         lrc = Path(song_dir) / "lyrics.lrc"
-        mtime = lrc.stat().st_mtime if lrc.exists() else 0.0
+        emb_file = Path(settings.corpus_dir) / "embeddings.npy"
+        cache_key = [
+            lrc.stat().st_mtime if lrc.exists() else 0.0,
+            emb_file.stat().st_mtime if emb_file.exists() else 0.0,
+            settings.embedding_model,
+            settings.echo_min_similarity,
+            settings.echo_min_similarity_cjk,
+        ]
         cache = ctx.setdefault("echo_maps", {})
         cached = cache.get(song_dir)
-        if cached and cached[0] == mtime:
+        if cached and cached[0] == cache_key:
             return cached[1], cached[2]
+        # disk cache: whole-song scans cost 1-2s of model encoding each —
+        # persisting them makes every restart start warm
+        disk_path = _ECHO_SCAN_CACHE_DIR / f"{Path(song_dir).name}.json"
+        try:
+            if disk_path.exists():
+                blob = json.loads(disk_path.read_text(encoding="utf-8"))
+                if blob.get("key") == cache_key:
+                    cache[song_dir] = (cache_key, blob["payload"],
+                                       blob["overview"])
+                    return blob["payload"], blob["overview"]
+        except Exception:
+            logger.exception("Failed reading echo scan cache %s", disk_path)
         embeddings, corpus = index
         data = _load_song_data(song_dir)
         lines = data["timed_lines"]
@@ -1378,7 +261,14 @@ def create_app(settings: Settings) -> gr.Blocks:
             ],
         }, ensure_ascii=False)
         overview = _render_echo_overview(hits, info.get("artist", ""))
-        cache[song_dir] = (mtime, payload, overview)
+        cache[song_dir] = (cache_key, payload, overview)
+        try:
+            _ECHO_SCAN_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            disk_path.write_text(json.dumps(
+                {"key": cache_key, "payload": payload, "overview": overview},
+                ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            logger.exception("Failed writing echo scan cache %s", disk_path)
         return payload, overview
 
     with gr.Blocks(title="歌词透镜 — AI 歌词批注播放器") as app:
@@ -1545,6 +435,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                              ("🕸️ 整体网络", "net")],
                     value="focus", show_label=False)
                 echo_map_html = gr.HTML("")
+                # JS -> backend: clicked song on the map (refocus)
+                focus_pick_box = gr.Textbox(
+                    value="", visible=True, elem_id="ll-focus-pick",
+                    elem_classes=["ll-hidden"], show_label=False,
+                    container=False)
                 map_explain_btn = gr.Button("✨ 让 AI 解读这张彩蛋网络", size="sm")
                 map_explain_out = gr.Markdown("", elem_classes=["echo-explain"])
                 gr.Markdown("---\n### 🔍 意象追踪\n"
@@ -1861,6 +756,24 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 value=value),
                     dd, _render_map(value, "focus", focus))
 
+        def on_focus_pick(payload: str, artist: str):
+            """Map-node click: refocus on that song (and switch to focus view)."""
+            song = (payload or "").split("\t")[0].strip()
+            if not song or not artist:
+                return gr.skip(), gr.skip(), gr.skip()
+            graph, _net = _map_graph(artist)
+            if graph is None:
+                return gr.skip(), gr.skip(), gr.skip()
+            from .intertextuality.echo_map import focus_choices
+            songs = focus_choices(graph)
+            if song not in songs:
+                return gr.skip(), gr.skip(), gr.skip()
+            # visible=True: the click may arrive from the network view,
+            # where the focus dropdown is hidden
+            return (gr.Dropdown(choices=songs, value=song, visible=True),
+                    gr.Radio(value="focus"),
+                    _render_map(artist, "focus", song))
+
         # .input (not .change): programmatic updates from init_echo_map must
         # not re-trigger these handlers, or the default focus gets overwritten
         map_artist.input(on_map_artist, [map_artist, map_view],
@@ -1869,6 +782,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                        [map_focus, echo_map_html])
         map_focus.input(on_map_focus, [map_focus, map_artist, map_view],
                         [echo_map_html])
+        focus_pick_box.change(on_focus_pick, [focus_pick_box, map_artist],
+                              [map_focus, map_view, echo_map_html])
         app.load(init_echo_map, [song_radio],
                  [map_artist, map_focus, echo_map_html])
 
@@ -2239,6 +1154,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             session = DebateSession(
                 lyric_line=line.text,
                 song_title=info.get("title", ""),
+                artist=info.get("artist", ""),
                 annotation_context=ann.summary if ann else "",
                 line_index=idx,
                 history=history,
@@ -2791,11 +1707,13 @@ def create_app(settings: Settings) -> gr.Blocks:
                 return
             settings = replace(settings, embedding_model=model_name)
             # persist so a restart keeps using this model (merge, don't clobber)
-            from .config import USER_SETTINGS_PATH
+            from .config import user_settings_path
             try:
-                current = json.loads(USER_SETTINGS_PATH.read_text(
-                    encoding="utf-8")) if USER_SETTINGS_PATH.exists() else {}
+                sp = user_settings_path()
+                current = json.loads(
+                    sp.read_text(encoding="utf-8")) if sp.exists() else {}
             except Exception:
+                logger.exception("Failed reading user settings — overwriting")
                 current = {}
             current["embedding_model"] = model_name
             save_user_settings(current)
@@ -2823,9 +1741,8 @@ def create_app(settings: Settings) -> gr.Blocks:
             if not script.exists():
                 yield "⚠️ 未找到 scripts/ui_probe.py（需在源码仓库内运行）。", ""
                 return
-            try:
-                import playwright  # noqa: F401
-            except ImportError:
+            import importlib.util
+            if importlib.util.find_spec("playwright") is None:
                 yield ("⚠️ 需要 playwright：`pip install playwright && "
                        "playwright install chromium`"), ""
                 return

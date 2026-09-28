@@ -24,8 +24,9 @@ PERSONAS = {
     "assistant": {
         "name_zh": "🤖 AI 助手",
         "name_en": "🤖 AI Assistant",
+        # {artist_scope} is filled per session with the song's artist
         "system": (
-            "你是一位精通 Taylor Swift 作品与歌词文学分析的私人 AI 助手。"
+            "你是一位精通{artist_scope}与歌词文学分析的私人 AI 助手。"
             "用户会针对某一句歌词提问，你结合已有批注、专辑背景、创作故事与文学视角，"
             "用平实亲切的简体中文回答，可以适当引用歌词原文。"
             "回答 100-250 字，直接给出内容，不要客套开场白。"
@@ -45,8 +46,8 @@ PERSONAS = {
         "name_zh": "🎵 粉丝考据家",
         "name_en": "🎵 Fan Theorist",
         "system": (
-            "你是一位资深 Swiftie 粉丝考据家，正在参加一场关于歌词解读的圆桌辩论。"
-            "你的分析侧重：专辑叙事线索（如 folklore 三部曲）、真实事件与人物映射、"
+            "你是{fan_scope}，正在参加一场关于歌词解读的圆桌辩论。"
+            "你的分析侧重：专辑叙事线索、真实事件与人物映射、"
             "彩蛋与自我互文、粉丝社群的经典理论。"
             "你认为文学分析有时想得太多——故事逻辑和创作背景才是钥匙。"
             "每次发言 120-200 字，直接输出观点，不要客套开场白。用中文回答。"
@@ -59,14 +60,27 @@ PERSONAS = {
 class DebateSession:
     lyric_line: str
     song_title: str
+    artist: str = ""
     annotation_context: str = ""
     line_index: int = -1
     history: list[dict] = field(default_factory=list)  # {"speaker","text"}
 
 
+def persona_system(persona: str, artist: str = "") -> str:
+    """Persona system prompt bound to the song's artist (no hardcoded artist)."""
+    artist = (artist or "").strip()
+    return PERSONAS[persona]["system"].format(
+        artist_scope=f"{artist}的作品" if artist else "流行音乐歌词",
+        fan_scope=(f"{artist}的资深粉丝考据家" if artist
+                   else "一位资深的流行音乐粉丝考据家"),
+    )
+
+
 def _build_context(session: DebateSession) -> str:
+    by = f"{session.artist} 的" if session.artist else ""
     parts = [
-        f"正在讨论的歌词：《{session.song_title}》中的一句 —— \"{session.lyric_line}\"",
+        f"正在讨论的歌词：{by}《{session.song_title}》中的一句 —— "
+        f"\"{session.lyric_line}\"",
     ]
     if session.annotation_context:
         parts.append(f"已有的 AI 批注参考：{session.annotation_context}")

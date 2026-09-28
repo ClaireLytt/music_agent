@@ -42,6 +42,9 @@ all = [
 dev = [
     "lyric-agent[all]",
     "pytest>=7.0",
+    "pyflakes>=3.0",
+    "httpx>=0.27",        # scripts/self_test.py
+    "playwright>=1.40",   # scripts/ui_probe.py（还需 playwright install chromium）
 ]
 
 [project.scripts]

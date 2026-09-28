@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 _VALID_PROVIDERS = ("anthropic", "openai")
 
@@ -37,7 +40,8 @@ DEFAULT_ECHO_MAP_MAX_NODES = 18
 # licensed for offline demo only and must never appear on a public deployment
 HACKATHON_PLAYLIST_SOURCE = "tme_hackathon_playlist"
 
-USER_SETTINGS_PATH = Path("data/user_settings.json")
+def user_settings_path() -> Path:
+    return Path(os.getenv("USER_SETTINGS_PATH", "data/user_settings.json"))
 
 
 def default_model_for(provider: str) -> str:
@@ -46,19 +50,23 @@ def default_model_for(provider: str) -> str:
 
 def _load_user_settings() -> dict:
     """Settings saved from the UI 设置 tab; they override .env values."""
+    path = user_settings_path()
     try:
-        if USER_SETTINGS_PATH.exists():
-            data = json.loads(USER_SETTINGS_PATH.read_text(encoding="utf-8"))
+        if path.exists():
+            data = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return data
     except Exception:
-        pass
+        # a corrupt settings file silently reverting to .env is confusing —
+        # leave a trace, then fall back
+        logger.exception("Failed reading %s — falling back to .env", path)
     return {}
 
 
 def save_user_settings(values: dict) -> None:
-    USER_SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    USER_SETTINGS_PATH.write_text(
+    path = user_settings_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
         json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -73,7 +81,6 @@ class Settings:
     songs_dir: str = "data/songs"
     corpus_dir: str = "data/corpus"
     evolution_path: str = "data/evolution/evolution.json"
-    embedding_provider: str = "local"
     embedding_model: str = DEFAULT_EMBEDDING_MODEL
     echo_min_similarity: float = DEFAULT_ECHO_MIN_SIMILARITY
     echo_min_similarity_cjk: float = DEFAULT_ECHO_MIN_SIMILARITY_CJK
@@ -82,7 +89,6 @@ class Settings:
     echo_top_k: int = DEFAULT_ECHO_TOP_K
     echo_map_max_nodes: int = DEFAULT_ECHO_MAP_MAX_NODES
     ui_port: int = 7860
-    ui_lang: str = "zh"
     # public deployment: per-visitor API keys (browser localStorage), read-only
     # library, no server-side chat history, hackathon playlist songs excluded
     public_mode: bool = False
@@ -128,7 +134,6 @@ def load_settings(require_api_key: bool = False) -> Settings:
         songs_dir=os.getenv("SONGS_DIR", "data/songs"),
         corpus_dir=os.getenv("CORPUS_DIR", "data/corpus"),
         evolution_path=os.getenv("EVOLUTION_PATH", "data/evolution/evolution.json"),
-        embedding_provider=os.getenv("EMBEDDING_PROVIDER", "local"),
         # the UI's rebuild-index flow persists the chosen model here
         embedding_model=user.get("embedding_model", "")
         or os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL),
@@ -146,6 +151,5 @@ def load_settings(require_api_key: bool = False) -> Settings:
         echo_map_max_nodes=int(
             os.getenv("ECHO_MAP_MAX_NODES", str(DEFAULT_ECHO_MAP_MAX_NODES))),
         ui_port=int(os.getenv("UI_PORT", "7860")),
-        ui_lang=os.getenv("UI_LANG", "zh"),
         public_mode=public_mode,
     )
