@@ -1,0 +1,853 @@
+{
+  "song": {
+    "title": "All Too Well (10 Minute Version)",
+    "artist": "Taylor Swift",
+    "album": "Red (Taylor's Version)",
+    "year": 2021,
+    "era": "Red",
+    "genre": "folk rock / singer-songwriter",
+    "themes": [
+      "heartbreak",
+      "age gap",
+      "power imbalance",
+      "vivid memory",
+      "nostalgia",
+      "reclaiming narrative"
+    ]
+  },
+  "annotations": [
+    {
+      "line_index": 2,
+      "lyric_text": "And I, left my scarf there at your sister's house",
+      "summary": "整首歌最著名的物件：留在对方姐姐家的围巾——被留下的不只是围巾，是一部分自我。",
+      "metaphor_analysis": "围巾=纯真与亲密的信物。它被「留下」又被「保留」，成为一段关系的物证。",
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "nostalgia",
+      "cultural_context": "十年来粉丝反复追问「围巾在哪」，使它成为流行文化中最著名的失物之一。",
+      "taylor_swift_context": "普遍认为写给 Jake Gyllenhaal，Maggie Gyllenhaal 曾在访谈中被问及围巾下落。",
+      "related_lines": [
+        {
+          "song": "cardigan",
+          "album": "folklore",
+          "line": "And when I felt like I was an old cardigan under someone's bed",
+          "similarity": 0.78
+        }
+      ],
+      "emotion_valence": 0.4,
+      "emotion_arousal": 0.35,
+      "emotion_category": "nostalgia"
+    },
+    {
+      "line_index": 6,
+      "lyric_text": "Autumn leaves falling down like pieces into place",
+      "summary": "秋叶落定如拼图归位——用季节意象把「回忆的必然性」写成风景。",
+      "metaphor_analysis": "本体：记忆的碎片；喻体：落叶。falling into place 双重含义：物理落下 + 真相拼合。",
+      "allusions": [],
+      "wordplay": "pieces into place 既是叶子落地，也是回忆拼图完成。",
+      "emotional_tone": "nostalgia",
+      "cultural_context": null,
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.45,
+      "emotion_arousal": 0.3,
+      "emotion_category": "nostalgia"
+    },
+    {
+      "line_index": 12,
+      "lyric_text": "Wind in my hair, I was there, I remember it",
+      "summary": "全曲的证词式宣言：「我在场，我记得」——用记忆对抗被抹除的叙事权。",
+      "metaphor_analysis": null,
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "nostalgia",
+      "cultural_context": null,
+      "taylor_swift_context": "10 分钟版本是 Taylor's Version 重录计划的核心宣言：夺回自己故事的所有权。",
+      "related_lines": [],
+      "emotion_valence": 0.35,
+      "emotion_arousal": 0.55,
+      "emotion_category": "nostalgia"
+    },
+    {
+      "line_index": 46,
+      "lyric_text": "I'm a crumpled up piece of paper lying here",
+      "summary": "「你把我像一张揉皱的纸扔掉」——被弃感最物化、最锋利的表达。",
+      "metaphor_analysis": "本体：被轻易结束的感情；喻体：揉皱的纸。纸曾承载文字（承诺），揉皱即背弃。",
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "sadness",
+      "cultural_context": null,
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.15,
+      "emotion_arousal": 0.6,
+      "emotion_category": "sadness"
+    },
+    {
+      "line_index": 64,
+      "lyric_text": "But you keep my old scarf from that very first week",
+      "summary": "结尾回到围巾：对方留着它，「因为它闻起来像我，因为你无法摆脱回忆」——记忆是双向的囚笼。",
+      "metaphor_analysis": "围巾从「我的失物」变成「你的收藏」，权力关系翻转：遗忘失败的是你。",
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "loss",
+      "cultural_context": null,
+      "taylor_swift_context": null,
+      "related_lines": [
+        {
+          "song": "cardigan",
+          "album": "folklore",
+          "line": "You put me on and said I was your favorite",
+          "similarity": 0.66
+        }
+      ],
+      "emotion_valence": 0.3,
+      "emotion_arousal": 0.5,
+      "emotion_category": "loss"
+    }
+  ],
+  "emotion_arc": [
+    {
+      "line_index": 0,
+      "t_ms": 23170,
+      "valence": 0.29,
+      "arousal": 0.31,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 1,
+      "t_ms": 28390,
+      "valence": 0.56,
+      "arousal": 0.31,
+      "category": "tenderness"
+    },
+    {
+      "line_index": 2,
+      "t_ms": 32780,
+      "valence": 0.4,
+      "arousal": 0.35,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 3,
+      "t_ms": 37920,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 4,
+      "t_ms": 53620,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 5,
+      "t_ms": 59380,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 6,
+      "t_ms": 64780,
+      "valence": 0.45,
+      "arousal": 0.3,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 7,
+      "t_ms": 68600,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 8,
+      "t_ms": 74800,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 9,
+      "t_ms": 79860,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 10,
+      "t_ms": 90230,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 11,
+      "t_ms": 95560,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 12,
+      "t_ms": 99820,
+      "valence": 0.35,
+      "arousal": 0.55,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 13,
+      "t_ms": 104250,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 14,
+      "t_ms": 110450,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 15,
+      "t_ms": 115680,
+      "valence": 0.56,
+      "arousal": 0.31,
+      "category": "tenderness"
+    },
+    {
+      "line_index": 16,
+      "t_ms": 121270,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 17,
+      "t_ms": 126460,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 18,
+      "t_ms": 130770,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 19,
+      "t_ms": 133560,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 20,
+      "t_ms": 138020,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 21,
+      "t_ms": 141210,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 22,
+      "t_ms": 144150,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 23,
+      "t_ms": 148040,
+      "valence": 0.44,
+      "arousal": 0.43,
+      "category": "regret"
+    },
+    {
+      "line_index": 24,
+      "t_ms": 151380,
+      "valence": 0.14,
+      "arousal": 0.52,
+      "category": "loss"
+    },
+    {
+      "line_index": 25,
+      "t_ms": 154350,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 26,
+      "t_ms": 158700,
+      "valence": 0.29,
+      "arousal": 0.49,
+      "category": "despair"
+    },
+    {
+      "line_index": 27,
+      "t_ms": 161920,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 28,
+      "t_ms": 166380,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 29,
+      "t_ms": 172130,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 30,
+      "t_ms": 177780,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 31,
+      "t_ms": 188150,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 32,
+      "t_ms": 193530,
+      "valence": 0.65,
+      "arousal": 0.52,
+      "category": "joy"
+    },
+    {
+      "line_index": 33,
+      "t_ms": 197970,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 34,
+      "t_ms": 200570,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 35,
+      "t_ms": 209050,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 36,
+      "t_ms": 214260,
+      "valence": 0.44,
+      "arousal": 0.43,
+      "category": "mystery"
+    },
+    {
+      "line_index": 37,
+      "t_ms": 218560,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 38,
+      "t_ms": 221150,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 39,
+      "t_ms": 244160,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 40,
+      "t_ms": 247120,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 41,
+      "t_ms": 249690,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 42,
+      "t_ms": 254730,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 43,
+      "t_ms": 257250,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 44,
+      "t_ms": 265140,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 45,
+      "t_ms": 270880,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 46,
+      "t_ms": 275430,
+      "valence": 0.15,
+      "arousal": 0.6,
+      "category": "sadness"
+    },
+    {
+      "line_index": 47,
+      "t_ms": 279520,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 48,
+      "t_ms": 286040,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 49,
+      "t_ms": 291200,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 50,
+      "t_ms": 296480,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 51,
+      "t_ms": 303670,
+      "valence": 0.29,
+      "arousal": 0.49,
+      "category": "despair"
+    },
+    {
+      "line_index": 52,
+      "t_ms": 307120,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 53,
+      "t_ms": 309730,
+      "valence": 0.77,
+      "arousal": 0.64,
+      "category": "love"
+    },
+    {
+      "line_index": 54,
+      "t_ms": 317320,
+      "valence": 0.32,
+      "arousal": 0.52,
+      "category": "sadness"
+    },
+    {
+      "line_index": 55,
+      "t_ms": 322510,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 56,
+      "t_ms": 327290,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 57,
+      "t_ms": 332910,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 58,
+      "t_ms": 337530,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 59,
+      "t_ms": 342770,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 60,
+      "t_ms": 361350,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 61,
+      "t_ms": 366320,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 62,
+      "t_ms": 371320,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 63,
+      "t_ms": 376880,
+      "valence": 0.38,
+      "arousal": 0.28,
+      "category": "loneliness"
+    },
+    {
+      "line_index": 64,
+      "t_ms": 381790,
+      "valence": 0.3,
+      "arousal": 0.5,
+      "category": "loss"
+    },
+    {
+      "line_index": 65,
+      "t_ms": 386900,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 66,
+      "t_ms": 391330,
+      "valence": 0.41,
+      "arousal": 0.37,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 67,
+      "t_ms": 395660,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 68,
+      "t_ms": 402560,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 69,
+      "t_ms": 408090,
+      "valence": 0.35,
+      "arousal": 0.43,
+      "category": "loss"
+    },
+    {
+      "line_index": 70,
+      "t_ms": 412120,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 71,
+      "t_ms": 416390,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 72,
+      "t_ms": 422280,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 73,
+      "t_ms": 427560,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 74,
+      "t_ms": 432830,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 75,
+      "t_ms": 437130,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 76,
+      "t_ms": 441840,
+      "valence": 0.44,
+      "arousal": 0.43,
+      "category": "regret"
+    },
+    {
+      "line_index": 77,
+      "t_ms": 448070,
+      "valence": 0.83,
+      "arousal": 0.52,
+      "category": "love"
+    },
+    {
+      "line_index": 78,
+      "t_ms": 453450,
+      "valence": 0.32,
+      "arousal": 0.52,
+      "category": "sadness"
+    },
+    {
+      "line_index": 79,
+      "t_ms": 458490,
+      "valence": 0.26,
+      "arousal": 0.43,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 80,
+      "t_ms": 463580,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 81,
+      "t_ms": 469330,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 82,
+      "t_ms": 474060,
+      "valence": 0.29,
+      "arousal": 0.31,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 83,
+      "t_ms": 477510,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 84,
+      "t_ms": 483170,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 85,
+      "t_ms": 487580,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 86,
+      "t_ms": 494810,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 87,
+      "t_ms": 505270,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 88,
+      "t_ms": 515600,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 89,
+      "t_ms": 519850,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 90,
+      "t_ms": 521440,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 91,
+      "t_ms": 526960,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 92,
+      "t_ms": 532170,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 93,
+      "t_ms": 537370,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 94,
+      "t_ms": 542050,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 95,
+      "t_ms": 547770,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 96,
+      "t_ms": 552670,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 97,
+      "t_ms": 558080,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 98,
+      "t_ms": 562630,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 99,
+      "t_ms": 568230,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 100,
+      "t_ms": 573280,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 101,
+      "t_ms": 578470,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 102,
+      "t_ms": 583320,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 103,
+      "t_ms": 588770,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 104,
+      "t_ms": 593920,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 105,
+      "t_ms": 599170,
+      "valence": 0.47,
+      "arousal": 0.34,
+      "category": "nostalgia"
+    }
+  ]
+}

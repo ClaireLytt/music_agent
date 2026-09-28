@@ -1,0 +1,527 @@
+{
+  "song": {
+    "title": "cardigan",
+    "artist": "Taylor Swift",
+    "album": "folklore",
+    "year": 2020,
+    "era": "folklore",
+    "genre": "indie folk / alternative",
+    "themes": [
+      "lost love",
+      "nostalgia",
+      "youth",
+      "memory",
+      "being chosen"
+    ]
+  },
+  "annotations": [
+    {
+      "line_index": 0,
+      "lyric_text": "Vintage tee, brand new phone",
+      "summary": "开篇用两个物件并置——复古T恤与崭新手机——瞬间定格「青春期的时间错位感」：既怀旧又崭新。",
+      "metaphor_analysis": "vintage（旧）与 brand new（新）的对撞是整首歌「记忆 vs 当下」主题的微缩模型。",
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "nostalgia",
+      "cultural_context": "High heels on cobblestones 暗示纽约西村的鹅卵石街道，为 folklore 的都市怀旧定调。",
+      "taylor_swift_context": "folklore 开创了 Taylor 的虚构叙事时期，cardigan 是 Betty-James-Augustine 三角故事中 Betty 的视角。",
+      "related_lines": [],
+      "emotion_valence": 0.55,
+      "emotion_arousal": 0.35,
+      "emotion_category": "nostalgia"
+    },
+    {
+      "line_index": 2,
+      "lyric_text": "When you are young, they assume you know nothing",
+      "summary": "副歌前的核心命题：成人世界对年轻人的傲慢假设。整首歌是对这句话的反驳——「但我知道」(But I knew you)。",
+      "metaphor_analysis": null,
+      "allusions": [
+        "呼应彼得潘式的「永恒少年」主题（后文 Peter losing Wendy）"
+      ],
+      "wordplay": null,
+      "emotional_tone": "regret",
+      "cultural_context": null,
+      "taylor_swift_context": "Taylor 在 folklore 纪录片中说，这句是整个三部曲的情感锚点：年轻人的感情被低估，但他们记得所有细节。",
+      "related_lines": [],
+      "emotion_valence": 0.4,
+      "emotion_arousal": 0.45,
+      "emotion_category": "regret"
+    },
+    {
+      "line_index": 12,
+      "lyric_text": "And when I felt like I was an old cardigan",
+      "summary": "全曲核心意象：被遗忘在床下的旧开衫——不再被穿上、被选择的自我价值感的隐喻。",
+      "metaphor_analysis": "本体：被忽视的自我；喻体：床下的旧开衫。「床下」意味着不可见、被搁置——不是被丢弃，而是被遗忘，这比丢弃更刺痛。",
+      "allusions": [],
+      "wordplay": "「put me on」双关：字面是「穿上我」，引申是「重视我/给我位置」。",
+      "emotional_tone": "tenderness",
+      "cultural_context": "开衫 (cardigan) 是温暖、居家、被包裹的象征物，Taylor 发行时同步售卖同款开衫周边，将隐喻实体化。",
+      "taylor_swift_context": "Betty 视角：回忆 James 曾让她感到被珍视。与 betty、august 构成 folklore 三部曲。",
+      "related_lines": [
+        {
+          "song": "All Too Well (10 Minute Version)",
+          "album": "Red (Taylor's Version)",
+          "line": "But you keep my old scarf from that very first week",
+          "similarity": 0.78
+        },
+        {
+          "song": "champagne problems",
+          "album": "evermore",
+          "line": "Your mom's ring in your pocket",
+          "similarity": 0.62
+        }
+      ],
+      "emotion_valence": 0.45,
+      "emotion_arousal": 0.3,
+      "emotion_category": "tenderness"
+    },
+    {
+      "line_index": 14,
+      "lyric_text": "You put me on and said I was your favorite",
+      "summary": "隐喻的温柔顶点：被「穿上」即被选择、被贴近身体——亲密与依赖的具象化。",
+      "metaphor_analysis": "延续衣物隐喻体系：从「床下」到「穿上」，是从被遗忘到被珍视的情感位移。",
+      "allusions": [],
+      "wordplay": "favorite 既指「最喜欢的衣物」也指「最爱的人」。",
+      "emotional_tone": "love",
+      "cultural_context": null,
+      "taylor_swift_context": null,
+      "related_lines": [],
+      "emotion_valence": 0.75,
+      "emotion_arousal": 0.45,
+      "emotion_category": "love"
+    },
+    {
+      "line_index": 36,
+      "lyric_text": "Peter losing Wendy, I",
+      "summary": "用彼得潘与温蒂的分离，隐喻「拒绝长大的人终将失去愿意等待的人」。",
+      "metaphor_analysis": "James 是 Peter（逃避、漂泊），Betty 是 Wendy（清醒、等待后离开）。",
+      "allusions": [
+        "J.M. Barrie《彼得·潘》：Peter 永远年轻，Wendy 选择长大离开梦幻岛"
+      ],
+      "wordplay": null,
+      "emotional_tone": "loss",
+      "cultural_context": null,
+      "taylor_swift_context": "Taylor 后来在 TTPD 中写了一首《Peter》，正面回应这个意象——跨越 4 年的自我互文。",
+      "related_lines": [
+        {
+          "song": "exile",
+          "album": "folklore",
+          "line": "I think I've seen this film before, and I didn't like the ending",
+          "similarity": 0.58
+        }
+      ],
+      "emotion_valence": 0.3,
+      "emotion_arousal": 0.4,
+      "emotion_category": "loss"
+    },
+    {
+      "line_index": 49,
+      "lyric_text": "And I knew you'd come back to me",
+      "summary": "结尾的确信宣言：整首歌从「被遗忘」走向「被证明」——Betty 早就知道 James 会回来。",
+      "metaphor_analysis": null,
+      "allusions": [],
+      "wordplay": null,
+      "emotional_tone": "hope",
+      "cultural_context": null,
+      "taylor_swift_context": "与 betty 中 James 道歉的场景呼应，三部曲叙事在此闭环。",
+      "related_lines": [],
+      "emotion_valence": 0.65,
+      "emotion_arousal": 0.5,
+      "emotion_category": "hope"
+    }
+  ],
+  "emotion_arc": [
+    {
+      "line_index": 0,
+      "t_ms": 8780,
+      "valence": 0.55,
+      "arousal": 0.35,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 1,
+      "t_ms": 12970,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 2,
+      "t_ms": 16670,
+      "valence": 0.4,
+      "arousal": 0.45,
+      "category": "regret"
+    },
+    {
+      "line_index": 3,
+      "t_ms": 23570,
+      "valence": 0.65,
+      "arousal": 0.52,
+      "category": "joy"
+    },
+    {
+      "line_index": 4,
+      "t_ms": 27660,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 5,
+      "t_ms": 31420,
+      "valence": 0.65,
+      "arousal": 0.52,
+      "category": "joy"
+    },
+    {
+      "line_index": 6,
+      "t_ms": 38120,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 7,
+      "t_ms": 40750,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 8,
+      "t_ms": 42640,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 9,
+      "t_ms": 46180,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 10,
+      "t_ms": 48150,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 11,
+      "t_ms": 50290,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 12,
+      "t_ms": 53420,
+      "valence": 0.45,
+      "arousal": 0.3,
+      "category": "tenderness"
+    },
+    {
+      "line_index": 13,
+      "t_ms": 57680,
+      "valence": 0.56,
+      "arousal": 0.31,
+      "category": "tenderness"
+    },
+    {
+      "line_index": 14,
+      "t_ms": 60630,
+      "valence": 0.75,
+      "arousal": 0.45,
+      "category": "love"
+    },
+    {
+      "line_index": 15,
+      "t_ms": 68080,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 16,
+      "t_ms": 72350,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 17,
+      "t_ms": 75630,
+      "valence": 0.65,
+      "arousal": 0.52,
+      "category": "joy"
+    },
+    {
+      "line_index": 18,
+      "t_ms": 82470,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 19,
+      "t_ms": 85070,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 20,
+      "t_ms": 87050,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 21,
+      "t_ms": 90360,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 22,
+      "t_ms": 92260,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 23,
+      "t_ms": 94350,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 24,
+      "t_ms": 97660,
+      "valence": 0.53,
+      "arousal": 0.25,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 25,
+      "t_ms": 102020,
+      "valence": 0.56,
+      "arousal": 0.31,
+      "category": "tenderness"
+    },
+    {
+      "line_index": 26,
+      "t_ms": 104890,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 27,
+      "t_ms": 125430,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 28,
+      "t_ms": 128850,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 29,
+      "t_ms": 132450,
+      "valence": 0.59,
+      "arousal": 0.4,
+      "category": "longing"
+    },
+    {
+      "line_index": 30,
+      "t_ms": 136280,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 31,
+      "t_ms": 141330,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 32,
+      "t_ms": 143620,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 33,
+      "t_ms": 145640,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 34,
+      "t_ms": 149100,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 35,
+      "t_ms": 151280,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 36,
+      "t_ms": 153170,
+      "valence": 0.3,
+      "arousal": 0.4,
+      "category": "loss"
+    },
+    {
+      "line_index": 37,
+      "t_ms": 156520,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 38,
+      "t_ms": 158630,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 39,
+      "t_ms": 160620,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 40,
+      "t_ms": 163810,
+      "valence": 0.65,
+      "arousal": 0.52,
+      "category": "joy"
+    },
+    {
+      "line_index": 41,
+      "t_ms": 169490,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    },
+    {
+      "line_index": 42,
+      "t_ms": 173410,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 43,
+      "t_ms": 176930,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 44,
+      "t_ms": 180770,
+      "valence": 0.65,
+      "arousal": 0.52,
+      "category": "joy"
+    },
+    {
+      "line_index": 45,
+      "t_ms": 184450,
+      "valence": 0.32,
+      "arousal": 0.61,
+      "category": "anger"
+    },
+    {
+      "line_index": 46,
+      "t_ms": 188020,
+      "valence": 0.44,
+      "arousal": 0.43,
+      "category": "mystery"
+    },
+    {
+      "line_index": 47,
+      "t_ms": 191720,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 48,
+      "t_ms": 195480,
+      "valence": 0.56,
+      "arousal": 0.31,
+      "category": "tenderness"
+    },
+    {
+      "line_index": 49,
+      "t_ms": 199090,
+      "valence": 0.65,
+      "arousal": 0.5,
+      "category": "hope"
+    },
+    {
+      "line_index": 50,
+      "t_ms": 202800,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 51,
+      "t_ms": 206630,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 52,
+      "t_ms": 210360,
+      "valence": 0.5,
+      "arousal": 0.4,
+      "category": "neutral"
+    },
+    {
+      "line_index": 53,
+      "t_ms": 216060,
+      "valence": 0.53,
+      "arousal": 0.25,
+      "category": "nostalgia"
+    },
+    {
+      "line_index": 54,
+      "t_ms": 220190,
+      "valence": 0.56,
+      "arousal": 0.31,
+      "category": "tenderness"
+    },
+    {
+      "line_index": 55,
+      "t_ms": 223120,
+      "valence": 0.68,
+      "arousal": 0.49,
+      "category": "love"
+    }
+  ]
+}

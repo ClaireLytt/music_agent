@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.env
+data/user_settings.json
+data/songs/*/chat_history.json
+.venv/
+venv/
+*.mp3
+*.wav
+*.flac
+data/songs/*/audio.*
+data/corpus/embeddings.npy
+data/corpus/index.faiss
+data/cards/
+.claude/
+logs/
+
+# per-user listening notes & generated radio intros
+data/songs/*/notes.json
