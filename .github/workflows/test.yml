@@ -1,0 +1,25 @@
+name: tests
+
+on:
+  push:
+    branches: [main, lyri]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install (core + test deps, no torch)
+        # sentence-transformers（torch，~2GB）在单测中被 monkeypatch，无需安装
+        run: |
+          pip install -e .
+          pip install numpy scipy jieba pypinyin pronouncing pytest pyflakes
+      - name: Lint
+        run: python -m pyflakes src/lyric_agent scripts/self_test.py scripts/ui_probe.py scripts/ui_agent.py tests
+      - name: Unit tests
+        run: python -m pytest tests -q

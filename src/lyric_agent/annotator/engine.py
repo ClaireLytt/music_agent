@@ -14,7 +14,7 @@ from ..config import Settings
 from ..llm import LLMClient
 from ..lrc_parser import TimedLine, load_lrc_file
 from .models import Annotation, Song, SongMetadata
-from .prompts import ANNOTATION_SYSTEM_PROMPT, build_annotation_prompt
+from .prompts import annotation_system_prompt, build_annotation_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,8 @@ def generate_annotations(
         )
 
         try:
-            raw = client.generate_json(ANNOTATION_SYSTEM_PROMPT, user_msg)
+            raw = client.generate_json(
+            annotation_system_prompt(metadata.artist), user_msg)
         except Exception as exc:
             logger.error("LLM call failed for chunk %d: %s", i + 1, exc)
             for ln in chunk:
@@ -131,7 +132,7 @@ def regenerate_annotation(
         themes=metadata.themes,
         lyrics_chunk=[(line_index, lyric_text)],
     )
-    raw = client.generate_json(ANNOTATION_SYSTEM_PROMPT, user_msg)
+    raw = client.generate_json(annotation_system_prompt(metadata.artist), user_msg)
     if isinstance(raw, dict):
         raw = raw.get("annotations", [raw] if "summary" in raw else [])
     if not isinstance(raw, list) or not raw or not isinstance(raw[0], dict):

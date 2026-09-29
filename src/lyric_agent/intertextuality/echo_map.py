@@ -308,8 +308,10 @@ def render_echo_map_html(graph: EchoGraph) -> str:
                f' · {node.echo_count} 处呼应')
         if node.in_library:
             tip += "（在你的歌曲列表中）"
+        tip += "。点击聚焦这首歌"
         node_parts.append(
-            f'<g{ring}><circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" '
+            f'<g{ring} data-focus-pick="{_esc(node.song)}">'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" '
             f'fill="{_album_color(node.album)}">'
             f'<title>{_esc(tip)}</title></circle>'
             f'<text x="{lx:.1f}" y="{y + 4:.1f}" text-anchor="{anchor}" '
@@ -319,11 +321,13 @@ def render_echo_map_html(graph: EchoGraph) -> str:
 
     total_pairs = sum(e.count for e in graph.edges)
     summary = (
-        f'<div class="egg-summary">🥚 {scope} · '
-        f'{len(graph.nodes)} 首歌曲间共 {total_pairs} 处彩蛋呼应'
-        f'（相似度 ≥ {graph.threshold}，语料库共 {graph.song_total} 首，'
-        '图中为存在呼应的歌曲，呼应最密集者优先）'
-        '· 悬停节点或连线查看具体歌词</div>'
+        f'<div class="egg-headline">🥚 {scope} 的彩蛋网络'
+        f'<span class="egg-headline-sub">{len(graph.nodes)} 首歌 · '
+        f'{total_pairs} 处呼应</span></div>'
+        f'<div class="cloud-hint" title="相似度阈值 ≥ {graph.threshold}；'
+        f'语料库共 {graph.song_total} 首，图中为存在呼应的歌曲，'
+        '呼应最密集者优先">节点大小 = 呼应数量 · 连线粗细 = 两首歌的呼应密度 · '
+        '悬停看具体歌词 · <b>点击任意歌曲切到聚焦视图</b></div>'
     )
 
     top_items = []
@@ -399,6 +403,25 @@ ECHO_MAP_CSS = """
   border-radius: 8px; background: var(--accent-soft); color: var(--accent);
 }
 .img-tag.kw { background: rgba(212,167,44,0.15); color: #9a6700; }
+
+.egg-headline {
+  font-size: 18px; font-weight: 700; color: var(--text-primary);
+  padding: 4px 2px 2px;
+}
+.egg-headline-sub {
+  font-size: 13px; font-weight: 400; color: var(--text-secondary);
+  margin-left: 10px;
+}
+.egg-clickable { cursor: pointer; }
+.egg-clickable:hover .egg-label { fill: var(--accent); font-weight: 700; }
+.egg-pair.egg-clickable:hover { border-color: var(--accent); }
+.egg-pair-go {
+  float: right; font-size: 11px; color: var(--accent); opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.egg-pair.egg-clickable:hover .egg-pair-go { opacity: 1; }
+.egg-node { cursor: pointer; }
+.egg-node:hover circle { stroke: var(--accent); }
 
 /* focus (star) view */
 .egg-focus { fill: #d4a72c; stroke: #ffffff; stroke-width: 2.5; }
@@ -525,11 +548,15 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
         )
         anchor = "start" if x >= cx else "end"
         lx = x + (14 if x >= cx else -14)
+        tip = f"《{partner}》与《{focus}》有 {e.count} 处呼应 · 点击聚焦这首歌"
         parts.append(
+            f'<g class="egg-clickable" data-focus-pick="{_esc(partner)}">'
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="9" '
-            f'fill="{_album_color(partner)}" class="egg-spoke"/>'
+            f'fill="{_album_color(partner)}" class="egg-spoke">'
+            f'<title>{_esc(tip)}</title></circle>'
             f'<text x="{lx:.1f}" y="{y + 4:.1f}" text-anchor="{anchor}" '
-            f'class="egg-label">{_esc(_short(partner))}</text>'
+            f'class="egg-label">{_esc(_short(partner))}'
+            f'<title>{_esc(tip)}</title></text></g>'
         )
     # focus node on top
     parts.append(
@@ -540,8 +567,11 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
 
     total = sum(e.count for _, e in spokes)
     summary = (
-        f'<div class="egg-summary">🥚 {scope} · 聚焦《{_esc(focus)}》：'
-        f'与 {n} 首歌共 {total} 处彩蛋呼应 · 下方直接展示每对歌词</div>'
+        f'<div class="egg-headline">🥚 《{_esc(focus)}》的彩蛋网络'
+        f'<span class="egg-headline-sub">与 {n} 首歌互文，共 {total} 处呼应'
+        f'（{scope}）</span></div>'
+        '<div class="cloud-hint">点击图上任意歌曲即可聚焦它 · '
+        '下方卡片直接展示每一对呼应歌词</div>'
     )
 
     cards = []
@@ -550,9 +580,10 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
         la, lb = (e.example.line_a, e.example.line_b) \
             if e.song_a == focus else (e.example.line_b, e.example.line_a)
         cards.append(
-            '<div class="egg-pair">'
+            f'<div class="egg-pair egg-clickable" '
+            f'data-focus-pick="{_esc(partner)}" title="点击聚焦《{_esc(partner)}》">'
             f'<div class="egg-pair-songs">↔ 《{_esc(partner)}》 · '
-            f'{e.count} 处呼应</div>'
+            f'{e.count} 处呼应<span class="egg-pair-go">聚焦 ›</span></div>'
             f'<div class="egg-pair-quote">本歌：“{_esc(la)}”</div>'
             f'<div class="egg-pair-quote">对方：“{_esc(lb)}”'
             f'<span class="egg-pair-sim">{e.example.similarity}</span></div>'
