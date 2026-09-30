@@ -11,7 +11,6 @@ from __future__ import annotations
 import html
 import math
 import re
-import zlib
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -150,6 +149,7 @@ def build_echo_graph(
     # aggregate line pairs into song-pair edges, keeping the strongest example
     edge_count: dict[tuple, int] = {}
     edge_example: dict[tuple, EchoPair] = {}
+    edge_example_distinct: dict[tuple, EchoPair] = {}
     edge_identical: dict[tuple, int] = {}
     for a, b in pairs:
         la, lb = corpus[rows[int(a)]], corpus[rows[int(b)]]
@@ -168,13 +168,19 @@ def build_echo_graph(
         edge_count[key] = edge_count.get(key, 0) + 1
         if la.text == lb.text:
             edge_identical[key] = edge_identical.get(key, 0) + 1
+        if key[0] == ka:
+            pair = EchoPair(la.text, lb.text, round(sim, 3))
+        else:
+            pair = EchoPair(lb.text, la.text, round(sim, 3))
         best = edge_example.get(key)
         if best is None or sim > best.similarity:
-            if key[0] == ka:
-                pair = EchoPair(la.text, lb.text, round(sim, 3))
-            else:
-                pair = EchoPair(lb.text, la.text, round(sim, 3))
             edge_example[key] = pair
+        # "the same line sung twice" makes a boring showcase; prefer the
+        # strongest pair with *different* wording when the edge has one
+        if la.text.strip().casefold() != lb.text.strip().casefold():
+            best = edge_example_distinct.get(key)
+            if best is None or sim > best.similarity:
+                edge_example_distinct[key] = pair
 
     # duplicate-work guard: the same recording indexed under two titles
     # (or a full cover) shares most lines verbatim — not an intertextual echo
@@ -197,7 +203,8 @@ def build_echo_graph(
         return f"{k[0]} · {song_artist.get(k, '')}" if cross else k[0]
 
     edges = [
-        EchoEdge(label(ka), label(kb), n, edge_example[(ka, kb)])
+        EchoEdge(label(ka), label(kb), n,
+                 edge_example_distinct.get((ka, kb)) or edge_example[(ka, kb)])
         for (ka, kb), n in edge_count.items()
         if ka in kept_songs and kb in kept_songs
     ]
@@ -230,11 +237,15 @@ def build_echo_graph(
 
 _SVG_W, _SVG_H = 860, 620
 _RING_R = 235
-_LABEL_MAX_CHARS = 14
+_LABEL_MAX_UNITS = 26  # label width budget; CJK glyphs count double
+# strongest pairs drawn in the accent color; the rest recede to grey
+_TOP_EDGES_HIGHLIGHT = 3
 
+# visually distinct hues only — album colors are assigned sequentially per
+# graph (see _album_colors), so near-duplicate shades would defeat the legend
 _NODE_PALETTE = [
-    "#0969da", "#8250df", "#bf3989", "#cf222e", "#bc4c00",
-    "#4d2d00", "#1a7f37", "#0550ae", "#6639ba", "#a40e26",
+    "#0969da", "#bc4c00", "#1a7f37", "#cf222e", "#8250df",
+    "#bf3989", "#1b7c8c", "#9a6700", "#57606a", "#6e5494",
 ]
 
 
@@ -243,18 +254,53 @@ def _esc(s: str) -> str:
 
 
 def _short(title: str) -> str:
-    return title if len(title) <= _LABEL_MAX_CHARS else \
-        title[: _LABEL_MAX_CHARS - 1] + "…"
+    """Truncate for SVG labels; CJK glyphs are twice as wide as latin."""
+    units = 0
+    for i, ch in enumerate(title):
+        units += 2 if ord(ch) > 0x2E7F else 1
+        if units > _LABEL_MAX_UNITS:
+            return title[:i] + "…"
+    return title
 
 
-def _album_color(album: str) -> str:
-    # crc32, not hash(): str hashing is salted per process and would
-    # reshuffle all the colors on every server restart
-    return _NODE_PALETTE[zlib.crc32(album.encode("utf-8")) % len(_NODE_PALETTE)]
+def _album_colors(nodes: list[EchoNode]) -> dict[str, str]:
+    """Album → color for one graph, in node order (nodes sort by album).
+
+    Sequential assignment instead of hashing: within one map no two albums
+    share a color until the palette runs out, and the on-page legend
+    (_album_legend) makes the mapping explicit.
+    """
+    colors: dict[str, str] = {}
+    for node in nodes:
+        album = node.album or "未知专辑"
+        if album not in colors:
+            colors[album] = _NODE_PALETTE[len(colors) % len(_NODE_PALETTE)]
+    return colors
+
+
+def _album_legend(colors: dict[str, str]) -> str:
+    """Color legend chips shown under the SVG (the「颜色 = 专辑」key)."""
+    chips = "".join(
+        f'<span class="egg-chip"><i style="background:{c}"></i>{_esc(a)}</span>'
+        for a, c in colors.items())
+    return ('<div class="egg-legend"><span class="egg-legend-title">'
+            '节点颜色 = 专辑：</span>' + chips + '</div>')
+
+
+def _sim_tag(pair: EchoPair) -> str:
+    """Similarity rendered as words; the raw number lives in the tooltip."""
+    if pair.line_a.strip().casefold() == pair.line_b.strip().casefold():
+        label = "两首歌唱了同一句"
+    elif pair.similarity >= 0.8:
+        label = "用词高度相似"
+    else:
+        label = "语义相近"
+    return (f'<span class="egg-pair-sim" title="歌词语义相似度 '
+            f'{pair.similarity}（0~1，1 为完全相同）">{label}</span>')
 
 
 def render_echo_map_html(graph: EchoGraph) -> str:
-    """Circular network SVG + a list of the strongest echo pairs."""
+    """Network view: conclusion first, then the ring map, then examples."""
     scope = _esc(graph.artist) if graph.artist else "跨歌手模式（全部歌手）"
     if graph.song_total < 2:
         return ('<div class="chat-empty">语料库中该范围的歌曲不足 2 首，'
@@ -264,6 +310,7 @@ def render_echo_map_html(graph: EchoGraph) -> str:
                 f'{graph.song_total} 首歌曲之间未发现相似度 ≥ '
                 f'{graph.threshold} 的彩蛋呼应。</div>')
 
+    colors = _album_colors(graph.nodes)
     n = len(graph.nodes)
     # small graphs: shrink the ring (and the canvas) and lay a pair out
     # horizontally, or two nodes end up at the far top/bottom of a huge
@@ -280,18 +327,25 @@ def render_echo_map_html(graph: EchoGraph) -> str:
 
     max_count = max(e.count for e in graph.edges)
     edge_parts = []
-    for e in graph.edges:
+    for idx, e in enumerate(graph.edges):  # sorted by count, strongest first
         (x1, y1), (x2, y2) = pos[e.song_a], pos[e.song_b]
         # bezier control point pulled toward the center keeps chords readable
         qx = cx + ((x1 + x2) / 2 - cx) * 0.35
         qy = cy + ((y1 + y2) / 2 - cy) * 0.35
         width = 1.0 + 3.0 * e.count / max_count
-        tip = (f'《{e.song_a}》↔《{e.song_b}》{e.count} 处呼应\n'
-               f'“{e.example.line_a}” ↔ “{e.example.line_b}”'
-               f'（相似度 {e.example.similarity}）')
+        # foreground/background split: only the strongest pairs keep the
+        # accent color, everything else fades to grey — no more hairball
+        top = idx < _TOP_EDGES_HIGHLIGHT and e.count > 1
+        cls = "egg-edge egg-edge-top" if top else "egg-edge"
+        opacity = 0.75 if top else 0.12 + 0.28 * e.count / max_count
+        tip = (f'《{e.song_a}》↔《{e.song_b}》共 {e.count} 处呼应\n'
+               f'例：“{e.example.line_a}” ↔ “{e.example.line_b}”\n'
+               '点击两端的圆点可逐对细看')
         edge_parts.append(
             f'<path d="M{x1:.1f},{y1:.1f} Q{qx:.1f},{qy:.1f} {x2:.1f},{y2:.1f}" '
-            f'class="egg-edge" stroke-width="{width:.1f}">'
+            f'class="{cls}" stroke-width="{width:.1f}" '
+            f'stroke-opacity="{opacity:.2f}" '
+            f'data-ega="{_esc(e.song_a)}" data-egb="{_esc(e.song_b)}">'
             f'<title>{_esc(tip)}</title></path>'
         )
 
@@ -301,8 +355,7 @@ def render_echo_map_html(graph: EchoGraph) -> str:
         r = 6 + 2.2 * math.sqrt(node.echo_count)
         anchor = "start" if x >= cx else "end"
         lx = x + (r + 6 if x >= cx else -(r + 6))
-        ring = ' class="egg-node in-library"' if node.in_library \
-            else ' class="egg-node"'
+        cls = "egg-node in-library" if node.in_library else "egg-node"
         artist_part = f' · {node.artist}' if graph.cross_artist and node.artist else ""
         tip = (f'《{node.song}》{artist_part} · {node.album or "未知专辑"}'
                f' · {node.echo_count} 处呼应')
@@ -310,9 +363,9 @@ def render_echo_map_html(graph: EchoGraph) -> str:
             tip += "（在你的歌曲列表中）"
         tip += "。点击聚焦这首歌"
         node_parts.append(
-            f'<g{ring} data-focus-pick="{_esc(node.song)}">'
+            f'<g class="{cls}" data-focus-pick="{_esc(node.song)}">'
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{r:.1f}" '
-            f'fill="{_album_color(node.album)}">'
+            f'fill="{colors[node.album or "未知专辑"]}">'
             f'<title>{_esc(tip)}</title></circle>'
             f'<text x="{lx:.1f}" y="{y + 4:.1f}" text-anchor="{anchor}" '
             f'class="egg-label">{_esc(_short(node.song))}'
@@ -320,34 +373,46 @@ def render_echo_map_html(graph: EchoGraph) -> str:
         )
 
     total_pairs = sum(e.count for e in graph.edges)
+    busiest = max(graph.nodes, key=lambda nd: nd.echo_count)
+    top_edge = graph.edges[0]
     summary = (
         f'<div class="egg-headline">🥚 {scope} 的彩蛋网络'
-        f'<span class="egg-headline-sub">{len(graph.nodes)} 首歌 · '
-        f'{total_pairs} 处呼应</span></div>'
-        f'<div class="cloud-hint" title="相似度阈值 ≥ {graph.threshold}；'
-        f'语料库共 {graph.song_total} 首，图中为存在呼应的歌曲，'
-        '呼应最密集者优先">节点大小 = 呼应数量 · 连线粗细 = 两首歌的呼应密度 · '
-        '悬停看具体歌词 · <b>点击任意歌曲切到聚焦视图</b></div>'
+        f'<span class="egg-headline-sub">{n} 首歌 · {total_pairs} 处呼应 · '
+        f'相似度阈值 ≥ {graph.threshold}</span></div>'
+        f'<div class="egg-conclusion">一句话总结：这 {n} 首歌之间共有 '
+        f'<b>{total_pairs}</b> 处歌词呼应；《{_esc(busiest.song)}》与其他歌'
+        f'互文最多（{busiest.echo_count} 处）；呼应最密的一对是'
+        f'《{_esc(top_edge.song_a)}》↔《{_esc(top_edge.song_b)}》'
+        f'（{top_edge.count} 处，图中最粗的彩色线）。</div>'
+        '<div class="egg-howto">怎么看这张图：一个圆点 = 一首歌，'
+        '点越大它的呼应越多，颜色 = 所属专辑（图例在图下方）；'
+        '两点之间的连线 = 这两首歌的歌词互相呼应，线越粗呼应越多，'
+        '彩色线是呼应最强的几对，灰色线较弱。悬停圆点只看这首歌的连线，'
+        '悬停连线看具体歌词，<b>点击圆点进入聚焦视图逐对阅读</b>。</div>'
     )
 
     top_items = []
     for e in graph.edges[:TOP_PAIRS_SHOWN]:
         top_items.append(
-            '<div class="egg-pair">'
+            '<div class="egg-pair egg-clickable" '
+            f'data-focus-pick="{_esc(e.song_a)}" '
+            f'title="点击聚焦《{_esc(e.song_a)}》，逐对查看这两首歌的呼应">'
             f'<div class="egg-pair-songs">《{_esc(e.song_a)}》↔'
-            f'《{_esc(e.song_b)}》 · {e.count} 处呼应</div>'
+            f'《{_esc(e.song_b)}》 · {e.count} 处呼应'
+            '<span class="egg-pair-go">聚焦 ›</span></div>'
             f'<div class="egg-pair-lines">“{_esc(e.example.line_a)}” ↔ '
-            f'“{_esc(e.example.line_b)}”'
-            f'<span class="egg-pair-sim">{e.example.similarity}</span></div>'
+            f'“{_esc(e.example.line_b)}”{_sim_tag(e.example)}</div>'
             '</div>'
         )
     top_html = ('<div class="egg-pairs"><div class="egg-pairs-title">'
-                '🔗 呼应最强的歌曲对</div>' + "".join(top_items) + '</div>')
+                '🔗 呼应最强的歌曲对（点击任意一对细看）</div>'
+                + "".join(top_items) + '</div>')
 
     return (
         summary
         + f'<svg viewBox="0 0 {_SVG_W} {svg_h}" class="egg-svg" role="img">'
         + "".join(edge_parts) + "".join(node_parts) + '</svg>'
+        + _album_legend(colors)
         + top_html
     )
 
@@ -359,10 +424,14 @@ ECHO_MAP_CSS = """
 }
 .egg-svg { width: 100%; height: auto; display: block; }
 .egg-edge {
-  fill: none; stroke: var(--accent); stroke-opacity: 0.3;
-  transition: stroke-opacity 0.15s ease;
+  fill: none; stroke: #8b949e;
+  transition: stroke-opacity 0.15s ease, opacity 0.15s ease;
 }
-.egg-edge:hover { stroke-opacity: 0.9; }
+.egg-edge-top { stroke: var(--accent); }
+.egg-edge:hover { stroke-opacity: 0.95; }
+.egg-edge.egg-dim { stroke-opacity: 0.04; }
+.egg-edge.egg-lit { stroke: var(--accent); stroke-opacity: 0.7; }
+.egg-node.egg-dim, g.egg-clickable.egg-dim { opacity: 0.2; }
 .egg-node circle { stroke: #ffffff; stroke-width: 1.5; cursor: default; }
 .egg-node.in-library circle { stroke: #d4a72c; stroke-width: 3; }
 .egg-label { font-size: 12px; fill: var(--text-primary); }
@@ -422,6 +491,24 @@ ECHO_MAP_CSS = """
 .egg-pair.egg-clickable:hover .egg-pair-go { opacity: 1; }
 .egg-node { cursor: pointer; }
 .egg-node:hover circle { stroke: var(--accent); }
+
+.egg-conclusion {
+  font-size: 13.5px; line-height: 1.7; color: var(--text-primary);
+  background: var(--accent-soft); border-radius: 10px; padding: 9px 13px;
+  margin: 8px 0 4px;
+}
+.egg-howto {
+  font-size: 12.5px; line-height: 1.7; color: var(--text-secondary);
+  margin: 4px 0 6px;
+}
+.egg-legend {
+  display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center;
+  font-size: 12px; color: var(--text-secondary); margin: 6px 0 2px;
+}
+.egg-legend-title { font-weight: 600; }
+.egg-chip { display: inline-flex; align-items: center; gap: 5px; }
+.egg-chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.egg-pair-sim { cursor: help; border-bottom: 1px dotted var(--accent); }
 
 /* focus (star) view */
 .egg-focus { fill: #d4a72c; stroke: #ffffff; stroke-width: 2.5; }
@@ -500,8 +587,8 @@ def focus_choices(graph: EchoGraph) -> list[str]:
 
 
 def render_focus_html(graph: EchoGraph, focus: str) -> str:
-    """Simple star view: the focus song in the middle, partners around it,
-    and every pair's lyric quotes laid out as cards — no hovering needed."""
+    """Star view: the focus song in the middle, partners around it, and
+    every pair's lyric quotes laid out as cards — no hovering needed."""
     scope = _esc(graph.artist) if graph.artist else "跨歌手模式（全部歌手）"
     if graph.song_total < 2:
         return ('<div class="chat-empty">语料库中该范围的歌曲不足 2 首，'
@@ -525,6 +612,9 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
                 '在当前范围内没有检索到彩蛋呼应，换一首试试。</div>')
     spokes.sort(key=lambda s: -s[1].count)
 
+    colors = _album_colors(graph.nodes)
+    album_of = {nd.song: (nd.album or "未知专辑") for nd in graph.nodes}
+
     cx, cy = _FOCUS_W / 2, _FOCUS_H / 2
     ring = 150.0
     n = len(spokes)
@@ -537,9 +627,10 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
         width = 1.5 + 3.5 * e.count / max_count
         parts.append(
             f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{x:.1f}" y2="{y:.1f}" '
-            f'class="egg-edge" stroke-width="{width:.1f}"/>'
+            f'class="egg-edge" stroke-opacity="0.45" '
+            f'stroke-width="{width:.1f}"/>'
         )
-        # count badge on the spoke
+        # count badge on the spoke (= number of echoing line pairs)
         bx, by = cx + (x - cx) * 0.55, cy + (y - cy) * 0.55
         parts.append(
             f'<circle cx="{bx:.1f}" cy="{by:.1f}" r="11" class="egg-badge"/>'
@@ -552,7 +643,8 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
         parts.append(
             f'<g class="egg-clickable" data-focus-pick="{_esc(partner)}">'
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="9" '
-            f'fill="{_album_color(partner)}" class="egg-spoke">'
+            f'fill="{colors.get(album_of.get(partner, "未知专辑"), "#57606a")}" '
+            'class="egg-spoke">'
             f'<title>{_esc(tip)}</title></circle>'
             f'<text x="{lx:.1f}" y="{y + 4:.1f}" text-anchor="{anchor}" '
             f'class="egg-label">{_esc(_short(partner))}'
@@ -566,13 +658,23 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
     )
 
     total = sum(e.count for _, e in spokes)
+    best_partner, best_edge = spokes[0]
     summary = (
         f'<div class="egg-headline">🥚 《{_esc(focus)}》的彩蛋网络'
-        f'<span class="egg-headline-sub">与 {n} 首歌互文，共 {total} 处呼应'
-        f'（{scope}）</span></div>'
-        '<div class="cloud-hint">点击图上任意歌曲即可聚焦它 · '
-        '下方卡片直接展示每一对呼应歌词</div>'
+        f'<span class="egg-headline-sub">{scope}</span></div>'
+        f'<div class="egg-conclusion">一句话总结：《{_esc(focus)}》的歌词与 '
+        f'<b>{n}</b> 首歌互相呼应，共 <b>{total}</b> 处；和它呼应最多的是'
+        f'《{_esc(best_partner)}》（{best_edge.count} 处）。</div>'
+        '<div class="egg-howto">怎么看：中间金色的点是当前聚焦的歌，四周是'
+        '与它有歌词呼应的歌（颜色 = 专辑，图例在图下方）；'
+        '<b>连线上的数字 = 两首歌呼应的次数</b>。具体歌词不用悬停，'
+        '下方卡片已逐对列出；点击图上或卡片里的任意歌曲即可聚焦它。</div>'
     )
+
+    # legend limited to albums actually on screen (focus + partners)
+    shown = {album_of.get(focus, "未知专辑")}
+    shown.update(album_of.get(p, "未知专辑") for p, _ in spokes)
+    legend = _album_legend({al: c for al, c in colors.items() if al in shown})
 
     cards = []
     for partner, e in spokes:
@@ -584,9 +686,9 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
             f'data-focus-pick="{_esc(partner)}" title="点击聚焦《{_esc(partner)}》">'
             f'<div class="egg-pair-songs">↔ 《{_esc(partner)}》 · '
             f'{e.count} 处呼应<span class="egg-pair-go">聚焦 ›</span></div>'
-            f'<div class="egg-pair-quote">本歌：“{_esc(la)}”</div>'
-            f'<div class="egg-pair-quote">对方：“{_esc(lb)}”'
-            f'<span class="egg-pair-sim">{e.example.similarity}</span></div>'
+            f'<div class="egg-pair-quote">《{_esc(focus)}》唱道：“{_esc(la)}”</div>'
+            f'<div class="egg-pair-quote">《{_esc(partner)}》唱道：“{_esc(lb)}”'
+            f'{_sim_tag(e.example)}</div>'
             '</div>'
         )
 
@@ -594,5 +696,6 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
         summary
         + f'<svg viewBox="0 0 {_FOCUS_W} {_FOCUS_H}" class="egg-svg" role="img">'
         + "".join(parts) + '</svg>'
+        + legend
         + '<div class="egg-pairs">' + "".join(cards) + '</div>'
     )

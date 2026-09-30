@@ -277,6 +277,32 @@ _HEAD_JS = """
     }
   }, true);
 
+  // 彩蛋地图 network view: hovering a song dims unrelated edges and nodes
+  // so its connections stand out (focus view has no data-ega edges, so
+  // the toggles below never fire there)
+  document.addEventListener('mouseover', (e) => {
+    const svg = e.target.closest('.egg-svg');
+    if (!svg || !svg.querySelector('.egg-edge[data-ega]')) return;
+    const g = e.target.closest('[data-focus-pick]');
+    const song = g ? g.dataset.focusPick : null;
+    const keep = new Set(song ? [song] : []);
+    svg.querySelectorAll('.egg-edge[data-ega]').forEach(p => {
+      const on = !song || p.dataset.ega === song || p.dataset.egb === song;
+      p.classList.toggle('egg-dim', !on);
+      p.classList.toggle('egg-lit', !!song && on);
+      if (song && on) { keep.add(p.dataset.ega); keep.add(p.dataset.egb); }
+    });
+    svg.querySelectorAll('[data-focus-pick]').forEach(nd => {
+      nd.classList.toggle('egg-dim', !!song && !keep.has(nd.dataset.focusPick));
+    });
+  }, true);
+  document.addEventListener('mouseout', (e) => {
+    const svg = e.target.closest('.egg-svg');
+    if (!svg || svg.contains(e.relatedTarget)) return;
+    svg.querySelectorAll('.egg-dim, .egg-lit').forEach(
+      el => el.classList.remove('egg-dim', 'egg-lit'));
+  }, true);
+
   // current playback position → hidden channel (used by 听歌笔记)
   setInterval(() => {
     const a = getAudio();
