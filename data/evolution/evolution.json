@@ -1,0 +1,336 @@
+{
+  "artist": "Taylor Swift",
+  "eras": [
+    {
+      "era": "debut",
+      "era_emoji": "🦋",
+      "years": "2006",
+      "albums": [
+        "Taylor Swift"
+      ],
+      "genre_tags": [
+        "country"
+      ],
+      "theme_weights": {},
+      "avg_rhetoric_density": 0.0,
+      "ai_summary": "",
+      "songs": [],
+      "avg_emotion": {
+        "valence": 0.0,
+        "arousal": 0.0
+      }
+    },
+    {
+      "era": "fearless",
+      "era_emoji": "💛",
+      "years": "2008",
+      "albums": [
+        "Fearless"
+      ],
+      "genre_tags": [
+        "country pop"
+      ],
+      "theme_weights": {},
+      "avg_rhetoric_density": 0.0,
+      "ai_summary": "",
+      "songs": [],
+      "avg_emotion": {
+        "valence": 0.0,
+        "arousal": 0.0
+      }
+    },
+    {
+      "era": "speak now",
+      "era_emoji": "💜",
+      "years": "2010",
+      "albums": [
+        "Speak Now"
+      ],
+      "genre_tags": [
+        "country pop"
+      ],
+      "theme_weights": {},
+      "avg_rhetoric_density": 0.0,
+      "ai_summary": "",
+      "songs": [],
+      "avg_emotion": {
+        "valence": 0.0,
+        "arousal": 0.0
+      }
+    },
+    {
+      "era": "red",
+      "era_emoji": "🧣",
+      "years": "2012 / 2021",
+      "albums": [
+        "Red",
+        "Red (Taylor's Version)"
+      ],
+      "genre_tags": [
+        "pop",
+        "country"
+      ],
+      "theme_weights": {
+        "pain": 1.0,
+        "nostalgia": 0.67,
+        "identity": 0.33
+      },
+      "avg_rhetoric_density": 0.429,
+      "ai_summary": "Red 是 Taylor 从乡村转向流行的第一次全面越界——「像一段心碎那样五彩斑斓」。情感表达直白而炽烈：围巾、秋叶、深夜车灯构成她第一套成熟的意象系统。All Too Well 在十年后以 10 分钟版本重生，标志着 Taylor's Version 重录运动的核心宣言：夺回叙事权。",
+      "songs": [
+        "all_too_well_10min"
+      ],
+      "avg_emotion": {
+        "valence": 0.474,
+        "arousal": 0.403
+      }
+    },
+    {
+      "era": "1989",
+      "era_emoji": "🌊",
+      "years": "2014",
+      "albums": [
+        "1989"
+      ],
+      "genre_tags": [
+        "synth-pop"
+      ],
+      "theme_weights": {},
+      "avg_rhetoric_density": 0.0,
+      "ai_summary": "",
+      "songs": [],
+      "avg_emotion": {
+        "valence": 0.0,
+        "arousal": 0.0
+      }
+    },
+    {
+      "era": "reputation",
+      "era_emoji": "🐍",
+      "years": "2017",
+      "albums": [
+        "reputation"
+      ],
+      "genre_tags": [
+        "electro-pop"
+      ],
+      "theme_weights": {},
+      "avg_rhetoric_density": 0.0,
+      "ai_summary": "",
+      "songs": [],
+      "avg_emotion": {
+        "valence": 0.0,
+        "arousal": 0.0
+      }
+    },
+    {
+      "era": "lover",
+      "era_emoji": "🦋",
+      "years": "2019",
+      "albums": [
+        "Lover"
+      ],
+      "genre_tags": [
+        "pop"
+      ],
+      "theme_weights": {},
+      "avg_rhetoric_density": 0.0,
+      "ai_summary": "",
+      "songs": [],
+      "avg_emotion": {
+        "valence": 0.0,
+        "arousal": 0.0
+      }
+    },
+    {
+      "era": "folklore",
+      "era_emoji": "🍂",
+      "years": "2020",
+      "albums": [
+        "folklore"
+      ],
+      "genre_tags": [
+        "indie folk"
+      ],
+      "theme_weights": {
+        "loss": 1.0,
+        "nostalgia": 1.0,
+        "love": 0.33,
+        "pain": 0.67,
+        "irony": 0.33
+      },
+      "avg_rhetoric_density": 0.47,
+      "ai_summary": "隔离期间的文学转向——从自传体写作跳到虚构叙事，第一次大规模使用第三人称视角。与 Aaron Dessner 的合作带来极简的室内民谣美学，歌词密度与隐喻复杂度达到生涯峰值。Betty–James–Augustine 三部曲证明：她不再只写自己的故事，而是在建造一个可以住进去的世界。",
+      "songs": [
+        "cardigan",
+        "exile"
+      ],
+      "avg_emotion": {
+        "valence": 0.492,
+        "arousal": 0.412
+      }
+    },
+    {
+      "era": "evermore",
+      "era_emoji": "🍃",
+      "years": "2020",
+      "albums": [
+        "evermore"
+      ],
+      "genre_tags": [
+        "indie folk",
+        "alt"
+      ],
+      "theme_weights": {
+        "loss": 0.67,
+        "identity": 1.0
+      },
+      "avg_rhetoric_density": 0.357,
+      "ai_summary": "folklore 的「姊妹专辑」，虚构叙事进一步深化：拒婚的新娘、谋杀悬案、祖母的幽灵。情绪比 folklore 更冷冽苍凉，champagne problems 用一场没有发生的求婚，把「拒绝」写成了双方共同承受的哀悼。阶级、婚姻、精神健康成为新的主题词。",
+      "songs": [
+        "champagne_problems"
+      ],
+      "avg_emotion": {
+        "valence": 0.466,
+        "arousal": 0.413
+      }
+    },
+    {
+      "era": "midnights",
+      "era_emoji": "🌙",
+      "years": "2022",
+      "albums": [
+        "Midnights"
+      ],
+      "genre_tags": [
+        "synth-pop",
+        "alt"
+      ],
+      "theme_weights": {
+        "identity": 1.0,
+        "pain": 0.33,
+        "irony": 0.33
+      },
+      "avg_rhetoric_density": 0.371,
+      "ai_summary": "「13 个不眠之夜」的概念专辑——从虚构叙事收回到自我剖析，但带着 folklore 时期锻炼出的距离感。Anti-Hero 用会议点名式的自嘲（It's me, hi）把自我厌恶写成全球热单，反讽与真诚的比例控制是这个时期最显著的作者签名。合成器音色下是最赤裸的深夜独白。",
+      "songs": [
+        "anti_hero"
+      ],
+      "avg_emotion": {
+        "valence": 0.426,
+        "arousal": 0.439
+      }
+    }
+  ],
+  "theme_timeline": {
+    "love": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.33,
+      0.0,
+      0.0
+    ],
+    "nostalgia": [
+      0.0,
+      0.0,
+      0.0,
+      0.67,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0
+    ],
+    "loss": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.67,
+      0.0
+    ],
+    "identity": [
+      0.0,
+      0.0,
+      0.0,
+      0.33,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      1.0
+    ],
+    "pain": [
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.67,
+      0.0,
+      0.33
+    ],
+    "irony": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.33,
+      0.0,
+      0.33
+    ]
+  },
+  "genre_flow": [
+    {
+      "from": "country",
+      "to": "country pop",
+      "year": "2008"
+    },
+    {
+      "from": "country pop",
+      "to": "pop",
+      "year": "2012"
+    },
+    {
+      "from": "pop",
+      "to": "synth-pop",
+      "year": "2014"
+    },
+    {
+      "from": "synth-pop",
+      "to": "electro-pop",
+      "year": "2017"
+    },
+    {
+      "from": "electro-pop",
+      "to": "pop",
+      "year": "2019"
+    },
+    {
+      "from": "pop",
+      "to": "indie folk",
+      "year": "2020"
+    },
+    {
+      "from": "indie folk",
+      "to": "synth-pop",
+      "year": "2022"
+    }
+  ]
+}
