@@ -442,7 +442,15 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             pg.locator("#ll-map-artist input").click()
             pg.wait_for_timeout(400)
             pg.get_by_role("option", name="Taylor Swift", exact=True).click()
-            pg.wait_for_timeout(2500)
+            # wait until the single-artist graph actually replaced the
+            # cross-artist one (cross-mode node keys carry a " · artist"
+            # suffix) — a fixed sleep raced the re-render under load and
+            # left focus_pick clicking the stale cross-artist SVG
+            probe.wait_until(
+                lambda: count("g.egg-clickable") >= 1
+                and " · " not in (pg.locator("g.egg-clickable").first
+                                  .get_attribute("data-focus-pick") or " · "),
+                msg="single-artist map did not come back after cross mode")
         probe.check("map_cross", "cross-artist reference mode", c_map_cross)
 
         def c_focus_pick():
@@ -533,6 +541,25 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("quiz_answer", "quiz answer submit -> verdict + score",
                     c_quiz_answer)
 
+        def c_blank_quiz():
+            pg.get_by_role("button", name="🕳️ 来一题").click()
+            pg.wait_for_timeout(2500)
+            body = pg.locator("body").inner_text()
+            must(count(".blank-line") == 1 or "至少需要 2 首歌" in body
+                 or "歌词唱到歌名" in body,
+                 "blank quiz: neither question nor guard rendered")
+            if count(".blank-line") == 1:
+                must("＿" in pg.locator(".blank-line").inner_text(),
+                     "blank quiz line is not blanked")
+                pg.locator("input[type=radio]:visible").last.check()
+                pg.get_by_role("button", name="🕳️ 选好了").click()
+                probe.wait_until(
+                    lambda: "答对" in pg.locator("body").inner_text()
+                    or "不对" in pg.locator("body").inner_text(),
+                    msg="blank quiz verdict missing")
+        probe.check("blank_quiz", "title-blank quiz question + submit",
+                    c_blank_quiz)
+
         def c_identify_guard():
             pg.get_by_role("button", name="🔍 识别").click()
             pg.wait_for_timeout(2500)
@@ -592,6 +619,11 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             tracebacks = re.findall(
                 r"Traceback \(most recent call last\).*?(?:\w+Error[^\n]*)",
                 text, re.DOTALL)
+            # Windows asyncio noise when the browser drops a connection
+            # mid-reload (e.g. the __theme redirect): not an app bug
+            tracebacks = [t for t in tracebacks
+                          if "ConnectionResetError" not in t
+                          and "_call_connection_lost" not in t]
             must(not tracebacks,
                  f"{len(tracebacks)} traceback(s), first: "
                  + tracebacks[0][-200:].replace("\n", " | ") if tracebacks

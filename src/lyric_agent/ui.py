@@ -44,6 +44,8 @@ try:
 except ImportError:  # embeddings extra not installed — tab shows a hint instead
     ECHO_MAP_CSS = ""
 
+from .universe import UNIVERSE_CSS, UNIVERSE_EMPTY
+
 logger = logging.getLogger(__name__)
 
 from .ui_assets import _CSS, _HEAD_JS
@@ -87,7 +89,7 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
 def launch_kwargs() -> dict:
     """Style/head kwargs for app.launch() (Gradio 6 moved them off Blocks)."""
     return {
-        "css": _CSS + EVOLUTION_CSS + ECHO_MAP_CSS,
+        "css": _CSS + EVOLUTION_CSS + ECHO_MAP_CSS + UNIVERSE_CSS,
         "head": _HEAD_JS,
         "theme": gr.themes.Base(primary_hue="blue", neutral_hue="slate"),
     }
@@ -414,10 +416,12 @@ def create_app(settings: Settings) -> gr.Blocks:
             # ══ 页签 3: 彩蛋地图 ══
             with gr.Tab("🥚 彩蛋地图"):
                 gr.Markdown(
-                    "在同一歌手的**全部曲库歌曲**之间批量检索歌词呼应。"
-                    "默认「⭐ 单曲聚焦」：选一首歌，直接看它和哪些歌互文、"
-                    "两句歌词怎么呼应；想看全貌再切「🕸️ 整体网络」。"
-                    "歌手选「🌐 跨歌手引用」则只看**不同歌手之间**的呼应（引用/致敬）。"
+                    "「彩蛋」= 歌手在不同歌曲里埋下的互相呼应的歌词——"
+                    "同一句话、同一个意象在两首歌里遥相呼应。这个页签把所选歌手的"
+                    "**全部曲库歌曲**两两比对，自动找出这些呼应。"
+                    "默认「⭐ 单曲聚焦」：以一首歌为中心，下方卡片逐对列出呼应歌词；"
+                    "「🕸️ 整体网络」看全貌。歌手选「🌐 跨歌手引用」则只看"
+                    "**不同歌手之间**的呼应（引用/致敬）。"
                 )
                 with gr.Row():
                     map_artist = gr.Dropdown(
@@ -451,6 +455,34 @@ def create_app(settings: Settings) -> gr.Blocks:
                         scale=4, container=False)
                     imagery_btn = gr.Button("追踪", scale=1, variant="primary")
                 imagery_html = gr.HTML("")
+
+            # ══ 页签 3.5: 歌词宇宙侦探 ══
+            with gr.Tab("🕵️ 歌词宇宙"):
+                gr.Markdown(
+                    "彩蛋地图告诉你**哪两首歌呼应**，这里回答**为什么**："
+                    "AI 侦探把呼应歌词当证据链，推理这些歌背后是否藏着同一个"
+                    "故事宇宙（人物、关系、时间线），每条推断都附歌词证据。"
+                    "经典案例：Taylor Swift 的 folklore 三角恋"
+                    "（betty / cardigan / august 是同一故事的三个视角）。"
+                )
+                uni_artist = gr.Dropdown(
+                    choices=[], value=None, label="选择歌手",
+                    allow_custom_value=True, elem_id="ll-uni-artist")
+                uni_btn = gr.Button("🕵️ 开始破案（AI 推理，约 10-30 秒）",
+                                    variant="primary")
+                uni_html = gr.HTML(UNIVERSE_EMPTY)
+                gr.Markdown(
+                    "---\n### 💌 隔空回信\n"
+                    "选一对呼应的歌，让前一首的叙事者给后一首写信——"
+                    "信里会原样嵌入两首歌互相呼应的歌词（高亮显示）。")
+                with gr.Row():
+                    letter_pair = gr.Dropdown(
+                        choices=[], value=None,
+                        label="选择歌曲对（按呼应强度排序）",
+                        allow_custom_value=True, scale=3,
+                        elem_id="ll-letter-pair")
+                    letter_btn = gr.Button("💌 写信", variant="primary", scale=1)
+                letter_html = gr.HTML("")
 
             # ══ 页签 4: 曲库洞察 ══
             with gr.Tab("📊 曲库洞察"):
@@ -495,6 +527,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                     quiz_submit_btn = gr.Button("提交答案", scale=1)
                 quiz_result = gr.Markdown("")
 
+                gr.Markdown("---\n### 🕳️ 歌名挖空\n"
+                            "这句歌词唱到了歌名本身——歌名被挖掉了，"
+                            "猜猜被挖掉的是哪首歌的名字。")
+                blank_state = gr.State(
+                    {"score": 0, "total": 0, "answer": "", "reveal": ""})
+                blank_html = gr.HTML(
+                    '<div class="chat-empty">点「来一题」抽一句挖掉歌名的歌词。</div>')
+                blank_options = gr.Radio(choices=[], label="被挖掉的歌名是？",
+                                         visible=False)
+                with gr.Row():
+                    blank_new_btn = gr.Button("🕳️ 来一题", variant="primary",
+                                              scale=1)
+                    blank_submit_btn = gr.Button("🕳️ 选好了", scale=1)
+                blank_result = gr.Markdown("")
+
                 gr.Markdown("---\n### 🎙️ 听歌识曲（曲库内）\n"
                             "用麦克风录一段（或上传一段音频片段），"
                             "在你的本地曲库中识别是哪首歌、唱到了哪里。")
@@ -503,9 +550,28 @@ def create_app(settings: Settings) -> gr.Blocks:
                 fp_btn = gr.Button("🔍 识别", variant="primary")
                 fp_result = gr.Markdown("")
 
+                gr.Markdown("---\n### 🥚 彩蛋猜猜乐\n"
+                            "抽一句有回声的歌词，猜它在同一歌手的哪首歌里被"
+                            "呼应——答完揭晓两句歌词如何互相呼应。")
+                egg_quiz_artist = gr.Dropdown(
+                    choices=[], value=None, label="选择歌手",
+                    allow_custom_value=True, elem_id="ll-eggq-artist")
+                egg_quiz_state = gr.State(
+                    {"score": 0, "total": 0, "answer": "", "reveal": ""})
+                egg_quiz_html = gr.HTML(
+                    '<div class="chat-empty">点「抽一题」抽一句有回声的歌词。</div>')
+                egg_quiz_options = gr.Radio(
+                    choices=[], label="它的回声在哪首歌里？", visible=False)
+                with gr.Row():
+                    egg_quiz_new_btn = gr.Button("🥚 抽一题",
+                                                 variant="primary", scale=1)
+                    egg_quiz_submit_btn = gr.Button("🥚 交卷", scale=1)
+                egg_quiz_result = gr.Markdown("")
+
             # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
+            tab_add = None
             if not public:
-                with gr.Tab("➕ 添加歌曲"):
+                with gr.Tab("➕ 添加歌曲") as tab_add:
                     catalog = _load_catalog()
                     cat_labels = [f"{c['title']} — {c['artist']}" for c in catalog]
                     gr.Markdown(
@@ -564,7 +630,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                         manage_status = gr.Markdown("")
 
             # ══ 页签 7: 设置 ══
-            with gr.Tab("⚙️ 设置"):
+            with gr.Tab("⚙️ 设置") as tab_settings:
                 if public:
                     gr.Markdown(
                         "### API 设置（公开体验版）\n"
@@ -743,7 +809,10 @@ def create_app(settings: Settings) -> gr.Blocks:
             artists = _corpus_artists()
             if not artists:
                 return (gr.Dropdown(choices=[], value=None),
-                        gr.Dropdown(choices=[], value=None), _ECHO_NO_INDEX)
+                        gr.Dropdown(choices=[], value=None), _ECHO_NO_INDEX,
+                        gr.Dropdown(choices=[], value=None),
+                        gr.Dropdown(choices=[], value=None),
+                        gr.Dropdown(choices=[], value=None))
             from .intertextuality.search import artist_matches
             info = find_song(choice) if ctx["songs"] else {}
             current = info.get("artist", "")
@@ -752,9 +821,14 @@ def create_app(settings: Settings) -> gr.Blocks:
                 artists[0])
             graph, _net = _map_graph(value)
             dd, focus = _focus_dd(graph, preferred=info.get("title"))
-            return (gr.Dropdown(choices=artists + [_CROSS_ARTIST_CHOICE],
-                                value=value),
-                    dd, _render_map(value, "focus", focus))
+            all_choices = artists + [_CROSS_ARTIST_CHOICE]
+            pairs = _pair_choices(value)
+            return (gr.Dropdown(choices=all_choices, value=value),
+                    dd, _render_map(value, "focus", focus),
+                    gr.Dropdown(choices=all_choices, value=value),
+                    gr.Dropdown(choices=pairs,
+                                value=pairs[0] if pairs else None),
+                    gr.Dropdown(choices=all_choices, value=value))
 
         def on_focus_pick(payload: str, artist: str):
             """Map-node click: refocus on that song (and switch to focus view)."""
@@ -785,7 +859,8 @@ def create_app(settings: Settings) -> gr.Blocks:
         focus_pick_box.change(on_focus_pick, [focus_pick_box, map_artist],
                               [map_focus, map_view, echo_map_html])
         app.load(init_echo_map, [song_radio],
-                 [map_artist, map_focus, echo_map_html])
+                 [map_artist, map_focus, echo_map_html,
+                  uni_artist, letter_pair, egg_quiz_artist])
 
         def on_map_explain(artist: str, user_cfg):
             """LLM interpretation of the strongest pairs on the current map."""
@@ -863,6 +938,137 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         imagery_btn.click(on_imagery, [imagery_box, map_artist], [imagery_html])
         imagery_box.submit(on_imagery, [imagery_box, map_artist], [imagery_html])
+
+        # ── 歌词宇宙侦探 & 隔空回信 ──
+
+        def _uni_msg(text: str) -> str:
+            return f'<div class="chat-empty">{text}</div>'
+
+        def _pair_choices(artist: str) -> list[str]:
+            """Labels for the letter dropdown; index-aligned with edges."""
+            graph, _net = _map_graph(artist)
+            if graph is None:
+                return []
+            return [f"《{e.song_a}》 ↔ 《{e.song_b}》（{e.count} 处呼应）"
+                    for e in graph.edges[:20]]
+
+        def on_uni_artist(artist: str):
+            choices = _pair_choices(artist) if artist else []
+            return gr.Dropdown(choices=choices,
+                               value=choices[0] if choices else None)
+
+        def on_universe(artist: str, user_cfg):
+            """LLM detective: echo edges as an evidence dossier → story."""
+            if not artist:
+                yield _uni_msg("⚠️ 请先选择歌手。")
+                return
+            graph, _net = _map_graph(artist)
+            if graph is None:
+                yield _ECHO_NO_INDEX
+                return
+            if not graph.edges:
+                yield _uni_msg("⚠️ 当前范围没有可推理的彩蛋呼应。")
+                return
+            req_settings = _request_settings(user_cfg)
+            from .intertextuality.search import artist_matches
+            from .universe import (
+                detective_messages, extract_name_lines, parse_universe,
+                render_universe_html)
+            index = _echo_index()
+            cross = artist == _CROSS_ARTIST_CHOICE
+            name_lines = extract_name_lines(
+                (line.song, line.text) for line in index[1]
+                if cross or artist_matches(artist, line.artist))
+            songs = [(nd.song, nd.album) for nd in graph.nodes]
+            edges = [(e.song_a, e.song_b, e.count,
+                      [(p.line_a, p.line_b)
+                       for p in (e.examples or [e.example])])
+                     for e in graph.edges]
+            scope = "多位歌手之间（跨歌手引用）" if cross else artist
+            system, user_msg = detective_messages(scope, songs, edges,
+                                                  name_lines)
+            # disk cache: same evidence + same model ⇒ same verdict. Keyed
+            # on the full prompt hash, so corpus / threshold / model changes
+            # invalidate it naturally (echo-scan cache pattern).
+            import hashlib
+            cache_key = [hashlib.md5(user_msg.encode("utf-8")).hexdigest(),
+                         req_settings.model_name]
+            cache_path = Path("data/cache/universe") / (
+                re.sub(r"[^\w\u4e00-\u9fff-]+", "_", artist) + ".json")
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                cached = None
+            if cached and cached.get("key") == cache_key:
+                yield (render_universe_html(
+                           parse_universe(cached.get("payload"), scope))
+                       + '<div class="preview-hint">⚡ 来自缓存 —— '
+                       '语料或模型变更后会自动重新推理</div>')
+                return
+            if public and not req_settings.api_key:
+                yield _uni_msg(_PUBLIC_KEY_HINT)
+                return
+            yield _uni_msg(f"🕵️ 正在勘查 {len(graph.edges)} 条呼应线索，"
+                           "推理故事宇宙……（约 10-30 秒）")
+            from .llm import LLMClient
+            try:
+                data = LLMClient(req_settings).generate_json(system, user_msg)
+            except Exception as exc:
+                logger.exception("Universe detective failed")
+                yield _uni_msg(f"⚠️ AI 推理失败：{str(exc)[:200]}")
+                return
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(
+                    json.dumps({"key": cache_key, "payload": data},
+                               ensure_ascii=False),
+                    encoding="utf-8")
+            except OSError:
+                logger.warning("universe cache write failed", exc_info=True)
+            yield render_universe_html(parse_universe(data, scope))
+
+        def on_letter(artist: str, pair_label: str, user_cfg):
+            """One echo edge → a letter from song A's narrator to song B."""
+            if not artist or not pair_label:
+                yield _uni_msg("⚠️ 请先选择歌手和歌曲对。")
+                return
+            graph, _net = _map_graph(artist)
+            edge = None
+            if graph is not None:
+                labels = _pair_choices(artist)
+                if pair_label in labels:
+                    edge = graph.edges[labels.index(pair_label)]
+            if edge is None:
+                yield _uni_msg("⚠️ 未找到该歌曲对，请重新选择。")
+                return
+            req_settings = _request_settings(user_cfg)
+            if public and not req_settings.api_key:
+                yield _uni_msg(_PUBLIC_KEY_HINT)
+                return
+            yield _uni_msg("💌 正在代笔写信……（约 5-15 秒）")
+            from .universe import letter_messages, render_letter_html
+            system, user_msg = letter_messages(
+                edge.song_a, edge.song_b,
+                edge.example.line_a, edge.example.line_b, edge.count)
+            from .llm import LLMClient
+            try:
+                resp = LLMClient(req_settings).generate(system, user_msg)
+            except Exception as exc:
+                logger.exception("Letter failed")
+                yield _uni_msg(f"⚠️ LLM 调用失败：{str(exc)[:200]}")
+                return
+            body = (resp.reply_text or "").strip()
+            if not body:
+                yield _uni_msg("⚠️ AI 未返回内容，请重试。")
+                return
+            yield render_letter_html(edge.song_a, edge.song_b, body,
+                                     edge.example.line_a,
+                                     edge.example.line_b)
+
+        uni_artist.input(on_uni_artist, [uni_artist], [letter_pair])
+        uni_btn.click(on_universe, [uni_artist, user_llm], [uni_html])
+        letter_btn.click(on_letter, [uni_artist, letter_pair, user_llm],
+                         [letter_html])
 
         # ── 曲库洞察 ──
 
@@ -1029,6 +1235,99 @@ def create_app(settings: Settings) -> gr.Blocks:
                            [quiz_state, quiz_html, quiz_options, quiz_result])
         quiz_submit_btn.click(on_quiz_submit, [quiz_state, quiz_options],
                               [quiz_state, quiz_result])
+
+        # ── 歌名挖空 ──
+
+        def on_blank_new(state: dict):
+            from .quiz import make_blank_question
+            q = make_blank_question(_quiz_pool())
+            if q is None:
+                return (dict(state or {}, answer="", reveal=""),
+                        '<div class="chat-empty">曲库里还没有「歌词唱到歌名」'
+                        '的歌（且至少需要 2 首歌）。</div>',
+                        gr.Radio(choices=[], visible=False), "")
+            state = dict(state or {}, answer=q.answer, reveal=q.original)
+            html_q = (f'<div class="quiz-line blank-line">“{_esc(q.line)}”</div>'
+                      f'<div class="quiz-meta">歌手：{_esc(q.artist)}</div>')
+            return (state, html_q,
+                    gr.Radio(choices=q.options, value=None, visible=True), "")
+
+        def on_blank_submit(state: dict, choice: str):
+            state = dict(state or {})
+            answer = state.get("answer", "")
+            if not answer:
+                return state, "⚠️ 先点「来一题」抽题。"
+            if not choice:
+                return state, "⚠️ 请先选择一个选项。"
+            state["total"] = state.get("total", 0) + 1
+            if choice == answer:
+                state["score"] = state.get("score", 0) + 1
+                verdict = f"✅ 答对了！挖掉的正是《{answer}》。"
+            else:
+                verdict = f"❌ 不对，挖掉的是《{answer}》。"
+            reveal = state.get("reveal", "")
+            state["answer"] = ""  # one submission per question
+            return (state, f"{verdict}\n\n> {reveal}\n\n当前战绩 "
+                    f"**{state.get('score', 0)} / {state['total']}**")
+
+        blank_new_btn.click(on_blank_new, [blank_state],
+                            [blank_state, blank_html, blank_options,
+                             blank_result])
+        blank_submit_btn.click(on_blank_submit, [blank_state, blank_options],
+                               [blank_state, blank_result])
+
+        # ── 彩蛋猜猜乐 ──
+
+        def on_egg_quiz_new(artist: str, state: dict):
+            state = dict(state or {}, answer="", reveal="")
+            if not artist:
+                return (state,
+                        '<div class="chat-empty">请先选择歌手。</div>',
+                        gr.Radio(choices=[], visible=False), "")
+            graph, _net = _map_graph(artist)
+            from .egg_quiz import make_echo_question
+            q = make_echo_question(graph)
+            if q is None:
+                return (state,
+                        '<div class="chat-empty">该范围的彩蛋呼应不足以'
+                        '出题，换一位歌手试试。</div>',
+                        gr.Radio(choices=[], visible=False), "")
+            reveal = (f"《{q.source_song}》唱道：“{q.line}”\n\n"
+                      f"《{q.answer}》回应：“{q.echo_line}”\n\n"
+                      f"这两首歌之间共有 {q.count} 处呼应。")
+            state.update(answer=q.answer, reveal=reveal)
+            html_q = (f'<div class="quiz-line">“{_esc(q.line)}”</div>'
+                      f'<div class="quiz-meta">出自《{_esc(q.source_song)}》'
+                      '——这句歌词的回声藏在哪首歌里？</div>')
+            return (state, html_q,
+                    gr.Radio(choices=q.options, value=None, visible=True),
+                    "")
+
+        def on_egg_quiz_submit(state: dict, choice: str):
+            state = dict(state or {})
+            answer = state.get("answer", "")
+            if not answer:
+                return state, "⚠️ 先点「抽一题」抽题。"
+            if not choice:
+                return state, "⚠️ 请先选择一个选项。"
+            state["total"] = state.get("total", 0) + 1
+            if choice == answer:
+                state["score"] = state.get("score", 0) + 1
+                verdict = f"✅ 答对了！回声就在《{answer}》。"
+            else:
+                verdict = f"❌ 不对，回声在《{answer}》。"
+            reveal = state.get("reveal", "")
+            state["answer"] = ""
+            return (state, f"{verdict}\n\n{reveal}\n\n当前战绩 "
+                    f"**{state.get('score', 0)} / {state['total']}**")
+
+        egg_quiz_new_btn.click(
+            on_egg_quiz_new, [egg_quiz_artist, egg_quiz_state],
+            [egg_quiz_state, egg_quiz_html, egg_quiz_options,
+             egg_quiz_result])
+        egg_quiz_submit_btn.click(
+            on_egg_quiz_submit, [egg_quiz_state, egg_quiz_options],
+            [egg_quiz_state, egg_quiz_result])
 
         # ── 听歌识曲 ──
 
@@ -1831,6 +2130,16 @@ def create_app(settings: Settings) -> gr.Blocks:
             app.load(on_song_select, [song_radio], song_outputs).then(
                 on_echo_map, [song_radio], [echo_map_box, echo_overview])
         else:
+            # role gating: viewers don't see management tabs. With login
+            # disabled (no data/users.json) role_of() says admin for all.
+            _admin_tabs = [t for t in (tab_add, tab_settings) if t is not None]
+
+            def _apply_role(request: gr.Request):
+                from .auth import role_of
+                admin = role_of(getattr(request, "username", None)) == "admin"
+                return [gr.Tab(visible=admin) for _ in _admin_tabs]
+
+            app.load(_apply_role, None, _admin_tabs)
             app.load(lambda: render_evolution_html(ctx["evolution"], lang="zh"),
                      None, [evolution_html])
 

@@ -131,3 +131,32 @@ def test_fingerprint_roundtrip(tmp_path):
     # random noise must NOT match
     noise = rng.standard_normal(5 * sr).astype(np.float32)
     assert match_sample(index, sr, noise) is None
+
+
+def test_blank_quiz_question():
+    from lyric_agent.quiz import make_blank_question
+    pool = {
+        "cardigan": ("Taylor Swift",
+                     ["and when I felt like I was an old cardigan",
+                      "under someone's bed"]),
+        "betty": ("Taylor Swift", ["betty, I won't make assumptions"]),
+        "exile": ("Taylor Swift", ["I think I've seen this film before"]),
+    }
+    q = make_blank_question(pool, random.Random(3))
+    assert q is not None
+    assert q.answer in q.options
+    assert len(q.options) <= 4
+    assert "＿" in q.line
+    assert q.answer.lower() not in q.line.lower()
+    assert q.answer.lower() in q.original.lower()
+
+
+def test_blank_quiz_guards():
+    from lyric_agent.quiz import make_blank_question
+    # no line sings its own title -> no question
+    pool = {"a1": ("X", ["no title in here at all"]),
+            "b2": ("X", ["nothing matching either"])}
+    assert make_blank_question(pool, random.Random(1)) is None
+    # a single song is not enough for options
+    only = {"cardigan": ("X", ["I was an old cardigan at your door"])}
+    assert make_blank_question(only, random.Random(1)) is None

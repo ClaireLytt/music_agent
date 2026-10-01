@@ -479,18 +479,53 @@ def _render_emotion_map(emotions: list) -> str:
         f'<text x="{_EMO_W / 2 + 6:.0f}" y="{_EMO_H - _EMO_PAD - 4}" '
         f'class="emo-axis-label">平静 ↓</text>',
     ]
+    # greedy label placement: try above/below/right/left of the dot and
+    # keep the first spot that fits inside the canvas without touching an
+    # already-placed label; when nothing fits the label is hidden until
+    # the dot is hovered (the <title> tooltip always works)
+    def _label_w(text: str) -> float:
+        return sum(11.0 if ord(c) > 0x2E80 else 6.5 for c in text)
+
+    placed: list[tuple[float, float, float, float]] = []
+
+    def _fits(x0: float, y0: float, x1: float, y1: float) -> bool:
+        if x0 < 2 or y0 < 2 or x1 > _EMO_W - 2 or y1 > _EMO_H - 2:
+            return False
+        return not any(x0 < px1 and x1 > px0 and y0 < py1 and y1 > py0
+                       for px0, py0, px1, py1 in placed)
+
+    seen: dict[tuple[int, int], int] = {}
     for e in emotions:
         x = _EMO_PAD + plot_w * max(0.0, min(1.0, e.valence))
         y = _EMO_H - _EMO_PAD - plot_h * max(0.0, min(1.0, e.arousal))
+        bucket = (round(x / 8), round(y / 8))
+        bump = seen.get(bucket, 0)
+        seen[bucket] = bump + 1
+        if bump:  # same spot as an earlier song: nudge the dot aside
+            x += 10 * bump
         color = _TONE_COLORS.get(e.tone, "#0969da")
         tip = (f'《{e.title}》· {e.artist}\n情绪基调：{e.tone or "未知"} · '
                f'正负向 {e.valence:.2f} · 能量 {e.arousal:.2f}\n点击播放这首歌')
+        label = e.title[:12]
+        w = _label_w(label)
+        candidates = (
+            (x, y - 14, "middle", x - w / 2, y - 24, x + w / 2, y - 12),
+            (x, y + 24, "middle", x - w / 2, y + 14, x + w / 2, y + 26),
+            (x + 13, y + 4, "start", x + 13, y - 6, x + 13 + w, y + 6),
+            (x - 13, y + 4, "end", x - 13 - w, y - 6, x - 13, y + 6),
+        )
+        lx, ly, anchor, hidden = x, y - 14.0, "middle", " emo-hidden"
+        for cx, cy, ca, bx0, by0, bx1, by1 in candidates:
+            if _fits(bx0, by0, bx1, by1):
+                lx, ly, anchor, hidden = cx, cy, ca, ""
+                placed.append((bx0, by0, bx1, by1))
+                break
         parts.append(
             f'<g class="emo-node" data-emo-pick="{_esc(e.title)}">'
             f'<circle cx="{x:.1f}" cy="{y:.1f}" r="9" fill="{color}">'
             f'<title>{_esc(tip)}</title></circle>'
-            f'<text x="{x:.1f}" y="{y - 14:.1f}" text-anchor="middle" '
-            f'class="emo-label">{_esc(e.title[:12])}</text></g>'
+            f'<text x="{lx:.1f}" y="{ly:.1f}" text-anchor="{anchor}" '
+            f'class="emo-label{hidden}">{_esc(label)}</text></g>'
         )
     legend = "".join(
         f'<span class="evo-legend-item"><span class="evo-legend-swatch" '
@@ -500,7 +535,7 @@ def _render_emotion_map(emotions: list) -> str:
     )
     return (
         '<div class="cloud-hint">每个点是一首歌（基于 AI 批注的逐行情绪均值）'
-        '· 点击任意歌曲直接播放</div>'
+        '· 点击任意歌曲直接播放 · 拥挤处的歌名悬停圆点可见</div>'
         f'<div class="evo-legend">{legend}</div>'
         f'<svg viewBox="0 0 {_EMO_W} {_EMO_H}" class="egg-svg" role="img">'
         + "".join(parts) + '</svg>'

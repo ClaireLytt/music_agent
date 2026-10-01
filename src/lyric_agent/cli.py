@@ -42,14 +42,24 @@ def serve(port: int | None, no_browser: bool) -> None:
     from .config import load_settings
     from .ui import create_app, launch_kwargs
 
+    from .auth import login_enabled, verify
+
     settings = load_settings()
     app = create_app(settings)
+    auth_kwargs = {}
+    if login_enabled():
+        # data/users.json exists -> login required (lyric-agent users-add)
+        auth_kwargs = {
+            "auth": verify,
+            "auth_message": "歌词透镜 — 请登录",
+        }
     app.launch(
         server_port=port or settings.ui_port,
         share=False,
         # public deployments run headless — never pop a browser there
         inbrowser=not no_browser and not settings.public_mode,
         allowed_paths=[str(Path(settings.songs_dir).resolve())],
+        **auth_kwargs,
         **launch_kwargs(),
     )
 
@@ -296,6 +306,33 @@ def pipeline(skip_fetch: bool, skip_embed: bool) -> None:
     click.echo(f"  -> {out}")
 
     click.echo("Done. Launch the UI with: lyric-agent serve")
+
+
+@cli.command("users-add")
+@click.argument("username")
+@click.option("--role", type=click.Choice(["admin", "viewer"]),
+              default="viewer", help="admin sees management tabs")
+def users_add(username: str, role: str) -> None:
+    """Add/update a login account (creates data/users.json; enables login)."""
+    from .auth import add_user
+    password = click.prompt("Password", hide_input=True,
+                            confirmation_prompt=True)
+    add_user(username, password, role)
+    click.echo(f"Saved '{username}' (role={role}). "
+               "Login is now required on `lyric-agent serve`.")
+
+
+@cli.command("users-list")
+def users_list() -> None:
+    """List login accounts (empty = login disabled)."""
+    from .auth import load_users
+    users = load_users()
+    if not users:
+        click.echo("no users — login disabled")
+        return
+    for name, u in users.items():
+        role = u.get("role", "viewer") if isinstance(u, dict) else "?"
+        click.echo(f"{name}\trole={role}")
 
 
 @cli.command()
