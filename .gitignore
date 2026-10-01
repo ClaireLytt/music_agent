@@ -28,3 +28,7 @@ data/users.json
 data/corpus/embeddings.meta.json
 # 401-era placeholder annotations; delete this line once real ones are generated
 data/songs/patient_zero/annotations.json
+# bulk-imported library songs are local state, re-creatable from catalog.json;
+# tracked demo songs are unaffected (ignore only hides untracked files).
+# To track a new song on purpose: git add -f data/songs/<dir>
+data/songs/*/
