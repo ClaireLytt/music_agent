@@ -16,6 +16,20 @@ _HEAD_JS = """
     }
   } catch (e) {}
 })();
+// role gating: the backend writes the login role into #ll-role; for
+// non-admins the management tabs are hidden. UI-level gating only.
+(function() {
+  function applyRole() {
+    const box = document.querySelector('#ll-role textarea, #ll-role input');
+    if (!box || !box.value || box.value === 'admin') return;
+    document.querySelectorAll('button[role="tab"]').forEach((btn) => {
+      const t = btn.textContent || '';
+      if (t.includes('添加歌曲') || t.includes('⚙️ 设置'))
+        btn.style.display = 'none';
+    });
+  }
+  setInterval(applyRole, 1500);
+})();
 // stale-page guard: after a server restart, an already-open page keeps a dead
 // session and every click silently does nothing — detect the restart via the
 // per-launch app_id and reload automatically
@@ -271,6 +285,7 @@ _HEAD_JS = """
       writeChannel('ll-emo-pick', emo.dataset.emoPick + '\\t' + Date.now());
       return;
     }
+    if (e.target.closest('details.egg-more')) return;  // expand, not pick
     const fp = e.target.closest('[data-focus-pick]');
     if (fp) {
       writeChannel('ll-focus-pick', fp.dataset.focusPick + '\\t' + Date.now());
@@ -445,13 +460,19 @@ footer, .gradio-container footer { display: none !important; }
 
 /* song list & catalog: one song per line, never side by side */
 #ll-songs .wrap, #ll-songs [data-testid="radio"], #ll-songs fieldset,
-#ll-catalog .wrap, #ll-catalog [data-testid="radio"], #ll-catalog fieldset {
+#ll-catalog .wrap, #ll-catalog [data-testid="radio"],
+#ll-catalog [data-testid="checkbox-group"], #ll-catalog fieldset {
   display: flex !important;
   flex-direction: column !important;
   align-items: stretch !important;
   gap: 4px !important;
 }
 #ll-songs label, #ll-catalog label { width: 100%; }
+#ll-songs {
+  max-height: 44vh; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+#ll-song-filter { margin-bottom: 6px; }
 #ll-catalog { max-height: 46vh; overflow-y: auto; }
 
 /* white theme: every field on white with clearly visible text + caret */
@@ -533,6 +554,13 @@ footer, .gradio-container footer { display: none !important; }
 }
 .song-title-display { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
 .song-meta-display { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+/* compact audio-upload dropzone — the default is a huge empty drop area */
+#ll-audio-up .wrap {
+  min-height: 0 !important; padding: 10px 8px !important; font-size: 12.5px;
+}
+#ll-audio-up .wrap .icon-wrap, #ll-audio-up .wrap svg { display: none; }
+#ll-audio-up .wrap .or { margin: 0 4px; }
 
 .no-audio-hint {
   padding: 10px 16px; margin: 8px 0; border-radius: 8px; font-size: 13px;
@@ -711,6 +739,29 @@ footer, .gradio-container footer { display: none !important; }
 .emo-node:hover .emo-label.emo-hidden {
   display: block; font-weight: 700; fill: var(--text-primary);
   paint-order: stroke; stroke: var(--bg-primary); stroke-width: 3px;
+}
+
+/* side-panel icon dock: tab nav flipped to the bottom, icon-only */
+#ll-side-dock { display: flex; flex-direction: column-reverse; }
+#ll-side-dock > .tab-nav, #ll-side-dock > div[role="tablist"] {
+  justify-content: center; gap: 6px;
+  border-bottom: none !important; border-top: 1px solid var(--border);
+  padding: 8px 0 2px; margin: 10px 0 0;
+}
+#ll-side-dock > .tab-nav button, #ll-side-dock button[role="tab"] {
+  font-size: 18px !important; font-weight: 400 !important;
+  padding: 6px 12px !important; border-radius: 10px !important;
+  border-bottom: none !important; background: transparent !important;
+  line-height: 1 !important;
+}
+#ll-side-dock > .tab-nav button:hover,
+#ll-side-dock button[role="tab"]:hover {
+  background: var(--bg-card-hover) !important;
+}
+#ll-side-dock > .tab-nav button.selected,
+#ll-side-dock button[role="tab"][aria-selected="true"] {
+  background: var(--accent-soft) !important;
+  border-bottom: none !important;
 }
 
 /* UI probe report table */

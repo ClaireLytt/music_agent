@@ -36,13 +36,15 @@ lyric-agent serve
 | 网络（cdnjs） | 🌊 波形进度条（wavesurfer） | 波形区自动隐藏，播放器功能完整 |
 | 网络（Microsoft TTS） | 📻 电台串场语音合成 | 生成时报错提示，其余电台功能可用 |
 
-## 功能总览（7 个页签）
+## 功能总览（8 个页签）
 
 ### 🎧 播放解读
 - **同步歌词**：LRC 时间轴逐句高亮 + 自动滚动；**逐字卡拉OK渐变**（按行时间戳估算进度）；
   官方试听片段自动对齐（`audio_offset_ms`）
 - **播放工具**：🌊 波形进度条（点击跳转）· ⏩ 一键跳副歌（重复行检测）·
   🅰🅱 A-B 区间循环跟唱 · 🎯 韵脚高亮（中文按韵辙、英文按 CMU 词典，同韵同色圆点）
+- **🎬 MV 彩蛋**：AI 整理这首歌官方 MV 的导演、隐藏细节与歌词呼应
+  （模型不了解的 MV 会如实说明而非编造；结果缓存在歌曲目录，附 B 站/YouTube 搜索直达）
 - **AI 助手**：点一句歌词提问（批注作为上下文、历史持久化）；
   🎭 **乐评人 vs 粉丝双视角辩论**（两个人格接连流式发言）
 - **📖 歌曲导读**：AI 通读全词生成 120–180 字导读，缓存于歌曲目录
@@ -62,17 +64,29 @@ lyric-agent serve
 - **🌐 跨歌手引用**模式：只看不同歌手之间的呼应（引用/致敬）
 - **✨ AI 解读网络**：把最强歌曲对喂给 LLM，区分真呼应与字面撞车
 - **🔍 意象追踪**：输入意象（雨 / scarf / 童年），原词命中 + 语义近邻按专辑时间线分组
-- 中文歌词使用更严格的 CJK 阈值 + 共享短语锚定，避免英文向 embedding 的假呼应
-  （阈值均可用 `ECHO_*` 环境变量调整，见 `.env.example`）
+- 默认多语言 embedding 模型（`paraphrase-multilingual-MiniLM-L12-v2`），
+  中文呼应真实可用；CJK 行使用更严格阈值（`ECHO_*` 环境变量可调，见 `.env.example`）
+
+### 🕵️ 歌词宇宙
+- **开始破案**：把一位歌手的彩蛋呼应网络当「证据链」（每条边最多 3 对呼应句），
+  LLM 推理出人物、关系与故事时间线，输出人物关系图（SVG）+ 带引文的故事板；
+  结果按「证据+模型」磁盘缓存，语料或模型变更自动失效
+- **💌 隔空回信**：选一对呼应的歌，AI 以 A 歌叙事者口吻给 B 歌写信，
+  呼应歌词金色高亮，信纸样式呈现
 
 ### 📊 曲库洞察
 - **📅 每日一句**：每天确定性地推一句带 AI 解读的歌词
 - **☁️ 高频意象词云**：按歌手统计（中文 jieba 分词 + 双语停用词），点词直接溯源到具体歌词
 - **🎭 情绪地图**：以批注的逐行 valence/arousal 均值把歌曲散点在情绪平面上，点击即播放
+  （歌名防碰撞布局：放不下的标签悬停圆点显示，重合点自动错开）
 - **📖 歌单故事线**：勾选几首歌，AI 按情绪弧线排序并讲出歌单的故事
 
 ### 🎮 互动
 - **🎯 歌词竞猜**：随机抽句猜出处（防剧透过滤、同歌手干扰项、战绩累计）
+- **🕳️ 歌名挖空**：专抽「歌词唱到歌名」的句子，把歌名挖掉让你四选一，
+  答后揭晓完整原句（纯语料零成本）
+- **🥚 彩蛋猜猜乐**：抽一句有回声的歌词，猜它在同歌手哪首歌里被呼应，
+  答完揭晓两句如何互文（彩蛋图现成边，零 LLM）
 - **🎙️ 听歌识曲**：录音/上传片段，本地 Shazam 式声纹（STFT 峰值星座哈希）
   识别曲库歌曲与片段位置
 
@@ -103,11 +117,23 @@ lyric-agent serve [--port 7860]    # 启动播放器 UI
 lyric-agent generate <song_dir>    # 为一首歌生成 AI 批注
 lyric-agent generate-all           # 为全部歌曲生成批注
 lyric-agent embed                  # 生成语料库 embeddings
+lyric-agent users-add <名字> [--role admin|viewer]  # 建登录账号（建号后 serve 要求登录）
+lyric-agent users-list             # 列账号；无账号 = 不要求登录
 lyric-agent doctor                 # 曲库/语料库健康检查（重复收录、过期索引等）
 lyric-agent search <query> [-s]    # 命令行歌词搜索（-s 语义模式）
 lyric-agent review <song_dir>      # 交互式人工复核批注
 lyric-agent build-evolution        # 聚合艺术家演化数据
 ```
+
+> ⚠️ **模型迁移**：embedding 默认模型已切换为多语言版。`embeddings.npy`
+> 带模型指纹（`embeddings.meta.json`），模型不匹配会明确报错——
+> pull 新代码后跑一次 `lyric-agent embed` 即可。
+
+## 登录与角色（可选）
+
+默认无需登录。`lyric-agent users-add` 创建首个账号后，`serve` 自动要求登录
+（密码 PBKDF2 加盐哈希存 `data/users.json`，已 gitignore）。
+`admin` 见全部页签；`viewer` 隐藏「➕ 添加歌曲 / ⚙️ 设置」。
 
 ## Pipeline Scripts
 
@@ -124,14 +150,14 @@ python scripts/import_playlist.py 9 12     # 按序号导入（歌词 + 60s 官�
 三层测试，见 `TESTING.html`（46+ 条功能验收单，标注自动/手动与验证方式）：
 
 ```bash
-# 1. 单元测试（31 项：LRC 解析、彩蛋检索、图构建、韵脚、竞猜、声纹指纹等）
+# 1. 单元测试（50 项：LRC 解析、彩蛋检索、图构建、韵脚、竞猜、声纹指纹、登录、MV 彩蛋等）
 pytest
 
 # 2. 端到端自测（50 项：对着运行中的服务器打真实 HTTP API）
 lyric-agent serve            # 先在一个终端启动【新】服务器
 python scripts/self_test.py  # 另一终端运行；UI_PORT 环境变量可改端口
 
-# 3. UI 巡检（40 项：真实浏览器逐页签走查交互与守卫路径、抓 JS 报错与服务端异常）
+# 3. UI 巡检（42 项：真实浏览器逐页签走查交互与守卫路径、抓 JS 报错与服务端异常）
 python scripts/ui_probe.py           # 自起独立服务器；--port 7860 可附加现有服务器
 python scripts/ui_agent.py           # 闭环模式：巡检 → claude 自动修复 → 复测
 python scripts/ui_agent.py --dry-run # 只巡检出报告，不修复

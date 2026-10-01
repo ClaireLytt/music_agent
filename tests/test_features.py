@@ -160,3 +160,18 @@ def test_blank_quiz_guards():
     # a single song is not enough for options
     only = {"cardigan": ("X", ["I was an old cardigan at your door"])}
     assert make_blank_question(only, random.Random(1)) is None
+
+
+def test_letter_card_renders(tmp_path):
+    import pytest
+    pytest.importorskip("PIL")  # share cards are an optional extra; CI
+    # installs the slim dependency set without Pillow
+    from pathlib import Path
+
+    from lyric_agent.share_card import render_letter_card
+    body = "致《cardigan》：\n你唱过 line b echo。\n我也唱过 line a echo。\n——《betty》"
+    p = render_letter_card("betty", "cardigan", body,
+                           "line a echo", "line b echo",
+                           out_dir=str(tmp_path))
+    f = Path(p)
+    assert f.exists() and f.suffix == ".png" and f.stat().st_size > 10000

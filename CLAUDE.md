@@ -63,3 +63,23 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+## Project-specific notes (lyric_agent)
+
+- **Staging area is not yours.** `git add .` may happen outside the session
+  between turns. Before EVERY commit: check `git status --short` for staged
+  (first-column) entries and `git diff --cached --stat`; re-add the files you
+  mean to commit and verify the commit's file list afterwards. Stale staged
+  snapshots have smuggled wrong content into commits twice.
+- **Never commit placeholder output.** Failed LLM runs still write files
+  (e.g. annotations.json full of "[Annotation generation failed]"). Grep for
+  that marker before committing anything under data/songs/.
+- **Verification gates:** `python -m pytest tests/ -q` (unit) and
+  `python scripts/ui_probe.py` (real-browser, all tabs) must both be green
+  before claiming UI work done. Probe failures: read the screenshot in
+  data/ui_probe/ before theorizing.
+- **Adding one song:** never `lyric-agent pipeline` (re-annotates the whole
+  library at full LLM cost); use the per-song commands in the add-song skill.
+- **UI styling** is token-centric: edit `:root` variables and component rules
+  in src/lyric_agent/ui_assets.py; SVG palettes live as Python constants in
+  echo_map.py / universe.py and must match the theme's light/dark basis.

@@ -143,3 +143,22 @@ def test_make_echo_question_empty_graph():
     g = EchoGraph(artist="X", threshold=0.6, song_total=0)
     assert make_echo_question(g) is None
     assert make_echo_question(None) is None
+
+
+def test_render_universe_escapes_hostile_llm_output():
+    """LLM-sourced strings must never reach the HTML unescaped."""
+    evil = '<script>alert(1)</script>'
+    u = parse_universe({
+        "synopsis": evil, "confidence": "high",
+        "characters": [{"name": f"bad{evil}", "role": evil,
+                        "songs": [evil]}],
+        "relations": [{"a": f"bad{evil}", "b": f"bad{evil}", "label": evil,
+                       "evidence": evil}],
+        "timeline": [{"title": evil, "song": evil, "summary": evil,
+                      "quote": evil}],
+        "caveat": evil,
+    }, "artist")
+    html = render_universe_html(u)
+    assert "<script" not in html
+    html2 = render_letter_html("a", "b", f"dear {evil}", "x", "y")
+    assert "<script" not in html2

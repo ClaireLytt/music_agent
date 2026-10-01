@@ -31,6 +31,36 @@ from .search import (
 
 # strongest edges drawn on the map; beyond this the circle becomes a hairball
 MAX_EDGES = 60
+MAX_EDGE_EXAMPLES = 10  # distinct pairs kept per edge
+
+_NORM_LINE_RE = re.compile(r"[\W_]+", re.UNICODE)
+
+
+def norm_line(text: str) -> str:
+    """Casefolded, punctuation-free form for duplicate detection.
+
+    Leading/trailing vocalization filler is stripped first, so
+    "Oh, you're the one I want" and "Ah-ah, you're the one I want"
+    normalize to the same core (covers() then absorbs remaining
+    prefix/suffix variants by containment). CJK lines have no such
+    filler tokens and keep the plain punctuation-free form."""
+    lowered = (text or "").casefold()
+    tokens = _WORD_RE.findall(lowered)
+    while tokens and tokens[0].strip("'") in _FILLER_VOCAB:
+        tokens.pop(0)
+    while tokens and tokens[-1].strip("'") in _FILLER_VOCAB:
+        tokens.pop()
+    core = "".join(tokens)
+    # _WORD_RE is latin-only: CJK (or all-filler) lines fall back to the
+    # plain normalized form so they never collapse to ""
+    return core or _NORM_LINE_RE.sub("", lowered)
+
+
+def covers(a: str, b: str) -> bool:
+    """True when two normalized lines are the same lyric for display
+    purposes: equal, or one contains the other (ad-lib prefixes like
+    "Oh, ..." / "Ah-ah, darling, ..." wrap the same hook line)."""
+    return bool(a) and bool(b) and (a == b or a in b or b in a)
 # example echo pairs listed under the map
 TOP_PAIRS_SHOWN = 5
 # two songs sharing this fraction of identical lines are the same recording
@@ -106,6 +136,26 @@ class EchoGraph:
     cross_artist: bool = False
     nodes: list[EchoNode] = field(default_factory=list)
     edges: list[EchoEdge] = field(default_factory=list)
+
+
+def graph_to_dict(g: EchoGraph) -> dict:
+    """JSON-safe form for the disk cache (ui._map_graph)."""
+    import dataclasses
+    return dataclasses.asdict(g)
+
+
+def graph_from_dict(d: dict) -> EchoGraph:
+    return EchoGraph(
+        artist=d["artist"], threshold=d["threshold"],
+        song_total=d["song_total"], cross_artist=d["cross_artist"],
+        nodes=[EchoNode(**n) for n in d["nodes"]],
+        edges=[EchoEdge(song_a=e["song_a"], song_b=e["song_b"],
+                        count=e["count"],
+                        example=EchoPair(**e["example"]),
+                        examples=[EchoPair(**p)
+                                  for p in e.get("examples", [])])
+               for e in d["edges"]],
+    )
 
 
 def build_echo_graph(
@@ -218,16 +268,24 @@ def build_echo_graph(
         return f"{k[0]} · {song_artist.get(k, '')}" if cross else k[0]
 
     def top_examples(key: tuple) -> list[EchoPair]:
+        """Strongest pairs with NO repeated lyric on either side: a line
+        that already appears (or is an ad-lib variant of one that does)
+        is skipped, so the expandable list shows variety, not the same
+        hook sung eight ways."""
         lead = edge_example_distinct.get(key) or edge_example[key]
-        seen = {(lead.line_a.casefold(), lead.line_b.casefold())}
+        seen_a = [norm_line(lead.line_a)]
+        seen_b = [norm_line(lead.line_b)]
         out = [lead]
         for p in sorted(edge_pairs[key], key=lambda p: p.similarity,
                         reverse=True):
-            k = (p.line_a.casefold(), p.line_b.casefold())
-            if k not in seen:
-                seen.add(k)
-                out.append(p)
-            if len(out) == 3:
+            na, nb = norm_line(p.line_a), norm_line(p.line_b)
+            if any(covers(na, s) for s in seen_a) \
+                    or any(covers(nb, s) for s in seen_b):
+                continue
+            seen_a.append(na)
+            seen_b.append(nb)
+            out.append(p)
+            if len(out) == MAX_EDGE_EXAMPLES:
                 break
         return out
 
@@ -367,7 +425,14 @@ def render_echo_map_html(graph: EchoGraph) -> str:
         # accent color, everything else fades to grey — no more hairball
         top = idx < _TOP_EDGES_HIGHLIGHT and e.count > 1
         cls = "egg-edge egg-edge-top" if top else "egg-edge"
-        opacity = 0.75 if top else 0.12 + 0.28 * e.count / max_count
+        if top:
+            opacity = 0.75
+        elif e.count <= 1:
+            # single-pair edges are the hairball: near-invisible at rest,
+            # they revive on hover and on node-highlight
+            opacity = 0.05
+        else:
+            opacity = 0.12 + 0.28 * e.count / max_count
         tip = (f'《{e.song_a}》↔《{e.song_b}》共 {e.count} 处呼应\n'
                f'例：“{e.example.line_a}” ↔ “{e.example.line_b}”\n'
                '点击两端的圆点可逐对细看')
@@ -514,6 +579,18 @@ ECHO_MAP_CSS = """
 .egg-clickable { cursor: pointer; }
 .egg-clickable:hover .egg-label { fill: var(--accent); font-weight: 700; }
 .egg-pair.egg-clickable:hover { border-color: var(--accent); }
+.egg-more { margin-top: 6px; }
+.egg-more summary {
+  cursor: pointer; font-size: 12px; color: var(--accent);
+  user-select: none; list-style-position: inside;
+}
+.egg-more summary:hover { text-decoration: underline; }
+.egg-more-pair {
+  margin: 6px 0 0; padding: 6px 8px; border-left: 2px solid var(--border);
+}
+.egg-more-note {
+  margin-top: 6px; font-size: 11.5px; color: var(--text-secondary);
+}
 .egg-pair-go {
   float: right; font-size: 11px; color: var(--accent); opacity: 0;
   transition: opacity 0.15s ease;
@@ -706,11 +783,34 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
     shown.update(album_of.get(p, "未知专辑") for p, _ in spokes)
     legend = _album_legend({al: c for al, c in colors.items() if al in shown})
 
+    def _oriented(e: EchoEdge, p: EchoPair) -> tuple[str, str]:
+        # quote order: focus song's line first
+        return (p.line_a, p.line_b) if e.song_a == focus \
+            else (p.line_b, p.line_a)
+
     cards = []
     for partner, e in spokes:
-        # quote order: focus song's line first
-        la, lb = (e.example.line_a, e.example.line_b) \
-            if e.song_a == focus else (e.example.line_b, e.example.line_a)
+        la, lb = _oriented(e, e.example)
+        extras = e.examples[1:]
+        if extras:
+            rows = "".join(
+                f'<div class="egg-more-pair">'
+                f'<div class="egg-pair-quote">“{_esc(ea)}”</div>'
+                f'<div class="egg-pair-quote">“{_esc(eb)}”{_sim_tag(p)}</div>'
+                '</div>'
+                for p in extras for ea, eb in [_oriented(e, p)])
+            note = ""
+            if e.count > len(e.examples):
+                note = (f'<div class="egg-more-note">共 {e.count} 处呼应，'
+                        f'此处保留最强的 {len(e.examples)} 对。</div>')
+            more = (
+                f'<details class="egg-more"><summary>展开其余 '
+                f'{len(extras)} 对呼应</summary>{rows}{note}</details>')
+        elif e.count > 1:
+            more = (f'<div class="egg-more-note">共 {e.count} 处呼应，'
+                    '其余各对与上面措辞重复，已合并展示。</div>')
+        else:
+            more = ""
         cards.append(
             f'<div class="egg-pair egg-clickable" '
             f'data-focus-pick="{_esc(partner)}" title="点击聚焦《{_esc(partner)}》">'
@@ -719,6 +819,7 @@ def render_focus_html(graph: EchoGraph, focus: str) -> str:
             f'<div class="egg-pair-quote">《{_esc(focus)}》唱道：“{_esc(la)}”</div>'
             f'<div class="egg-pair-quote">《{_esc(partner)}》唱道：“{_esc(lb)}”'
             f'{_sim_tag(e.example)}</div>'
+            f'{more}'
             '</div>'
         )
 

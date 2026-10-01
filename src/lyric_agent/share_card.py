@@ -185,3 +185,57 @@ def render_echo_card(
     path = out / f"echo_card_{int(time.time() * 1000)}.png"
     img.save(path)
     return str(path)
+
+
+def render_letter_card(song_a: str, song_b: str, body: str,
+                       line_a: str, line_b: str,
+                       out_dir: str = "data/cards") -> str:
+    """隔空回信 as a cream letter-paper PNG; echo lines drawn in gold."""
+    img = _gradient(W, H, (250, 246, 236), (239, 231, 211))
+    draw = ImageDraw.Draw(img)
+    ink = (58, 51, 39)
+    faded = (130, 120, 100)
+    gold = (154, 103, 0)
+
+    brand = _font(26, bold=True)
+    body_font = _font(30)
+    small = _font(22)
+
+    y = MARGIN
+    draw.text((MARGIN, y), "歌词透镜 · 隔空回信", font=brand, fill=gold)
+    y += 48
+    draw.line([(MARGIN, y), (W - MARGIN, y)], fill=(210, 198, 170), width=2)
+    y += 36
+
+    # echo lines are quoted verbatim inside the letter — paint them gold
+    echoes = [_clean(line_a).strip(), _clean(line_b).strip()]
+    max_w = W - 2 * MARGIN
+    for para in _clean(body).splitlines():
+        para = para.strip()
+        if not para:
+            y += 18
+            continue
+        hot = any(e and e in para for e in echoes)
+        for line in _wrap(para, body_font, max_w):
+            if y > H - MARGIN - 120:
+                draw.text((MARGIN, y), "……", font=body_font, fill=faded)
+                y += 44
+                break
+            draw.text((MARGIN, y), line, font=body_font,
+                      fill=gold if hot else ink)
+            y += 46
+        else:
+            y += 10
+            continue
+        break  # ran out of vertical space
+
+    draw.line([(MARGIN, H - MARGIN - 56), (W - MARGIN, H - MARGIN - 56)],
+              fill=(210, 198, 170), width=2)
+    draw.text((MARGIN, H - MARGIN - 40),
+              _clean(f"《{song_a}》 → 《{song_b}》"), font=small, fill=faded)
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"letter_card_{int(time.time() * 1000)}.png"
+    img.save(path)
+    return str(path)

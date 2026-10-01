@@ -502,7 +502,7 @@ def _render_emotion_map(emotions: list) -> str:
         bump = seen.get(bucket, 0)
         seen[bucket] = bump + 1
         if bump:  # same spot as an earlier song: nudge the dot aside
-            x += 10 * bump
+            x = min(x + 10 * bump, _EMO_W - _EMO_PAD)
         color = _TONE_COLORS.get(e.tone, "#0969da")
         tip = (f'《{e.title}》· {e.artist}\n情绪基调：{e.tone or "未知"} · '
                f'正负向 {e.valence:.2f} · 能量 {e.arousal:.2f}\n点击播放这首歌')
