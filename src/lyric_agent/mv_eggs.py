@@ -100,21 +100,34 @@ def parse_mv(data) -> MvEggs:
     return m
 
 
-def load_mv(song_dir: str | Path):
-    """Saved raw verdict for this song, or None."""
+def load_mv(song_dir: str | Path, model: str | None = None):
+    """Saved raw verdict for this song, or None.
+
+    Verdicts are cached per model: switching the LLM invalidates the
+    cache so a better model gets to re-answer. Legacy files (saved
+    before the model key existed) stay valid for any model.
+    """
     try:
         p = Path(song_dir) / MV_FILENAME
-        if p.exists():
-            return json.loads(p.read_text(encoding="utf-8"))
+        if not p.exists():
+            return None
+        raw = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         logger.exception("Failed reading %s in %s", MV_FILENAME, song_dir)
-    return None
+        return None
+    if isinstance(raw, dict) and "payload" in raw and "model" in raw:
+        if model and raw["model"] != model:
+            return None
+        return raw["payload"]
+    return raw  # legacy format
 
 
-def save_mv(song_dir: str | Path, data) -> None:
+def save_mv(song_dir: str | Path, data, model: str = "") -> None:
     try:
         (Path(song_dir) / MV_FILENAME).write_text(
-            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            json.dumps({"model": model, "payload": data},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8")
     except OSError:
         logger.exception("Failed saving %s in %s", MV_FILENAME, song_dir)
 

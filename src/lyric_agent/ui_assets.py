@@ -16,6 +16,20 @@ _HEAD_JS = """
     }
   } catch (e) {}
 })();
+// role gating: the backend writes the login role into #ll-role; for
+// non-admins the management tabs are hidden. UI-level gating only.
+(function() {
+  function applyRole() {
+    const box = document.querySelector('#ll-role textarea, #ll-role input');
+    if (!box || !box.value || box.value === 'admin') return;
+    document.querySelectorAll('button[role="tab"]').forEach((btn) => {
+      const t = btn.textContent || '';
+      if (t.includes('添加歌曲') || t.includes('⚙️ 设置'))
+        btn.style.display = 'none';
+    });
+  }
+  setInterval(applyRole, 1500);
+})();
 // stale-page guard: after a server restart, an already-open page keeps a dead
 // session and every click silently does nothing — detect the restart via the
 // per-launch app_id and reload automatically

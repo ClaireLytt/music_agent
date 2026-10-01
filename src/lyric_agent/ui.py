@@ -107,7 +107,8 @@ def create_app(settings: Settings) -> gr.Blocks:
             settings.songs_dir,
             exclude_sources={HACKATHON_PLAYLIST_SOURCE} if public else None)
         ctx["songs"] = songs
-        searcher = LyricsSearcher(songs, model_name=settings.embedding_model)
+        searcher = LyricsSearcher(songs, model_name=settings.embedding_model,
+                                  corpus_dir=settings.corpus_dir)
         ctx["searcher"] = searcher
         if songs:
             # pre-load the embedding model so the first semantic search doesn't
@@ -126,7 +127,11 @@ def create_app(settings: Settings) -> gr.Blocks:
     refresh_library()
 
     def song_choice_label(s: dict) -> str:
-        return s["title"]
+        # titles are the identity in every handler; when two library songs
+        # share a title (cross-artist covers), disambiguate with the artist
+        title = s["title"]
+        dup = sum(1 for o in ctx.get("songs", []) if o["title"] == title)
+        return f"{title} — {s['artist']}" if dup > 1 else title
 
     _SORT_KEYS = {
         "added": lambda s: s["added_ts"],
@@ -285,6 +290,12 @@ def create_app(settings: Settings) -> gr.Blocks:
             '<div class="app-header"><h1>🔍 歌词透镜</h1>'
             '<p>点一句歌词，问懂一句歌词</p></div>'
         )
+        # backend -> JS: the login role ("admin"/"viewer"); _HEAD_JS hides
+        # the management tabs for non-admins (gradio 6 ignores Tab
+        # visibility updates, so this goes through the JS channel instead)
+        role_box = gr.Textbox(value="", visible=True, elem_id="ll-role",
+                              elem_classes=["ll-hidden"], show_label=False,
+                              container=False)
 
         with gr.Tabs() as tabs:
             # ══ 页签 1: 播放解读 ══
@@ -647,9 +658,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                         fp_result = gr.Markdown("")
 
             # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
-            tab_add = None
             if not public:
-                with gr.Tab("➕ 添加歌曲") as tab_add:
+                with gr.Tab("➕ 添加歌曲"):
                     catalog = _load_catalog()
                     cat_labels = [f"{c['title']} — {c['artist']}" for c in catalog]
                     gr.Markdown(
@@ -711,7 +721,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                         manage_status = gr.Markdown("")
 
             # ══ 页签 7: 设置 ══
-            with gr.Tab("⚙️ 设置") as tab_settings:
+            with gr.Tab("⚙️ 设置"):
                 if public:
                     gr.Markdown(
                         "### API 设置（公开体验版）\n"
@@ -831,24 +841,68 @@ def create_app(settings: Settings) -> gr.Blocks:
         # dropdown sentinel for the cross-artist (references between artists) mode
         _CROSS_ARTIST_CHOICE = "🌐 跨歌手引用（全部歌手）"
 
+        _GRAPH_CACHE_DIR = Path("data/cache/echo_graphs")
+
+        def _graph_cache_key(choice: str) -> list:
+            corpus_p = Path(settings.corpus_dir) / "discography.jsonl"
+            emb_p = Path(settings.corpus_dir) / "embeddings.npy"
+            return [
+                corpus_p.stat().st_mtime if corpus_p.exists() else 0,
+                emb_p.stat().st_mtime if emb_p.exists() else 0,
+                settings.embedding_model,
+                settings.echo_min_similarity,
+                settings.echo_min_similarity_cjk,
+                settings.echo_map_max_nodes,
+                sorted(s["title"] for s in ctx["songs"]),
+                choice,
+            ]
+
         def _map_graph(choice: str):
-            """Build (or fetch cached) EchoGraph + rendered HTML for a choice."""
+            """Build (or fetch cached) EchoGraph + rendered HTML for a choice.
+
+            Two cache layers: per-session memory, then disk — the
+            cross-artist graph costs 10-20s to build, and the disk layer
+            (echo-scan pattern: mtimes + model + thresholds in the key)
+            survives server restarts."""
             index = _echo_index()
             if index is None:
                 return None, _ECHO_NO_INDEX
             cache = ctx.setdefault("echo_graphs", {})
             if choice not in cache:
                 from .intertextuality.echo_map import (
-                    build_echo_graph, render_echo_map_html)
-                embeddings, corpus = index
-                artist = None if choice == _CROSS_ARTIST_CHOICE else choice
-                graph = build_echo_graph(
-                    embeddings, corpus, artist,
-                    min_similarity=settings.echo_min_similarity,
-                    min_similarity_cjk=settings.echo_min_similarity_cjk,
-                    max_nodes=settings.echo_map_max_nodes,
-                    library_titles={s["title"] for s in ctx["songs"]},
-                )
+                    build_echo_graph, graph_from_dict, graph_to_dict,
+                    render_echo_map_html)
+                key = _graph_cache_key(choice)
+                slug = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", choice)
+                disk = _GRAPH_CACHE_DIR / f"{slug}.json"
+                graph = None
+                try:
+                    saved = json.loads(disk.read_text(encoding="utf-8"))
+                    if saved.get("key") == key:
+                        graph = graph_from_dict(saved["graph"])
+                except (OSError, ValueError, KeyError, TypeError):
+                    graph = None
+                if graph is None:
+                    embeddings, corpus = index
+                    artist = (None if choice == _CROSS_ARTIST_CHOICE
+                              else choice)
+                    graph = build_echo_graph(
+                        embeddings, corpus, artist,
+                        min_similarity=settings.echo_min_similarity,
+                        min_similarity_cjk=settings.echo_min_similarity_cjk,
+                        max_nodes=settings.echo_map_max_nodes,
+                        library_titles={s["title"] for s in ctx["songs"]},
+                    )
+                    try:
+                        _GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+                        disk.write_text(
+                            json.dumps({"key": key,
+                                        "graph": graph_to_dict(graph)},
+                                       ensure_ascii=False),
+                            encoding="utf-8")
+                    except OSError:
+                        logger.warning("echo graph cache write failed",
+                                       exc_info=True)
                 cache[choice] = (graph, render_echo_map_html(graph))
             return cache[choice]
 
@@ -929,19 +983,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                     gr.Radio(value="focus"),
                     _render_map(artist, "focus", song))
 
-        # .input (not .change): programmatic updates from init_echo_map must
-        # not re-trigger these handlers, or the default focus gets overwritten
+        # .change (not .input): .input silently drops events for some
+        # components in this gradio build. init_echo_map's programmatic
+        # updates DO re-trigger these handlers now; on_map_artist recomputes
+        # the same default focus it was given, so the net render is identical
         # shared concurrency_id: these four all repaint echo_map_html.
         # Without it gradio may run them in parallel, and a slow render
         # (first cross-artist build) can finish AFTER a fast one and paint
         # a stale graph over the fresh one.
-        map_artist.input(on_map_artist, [map_artist, map_view],
+        map_artist.change(on_map_artist, [map_artist, map_view],
                          [map_focus, echo_map_html, map_explain_out],
                          concurrency_id="echo-map")
-        map_view.input(on_map_view, [map_view, map_artist, map_focus],
+        map_view.change(on_map_view, [map_view, map_artist, map_focus],
                        [map_focus, echo_map_html],
                        concurrency_id="echo-map")
-        map_focus.input(on_map_focus, [map_focus, map_artist, map_view],
+        map_focus.change(on_map_focus, [map_focus, map_artist, map_view],
                         [echo_map_html],
                         concurrency_id="echo-map")
         focus_pick_box.change(on_focus_pick, [focus_pick_box, map_artist],
@@ -1174,7 +1230,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             return (gr.Image(value=path, visible=True),
                     f"✅ 已保存：`{path}`")
 
-        uni_artist.input(on_uni_artist, [uni_artist], [letter_pair])
+        uni_artist.change(on_uni_artist, [uni_artist], [letter_pair])
         uni_btn.click(on_universe, [uni_artist, user_llm], [uni_html])
         letter_card_btn.click(on_letter_card, [letter_state],
                               [letter_card_img, letter_card_status])
@@ -1245,7 +1301,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                     on_cloud_artist(value), emotions,
                     gr.CheckboxGroup(choices=titles))
 
-        cloud_artist.input(on_cloud_artist, [cloud_artist], [cloud_html])
+        cloud_artist.change(on_cloud_artist, [cloud_artist], [cloud_html])
         word_pick_box.change(on_word_pick, [word_pick_box, cloud_artist],
                              [word_trace_html])
         emo_pick_box.change(on_emo_pick, [emo_pick_box],
@@ -1731,11 +1787,11 @@ def create_app(settings: Settings) -> gr.Blocks:
             info = find_song(choice)
             title = info.get("title", "")
             artist = info.get("artist", "")
-            existing = load_mv(info["dir"])
+            req_settings = _request_settings(user_cfg)
+            existing = load_mv(info["dir"], req_settings.model_name)
             if existing is not None:
                 yield render_mv_html(parse_mv(existing), title, artist)
                 return
-            req_settings = _request_settings(user_cfg)
             if not req_settings.api_key:
                 yield ('<div class="chat-empty">⚠️ 未配置 API Key，无法生成。'
                        '请到「⚙️ 设置」页签填写。</div>')
@@ -1752,7 +1808,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                 yield (f'<div class="chat-empty">⚠️ 生成失败：'
                        f'{_esc(str(exc)[:150])}</div>')
                 return
-            save_mv(info["dir"], data)
+            save_mv(info["dir"], data, req_settings.model_name)
             yield render_mv_html(parse_mv(data), title, artist)
 
         if not public:
@@ -2073,8 +2129,23 @@ def create_app(settings: Settings) -> gr.Blocks:
                     or f"song_{int(time.time())}"
                 d = Path(settings.songs_dir) / slug
                 if d.exists():
-                    existed.append(entry["title"])
-                    continue
+                    # same dir ≠ same song: "ME!" and "Me" share a slug
+                    try:
+                        have = json.loads(
+                            (d / "metadata.json").read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        have = {}
+                    if (have.get("title") == entry["title"]
+                            and have.get("artist") == entry["artist"]):
+                        existed.append(entry["title"])
+                        continue
+                    slug += "_" + (re.sub(r"[^\w]+", "_",
+                                          entry["artist"].lower()).strip("_")
+                                   or "x")
+                    d = Path(settings.songs_dir) / slug
+                    if d.exists():
+                        existed.append(entry["title"])
+                        continue
                 d.mkdir(parents=True)
                 (d / "lyrics.lrc").write_text(entry["lrc"], encoding="utf-8")
                 meta = {
@@ -2334,17 +2405,19 @@ def create_app(settings: Settings) -> gr.Blocks:
             app.load(on_song_select, [song_radio], song_outputs).then(
                 on_echo_map, [song_radio], [echo_map_box, echo_overview])
         else:
-            # role gating: viewers don't see management tabs. With login
-            # disabled (no data/users.json) role_of() says admin for all.
-            _admin_tabs = [t for t in (tab_add, tab_settings) if t is not None]
-
-            def _apply_role(request: gr.Request):
-                from .auth import role_of
-                admin = role_of(getattr(request, "username", None)) == "admin"
-                return [gr.Tab(visible=admin) for _ in _admin_tabs]
-
-            app.load(_apply_role, None, _admin_tabs)
             app.load(lambda: render_evolution_html(ctx["evolution"], lang="zh"),
                      None, [evolution_html])
+
+        # role gating (unconditional — the first version of this sat inside
+        # the empty-library else-branch above and never ran with songs
+        # present): viewers don't see management tabs. With login disabled
+        # (no data/users.json) role_of() says admin for everyone. UI-level
+        # only: the JS channel hides tab buttons — handlers are not
+        # role-checked server-side (hackathon threat model).
+        def _apply_role(request: gr.Request):
+            from .auth import role_of
+            return role_of(getattr(request, "username", None))
+
+        app.load(_apply_role, None, [role_box])
 
     return app
