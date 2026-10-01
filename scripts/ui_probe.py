@@ -93,7 +93,9 @@ class Probe:
     # ── helpers ───────────────────────────────────────────
 
     def tab(self, name: str) -> None:
-        self.page.get_by_role("tab", name=name).click()
+        # exact: role-name matching is substring-based, and sub-tab labels
+        # can be prefixes of one another ("🥚 彩蛋" vs "🥚 彩蛋猜猜乐")
+        self.page.get_by_role("tab", name=name, exact=True).click()
         self.page.wait_for_timeout(700)
 
     def must(self, cond: bool, msg: str) -> None:
@@ -181,6 +183,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             # guard path (no picked line) is what gets exercised
             pg.get_by_role("radio", name="exile").check()
             pg.wait_for_timeout(2500)
+            probe.tab("🛠️ 更多")
             pg.get_by_text("🖼️ 分享卡片").click()
             pg.wait_for_timeout(300)
             pg.get_by_role("button", name="生成歌词金句卡").click()
@@ -234,6 +237,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("ab_loop", "A-B loop set + clear", c_ab_loop)
 
         def c_notes():
+            probe.tab("🛠️ 更多")
             pg.get_by_text("📝 听歌笔记").click()
             pg.wait_for_timeout(400)
             box = pg.get_by_placeholder("在当前播放位置记一句感想…")
@@ -314,6 +318,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_debate_guard)
 
         def c_echo_explain_guard():
+            probe.tab("🥚 彩蛋")
             pg.get_by_role("button", name="✨ 让 AI 解释这些呼应").click()
             probe.wait_until(
                 lambda: "请先点击一句歌词" in pg.locator("body").inner_text(),
@@ -331,6 +336,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_echo_card_guard)
 
         def c_echo_overview():
+            probe.tab("🥚 彩蛋")
             pg.get_by_text("🗺️ 本歌彩蛋总览").click()
             probe.wait_until(
                 lambda: count(".echo-ov-item") >= 1
@@ -349,6 +355,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_echo_overview)
 
         def c_intro_panel():
+            probe.tab("📖 导读")
             pg.get_by_text("📖 歌曲导读").click()
             pg.wait_for_timeout(500)
             html = pg.locator("#ll-intro").inner_html()
@@ -361,6 +368,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             # exile has no intro.txt -> the TTS button must guard, not spend
             pg.get_by_role("radio", name="exile").check()
             pg.wait_for_timeout(2500)
+            probe.tab("🛠️ 更多")
             pg.get_by_text("📻 AI 电台").click()
             pg.wait_for_timeout(400)
             pg.get_by_role(
@@ -464,7 +472,23 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             # (artist switch and node click landing in the same tick); one
             # bounded retry absorbs that — a real regression fails twice
             last = ""
-            for attempt in (1, 2):
+            for attempt in (1, 2, 3):
+                artist_val = pg.locator("#ll-map-artist input").input_value()
+                if attempt > 1 and " · " in (
+                        pg.locator("g.egg-clickable").first
+                        .get_attribute("data-focus-pick") or ""):
+                    # cross-artist DOM although the input displays a single
+                    # artist: the option click likely never fired .input —
+                    # re-select the artist to resync, keep the evidence
+                    pg.locator("#ll-map-artist input").click()
+                    pg.wait_for_timeout(400)
+                    pg.get_by_role("option", name=artist_val,
+                                   exact=True).click()
+                    probe.wait_until(
+                        lambda: " · " not in (
+                            pg.locator("g.egg-clickable").first
+                            .get_attribute("data-focus-pick") or " · "),
+                        msg="re-select did not restore the artist map")
                 target = pg.locator("g.egg-clickable").first \
                     .get_attribute("data-focus-pick")
                 last = target or ""
@@ -474,11 +498,17 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                         lambda: ("《" + target + "》的彩蛋网络")
                         in pg.locator(".egg-headline").inner_text(),
                         timeout_s=12.0, msg="no refocus")
+                    if attempt > 1:
+                        print(f"  [focus_pick] self-healed on attempt "
+                              f"{attempt} (artist input was "
+                              f"{artist_val!r}, DOM was stale)")
                     return
                 except AssertionError:
-                    if attempt == 2:
+                    if attempt == 3:
                         raise AssertionError(
-                            "clicking node did not refocus to " + repr(last))
+                            "no refocus to " + repr(last)
+                            + f" | artist input={artist_val!r} | headline="
+                            + pg.locator(".egg-headline").inner_text()[:80])
         probe.check("focus_pick", "map node click refocuses the star view",
                     c_focus_pick)
 
@@ -532,6 +562,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         # ── interactive tab ──
         def c_quiz():
             probe.tab("🎮 互动")
+            probe.tab("🎯 歌词竞猜")
             pg.get_by_role("button", name="🎲 开始 / 下一题").click()
             pg.wait_for_timeout(2500)
             must(count(".quiz-line") == 1, "quiz question missing")
@@ -558,6 +589,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_quiz_answer)
 
         def c_blank_quiz():
+            probe.tab("🕳️ 歌名挖空")
             pg.get_by_role("button", name="🕳️ 来一题").click()
             pg.wait_for_timeout(2500)
             body = pg.locator("body").inner_text()
@@ -578,6 +610,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
         def c_mv_eggs_present():
             probe.tab("🎧 播放解读")
+            probe.tab("📖 导读")
             pg.locator("#ll-mv").click()  # open the accordion
             pg.wait_for_timeout(600)
             must("MV 彩蛋" in pg.locator("#ll-mv").inner_text(),
@@ -590,6 +623,8 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_mv_eggs_present)
 
         def c_identify_guard():
+            probe.tab("🎮 互动")
+            probe.tab("🎙️ 听歌识曲")
             pg.get_by_role("button", name="🔍 识别").click()
             pg.wait_for_timeout(2500)
             body = pg.locator("body").inner_text()

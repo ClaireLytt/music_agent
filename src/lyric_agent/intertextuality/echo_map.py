@@ -367,7 +367,14 @@ def render_echo_map_html(graph: EchoGraph) -> str:
         # accent color, everything else fades to grey — no more hairball
         top = idx < _TOP_EDGES_HIGHLIGHT and e.count > 1
         cls = "egg-edge egg-edge-top" if top else "egg-edge"
-        opacity = 0.75 if top else 0.12 + 0.28 * e.count / max_count
+        if top:
+            opacity = 0.75
+        elif e.count <= 1:
+            # single-pair edges are the hairball: near-invisible at rest,
+            # they revive on hover and on node-highlight
+            opacity = 0.05
+        else:
+            opacity = 0.12 + 0.28 * e.count / max_count
         tip = (f'《{e.song_a}》↔《{e.song_b}》共 {e.count} 处呼应\n'
                f'例：“{e.example.line_a}” ↔ “{e.example.line_b}”\n'
                '点击两端的圆点可逐对细看')

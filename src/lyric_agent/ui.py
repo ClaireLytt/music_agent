@@ -343,59 +343,73 @@ def create_app(settings: Settings) -> gr.Blocks:
                             chat_send = gr.Button("提问", scale=1, variant="primary")
                         debate_btn = gr.Button(
                             "🎭 乐评人 vs 粉丝 · 双视角辩论这句歌词", size="sm")
-                        with gr.Accordion("📖 歌曲导读", open=False,
-                                          elem_id="ll-intro"):
-                            intro_html = gr.HTML(_INTRO_EMPTY)
-                            if not public:
-                                intro_btn = gr.Button("🪄 生成 30 秒导读", size="sm")
-                        with gr.Accordion("🎬 MV 彩蛋", open=False,
-                                          elem_id="ll-mv"):
-                            mv_html = gr.HTML(MV_EMPTY)
-                            if not public:
-                                mv_btn = gr.Button("🎬 生成 MV 彩蛋", size="sm")
-                        with gr.Accordion("🖼️ 分享卡片", open=False,
-                                          elem_id="ll-card"):
-                            card_btn = gr.Button("生成歌词金句卡", size="sm")
-                            card_status = gr.Markdown("")
-                            card_img = gr.Image(
-                                label="长按/右键保存图片", type="filepath",
-                                visible=False)
-                        with gr.Accordion("🥚 彩蛋 · 互文追踪", open=True,
-                                          elem_id="ll-echo"):
-                            echo_state = gr.State(None)
-                            echo_html = gr.HTML(_ECHO_HINT)
-                            with gr.Row():
-                                echo_btn = gr.Button("✨ 让 AI 解释这些呼应",
-                                                     size="sm", scale=1)
-                                echo_card_btn = gr.Button("🖼️ 彩蛋对照卡",
-                                                          size="sm", scale=1)
-                            echo_out = gr.Markdown("", elem_classes=["echo-explain"])
-                            echo_card_status = gr.Markdown("")
-                            echo_card_img = gr.Image(
-                                label="长按/右键保存图片", type="filepath",
-                                visible=False)
-                        with gr.Accordion("🗺️ 本歌彩蛋总览", open=False,
-                                          elem_id="ll-echo-overview"):
-                            echo_overview = gr.HTML(_ECHO_OVERVIEW_EMPTY)
-                        with gr.Accordion("📝 听歌笔记", open=False,
-                                          elem_id="ll-notes"):
-                            notes_html = gr.HTML(_render_notes([]))
-                            with gr.Row():
-                                note_input = gr.Textbox(
-                                    placeholder="在当前播放位置记一句感想…",
-                                    show_label=False, scale=4, container=False)
-                                note_add_btn = gr.Button("添加", scale=1, size="sm")
-                        if not public:
-                            with gr.Accordion("📻 AI 电台", open=False,
-                                              elem_id="ll-radio-acc"):
-                                gr.Markdown(
-                                    "勾选播放器下方的「📻 电台模式」后，"
-                                    "歌曲播完会自动切到下一首；为歌曲生成过"
-                                    "**串场语音**（把「歌曲导读」朗读成 DJ 播报）"
-                                    "的话，进歌前会先播报再放歌。")
-                                radio_gen_btn = gr.Button(
-                                    "🎙️ 为本歌生成串场语音（需先有导读）", size="sm")
-                                radio_status = gr.Markdown("")
+                        # side panel grouped into sub-tabs instead of a
+                        # tall stack of accordions
+                        with gr.Tabs():
+                            with gr.Tab("🥚 彩蛋"):
+                                with gr.Accordion("🥚 彩蛋 · 互文追踪", open=True,
+                                                  elem_id="ll-echo"):
+                                    echo_state = gr.State(None)
+                                    echo_html = gr.HTML(_ECHO_HINT)
+                                    with gr.Row():
+                                        echo_btn = gr.Button(
+                                            "✨ 让 AI 解释这些呼应",
+                                            size="sm", scale=1)
+                                        echo_card_btn = gr.Button(
+                                            "🖼️ 彩蛋对照卡", size="sm", scale=1)
+                                    echo_out = gr.Markdown(
+                                        "", elem_classes=["echo-explain"])
+                                    echo_card_status = gr.Markdown("")
+                                    echo_card_img = gr.Image(
+                                        label="长按/右键保存图片",
+                                        type="filepath", visible=False)
+                                with gr.Accordion("🗺️ 本歌彩蛋总览", open=False,
+                                                  elem_id="ll-echo-overview"):
+                                    echo_overview = gr.HTML(_ECHO_OVERVIEW_EMPTY)
+                            with gr.Tab("📖 导读"):
+                                with gr.Accordion("📖 歌曲导读", open=False,
+                                                  elem_id="ll-intro"):
+                                    intro_html = gr.HTML(_INTRO_EMPTY)
+                                    if not public:
+                                        intro_btn = gr.Button(
+                                            "🪄 生成 30 秒导读", size="sm")
+                                with gr.Accordion("🎬 MV 彩蛋", open=False,
+                                                  elem_id="ll-mv"):
+                                    mv_html = gr.HTML(MV_EMPTY)
+                                    if not public:
+                                        mv_btn = gr.Button(
+                                            "🎬 生成 MV 彩蛋", size="sm")
+                            with gr.Tab("🛠️ 更多"):
+                                with gr.Accordion("🖼️ 分享卡片", open=False,
+                                                  elem_id="ll-card"):
+                                    card_btn = gr.Button("生成歌词金句卡",
+                                                         size="sm")
+                                    card_status = gr.Markdown("")
+                                    card_img = gr.Image(
+                                        label="长按/右键保存图片",
+                                        type="filepath", visible=False)
+                                with gr.Accordion("📝 听歌笔记", open=False,
+                                                  elem_id="ll-notes"):
+                                    notes_html = gr.HTML(_render_notes([]))
+                                    with gr.Row():
+                                        note_input = gr.Textbox(
+                                            placeholder="在当前播放位置记一句感想…",
+                                            show_label=False, scale=4,
+                                            container=False)
+                                        note_add_btn = gr.Button(
+                                            "添加", scale=1, size="sm")
+                                if not public:
+                                    with gr.Accordion("📻 AI 电台", open=False,
+                                                      elem_id="ll-radio-acc"):
+                                        gr.Markdown(
+                                            "勾选播放器下方的「📻 电台模式」后，"
+                                            "歌曲播完会自动切到下一首；为歌曲生成过"
+                                            "**串场语音**（把「歌曲导读」朗读成"
+                                            " DJ 播报）的话，进歌前会先播报再放歌。")
+                                        radio_gen_btn = gr.Button(
+                                            "🎙️ 为本歌生成串场语音（需先有导读）",
+                                            size="sm")
+                                        radio_status = gr.Markdown("")
                         line_pick = gr.Textbox(
                             value="", visible=True, elem_id="ll-line-pick",
                             elem_classes=["ll-hidden"], show_label=False,
@@ -475,28 +489,34 @@ def create_app(settings: Settings) -> gr.Blocks:
                 uni_artist = gr.Dropdown(
                     choices=[], value=None, label="选择歌手",
                     allow_custom_value=True, elem_id="ll-uni-artist")
-                uni_btn = gr.Button("🕵️ 开始破案（AI 推理，约 10-30 秒）",
-                                    variant="primary")
-                uni_html = gr.HTML(UNIVERSE_EMPTY)
-                gr.Markdown(
-                    "---\n### 💌 隔空回信\n"
-                    "选一对呼应的歌，让前一首的叙事者给后一首写信——"
-                    "信里会原样嵌入两首歌互相呼应的歌词（高亮显示）。")
-                with gr.Row():
-                    letter_pair = gr.Dropdown(
-                        choices=[], value=None,
-                        label="选择歌曲对（按呼应强度排序）",
-                        allow_custom_value=True, scale=3,
-                        elem_id="ll-letter-pair")
-                    letter_btn = gr.Button("💌 写信", variant="primary", scale=1)
-                letter_html = gr.HTML("")
-                # last generated letter, kept for the PNG card
-                letter_state = gr.State({})
-                with gr.Row():
-                    letter_card_btn = gr.Button("🖼️ 生成信纸卡片", size="sm")
-                letter_card_status = gr.Markdown("")
-                letter_card_img = gr.Image(visible=False, label="信纸卡片",
-                                           interactive=False)
+                with gr.Tabs():
+                    with gr.Tab("🕵️ 开始破案"):
+                        uni_btn = gr.Button(
+                            "🕵️ 开始破案（AI 推理，约 10-30 秒）",
+                            variant="primary")
+                        uni_html = gr.HTML(UNIVERSE_EMPTY)
+                    with gr.Tab("💌 隔空回信"):
+                        gr.Markdown("选一对呼应的歌，让前一首的叙事者给"
+                                    "后一首写信——信里会原样嵌入两首歌"
+                                    "互相呼应的歌词（高亮显示）。")
+                        with gr.Row():
+                            letter_pair = gr.Dropdown(
+                                choices=[], value=None,
+                                label="选择歌曲对（按呼应强度排序）",
+                                allow_custom_value=True, scale=3,
+                                elem_id="ll-letter-pair")
+                            letter_btn = gr.Button("💌 写信",
+                                                   variant="primary", scale=1)
+                        letter_html = gr.HTML("")
+                        # last generated letter, kept for the PNG card
+                        letter_state = gr.State({})
+                        with gr.Row():
+                            letter_card_btn = gr.Button("🖼️ 生成信纸卡片",
+                                                        size="sm")
+                        letter_card_status = gr.Markdown("")
+                        letter_card_img = gr.Image(visible=False,
+                                                   label="信纸卡片",
+                                                   interactive=False)
 
             # ══ 页签 4: 曲库洞察 ══
             with gr.Tab("📊 曲库洞察"):
@@ -528,59 +548,68 @@ def create_app(settings: Settings) -> gr.Blocks:
 
             # ══ 页签 5: 互动（竞猜 + 听歌识曲） ══
             with gr.Tab("🎮 互动"):
-                gr.Markdown("### 🎯 歌词竞猜\n"
-                            "从你的歌曲列表随机抽一句歌词，猜猜它出自哪首歌。")
-                quiz_state = gr.State({"score": 0, "total": 0, "answer": ""})
-                quiz_html = gr.HTML(
-                    '<div class="chat-empty">点「开始/下一题」抽一句歌词。</div>')
-                quiz_options = gr.Radio(choices=[], label="它出自哪首歌？",
-                                        visible=False)
-                with gr.Row():
-                    quiz_new_btn = gr.Button("🎲 开始 / 下一题", variant="primary",
-                                             scale=1)
-                    quiz_submit_btn = gr.Button("提交答案", scale=1)
-                quiz_result = gr.Markdown("")
-
-                gr.Markdown("---\n### 🕳️ 歌名挖空\n"
-                            "这句歌词唱到了歌名本身——歌名被挖掉了，"
-                            "猜猜被挖掉的是哪首歌的名字。")
-                blank_state = gr.State(
-                    {"score": 0, "total": 0, "answer": "", "reveal": ""})
-                blank_html = gr.HTML(
-                    '<div class="chat-empty">点「来一题」抽一句挖掉歌名的歌词。</div>')
-                blank_options = gr.Radio(choices=[], label="被挖掉的歌名是？",
-                                         visible=False)
-                with gr.Row():
-                    blank_new_btn = gr.Button("🕳️ 来一题", variant="primary",
-                                              scale=1)
-                    blank_submit_btn = gr.Button("🕳️ 选好了", scale=1)
-                blank_result = gr.Markdown("")
-
-                gr.Markdown("---\n### 🎙️ 听歌识曲（曲库内）\n"
-                            "用麦克风录一段（或上传一段音频片段），"
-                            "在你的本地曲库中识别是哪首歌、唱到了哪里。")
-                fp_audio = gr.Audio(sources=["microphone", "upload"],
-                                    type="numpy", label="录一段或上传片段")
-                fp_btn = gr.Button("🔍 识别", variant="primary")
-                fp_result = gr.Markdown("")
-
-                gr.Markdown("---\n### 🥚 彩蛋猜猜乐\n"
-                            "抽一句有回声的歌词，猜它在同一歌手的哪首歌里被"
-                            "呼应——答完揭晓两句歌词如何互相呼应。")
-                egg_quiz_artist = gr.Dropdown(
-                    choices=[], value=None, label="选择歌手",
-                    allow_custom_value=True, elem_id="ll-eggq-artist")
-                egg_quiz_state = gr.State(
-                    {"score": 0, "total": 0, "answer": "", "reveal": ""})
-                egg_quiz_html = gr.HTML(
-                    '<div class="chat-empty">点「抽一题」抽一句有回声的歌词。</div>')
-                egg_quiz_options = gr.Radio(
-                    choices=[], label="它的回声在哪首歌里？", visible=False)
-                with gr.Row():
-                    egg_quiz_new_btn = gr.Button("🥚 抽一题",
-                                                 variant="primary", scale=1)
-                    egg_quiz_submit_btn = gr.Button("🥚 交卷", scale=1)
-                egg_quiz_result = gr.Markdown("")
+                with gr.Tabs():
+                    with gr.Tab("🎯 歌词竞猜"):
+                        gr.Markdown("从你的歌曲列表随机抽一句歌词，"
+                                    "猜猜它出自哪首歌。")
+                        quiz_state = gr.State(
+                            {"score": 0, "total": 0, "answer": ""})
+                        quiz_html = gr.HTML(
+                            '<div class="chat-empty">点「开始/下一题」'
+                            '抽一句歌词。</div>')
+                        quiz_options = gr.Radio(choices=[],
+                                                label="它出自哪首歌？",
+                                                visible=False)
+                        with gr.Row():
+                            quiz_new_btn = gr.Button("🎲 开始 / 下一题",
+                                                     variant="primary", scale=1)
+                            quiz_submit_btn = gr.Button("提交答案", scale=1)
+                        quiz_result = gr.Markdown("")
+                    with gr.Tab("🕳️ 歌名挖空"):
+                        gr.Markdown("这句歌词唱到了歌名本身——歌名被挖掉了，"
+                                    "猜猜被挖掉的是哪首歌的名字。")
+                        blank_state = gr.State(
+                            {"score": 0, "total": 0, "answer": "", "reveal": ""})
+                        blank_html = gr.HTML(
+                            '<div class="chat-empty">点「来一题」抽一句'
+                            '挖掉歌名的歌词。</div>')
+                        blank_options = gr.Radio(choices=[],
+                                                 label="被挖掉的歌名是？",
+                                                 visible=False)
+                        with gr.Row():
+                            blank_new_btn = gr.Button("🕳️ 来一题",
+                                                      variant="primary", scale=1)
+                            blank_submit_btn = gr.Button("🕳️ 选好了", scale=1)
+                        blank_result = gr.Markdown("")
+                    with gr.Tab("🥚 彩蛋猜猜乐"):
+                        gr.Markdown("抽一句有回声的歌词，猜它在同一歌手的"
+                                    "哪首歌里被呼应——答完揭晓两句歌词如何"
+                                    "互相呼应。")
+                        egg_quiz_artist = gr.Dropdown(
+                            choices=[], value=None, label="选择歌手",
+                            allow_custom_value=True, elem_id="ll-eggq-artist")
+                        egg_quiz_state = gr.State(
+                            {"score": 0, "total": 0, "answer": "", "reveal": ""})
+                        egg_quiz_html = gr.HTML(
+                            '<div class="chat-empty">点「抽一题」抽一句'
+                            '有回声的歌词。</div>')
+                        egg_quiz_options = gr.Radio(
+                            choices=[], label="它的回声在哪首歌里？",
+                            visible=False)
+                        with gr.Row():
+                            egg_quiz_new_btn = gr.Button(
+                                "🥚 抽一题", variant="primary", scale=1)
+                            egg_quiz_submit_btn = gr.Button("🥚 交卷", scale=1)
+                        egg_quiz_result = gr.Markdown("")
+                    with gr.Tab("🎙️ 听歌识曲"):
+                        gr.Markdown("用麦克风录一段（或上传一段音频片段），"
+                                    "在你的本地曲库中识别是哪首歌、"
+                                    "唱到了哪里。")
+                        fp_audio = gr.Audio(sources=["microphone", "upload"],
+                                            type="numpy",
+                                            label="录一段或上传片段")
+                        fp_btn = gr.Button("🔍 识别", variant="primary")
+                        fp_result = gr.Markdown("")
 
             # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
             tab_add = None
@@ -864,14 +893,22 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         # .input (not .change): programmatic updates from init_echo_map must
         # not re-trigger these handlers, or the default focus gets overwritten
+        # shared concurrency_id: these four all repaint echo_map_html.
+        # Without it gradio may run them in parallel, and a slow render
+        # (first cross-artist build) can finish AFTER a fast one and paint
+        # a stale graph over the fresh one.
         map_artist.input(on_map_artist, [map_artist, map_view],
-                         [map_focus, echo_map_html, map_explain_out])
+                         [map_focus, echo_map_html, map_explain_out],
+                         concurrency_id="echo-map")
         map_view.input(on_map_view, [map_view, map_artist, map_focus],
-                       [map_focus, echo_map_html])
+                       [map_focus, echo_map_html],
+                       concurrency_id="echo-map")
         map_focus.input(on_map_focus, [map_focus, map_artist, map_view],
-                        [echo_map_html])
+                        [echo_map_html],
+                        concurrency_id="echo-map")
         focus_pick_box.change(on_focus_pick, [focus_pick_box, map_artist],
-                              [map_focus, map_view, echo_map_html])
+                              [map_focus, map_view, echo_map_html],
+                              concurrency_id="echo-map")
         app.load(init_echo_map, [song_radio],
                  [map_artist, map_focus, echo_map_html,
                   uni_artist, letter_pair, egg_quiz_artist])
