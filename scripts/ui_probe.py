@@ -157,9 +157,13 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         def c_line_click():
             pg.locator(".lyric-line").nth(2).click()
             must(count(".lyric-line.picked") == 1, "no picked line")
-            # first pick may block on the embedding model warm-up
+            # first pick blocks on the embedding model warm-up; the
+            # multilingual L12 model loads ~5x slower than the old L6,
+            # so this one check gets a much larger window (everything
+            # after it runs against a warm model)
             probe.wait_until(
                 lambda: "正在讨论" in pg.locator(".chat-topic").inner_text(),
+                timeout_s=120.0,
                 msg="chat topic not updated after lyric click")
         probe.check("line_click", "lyric click selects line + chat topic",
                     c_line_click)
@@ -456,13 +460,25 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         def c_focus_pick():
             probe.wait_until(lambda: count(".egg-focus") == 1,
                              msg="focus view not rendered before pick")
-            target = pg.locator("g.egg-clickable").first \
-                .get_attribute("data-focus-pick")
-            pg.locator("g.egg-clickable").first.click()
-            probe.wait_until(
-                lambda: ("《" + target + "》的彩蛋网络")
-                in pg.locator(".egg-headline").inner_text(),
-                msg="clicking node did not refocus to " + repr(target))
+            # a queued re-render can occasionally swallow the first click
+            # (artist switch and node click landing in the same tick); one
+            # bounded retry absorbs that — a real regression fails twice
+            last = ""
+            for attempt in (1, 2):
+                target = pg.locator("g.egg-clickable").first \
+                    .get_attribute("data-focus-pick")
+                last = target or ""
+                pg.locator("g.egg-clickable").first.click()
+                try:
+                    probe.wait_until(
+                        lambda: ("《" + target + "》的彩蛋网络")
+                        in pg.locator(".egg-headline").inner_text(),
+                        timeout_s=12.0, msg="no refocus")
+                    return
+                except AssertionError:
+                    if attempt == 2:
+                        raise AssertionError(
+                            "clicking node did not refocus to " + repr(last))
         probe.check("focus_pick", "map node click refocuses the star view",
                     c_focus_pick)
 
@@ -559,6 +575,19 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     msg="blank quiz verdict missing")
         probe.check("blank_quiz", "title-blank quiz question + submit",
                     c_blank_quiz)
+
+        def c_mv_eggs_present():
+            probe.tab("🎧 播放解读")
+            pg.locator("#ll-mv").click()  # open the accordion
+            pg.wait_for_timeout(600)
+            must("MV 彩蛋" in pg.locator("#ll-mv").inner_text(),
+                 "MV eggs accordion missing")
+            # LLM-priced button is asserted present but NOT clicked
+            must(pg.get_by_role("button", name="🎬 生成 MV 彩蛋").count() == 1,
+                 "MV eggs generate button missing")
+            probe.tab("🎮 互动")  # hand the tab back to the checks after us
+        probe.check("mv_eggs_present", "MV eggs accordion present",
+                    c_mv_eggs_present)
 
         def c_identify_guard():
             pg.get_by_role("button", name="🔍 识别").click()
