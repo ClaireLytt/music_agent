@@ -527,6 +527,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                     quiz_submit_btn = gr.Button("提交答案", scale=1)
                 quiz_result = gr.Markdown("")
 
+                gr.Markdown("---\n### 🕳️ 歌名挖空\n"
+                            "这句歌词唱到了歌名本身——歌名被挖掉了，"
+                            "猜猜被挖掉的是哪首歌的名字。")
+                blank_state = gr.State(
+                    {"score": 0, "total": 0, "answer": "", "reveal": ""})
+                blank_html = gr.HTML(
+                    '<div class="chat-empty">点「来一题」抽一句挖掉歌名的歌词。</div>')
+                blank_options = gr.Radio(choices=[], label="被挖掉的歌名是？",
+                                         visible=False)
+                with gr.Row():
+                    blank_new_btn = gr.Button("🕳️ 来一题", variant="primary",
+                                              scale=1)
+                    blank_submit_btn = gr.Button("🕳️ 选好了", scale=1)
+                blank_result = gr.Markdown("")
+
                 gr.Markdown("---\n### 🎙️ 听歌识曲（曲库内）\n"
                             "用麦克风录一段（或上传一段音频片段），"
                             "在你的本地曲库中识别是哪首歌、唱到了哪里。")
@@ -544,18 +559,19 @@ def create_app(settings: Settings) -> gr.Blocks:
                 egg_quiz_state = gr.State(
                     {"score": 0, "total": 0, "answer": "", "reveal": ""})
                 egg_quiz_html = gr.HTML(
-                    '<div class="chat-empty">点「开始 / 下一题」抽一句有回声的歌词。</div>')
+                    '<div class="chat-empty">点「抽一题」抽一句有回声的歌词。</div>')
                 egg_quiz_options = gr.Radio(
                     choices=[], label="它的回声在哪首歌里？", visible=False)
                 with gr.Row():
-                    egg_quiz_new_btn = gr.Button("🎲 开始 / 下一题",
+                    egg_quiz_new_btn = gr.Button("🥚 抽一题",
                                                  variant="primary", scale=1)
-                    egg_quiz_submit_btn = gr.Button("提交答案", scale=1)
+                    egg_quiz_submit_btn = gr.Button("🥚 交卷", scale=1)
                 egg_quiz_result = gr.Markdown("")
 
             # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
+            tab_add = None
             if not public:
-                with gr.Tab("➕ 添加歌曲"):
+                with gr.Tab("➕ 添加歌曲") as tab_add:
                     catalog = _load_catalog()
                     cat_labels = [f"{c['title']} — {c['artist']}" for c in catalog]
                     gr.Markdown(
@@ -614,7 +630,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                         manage_status = gr.Markdown("")
 
             # ══ 页签 7: 设置 ══
-            with gr.Tab("⚙️ 设置"):
+            with gr.Tab("⚙️ 设置") as tab_settings:
                 if public:
                     gr.Markdown(
                         "### API 设置（公开体验版）\n"
@@ -954,11 +970,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                 yield _uni_msg("⚠️ 当前范围没有可推理的彩蛋呼应。")
                 return
             req_settings = _request_settings(user_cfg)
-            if public and not req_settings.api_key:
-                yield _uni_msg(_PUBLIC_KEY_HINT)
-                return
-            yield _uni_msg(f"🕵️ 正在勘查 {len(graph.edges)} 条呼应线索，"
-                           "推理故事宇宙……（约 10-30 秒）")
             from .intertextuality.search import artist_matches
             from .universe import (
                 detective_messages, extract_name_lines, parse_universe,
@@ -970,11 +981,35 @@ def create_app(settings: Settings) -> gr.Blocks:
                 if cross or artist_matches(artist, line.artist))
             songs = [(nd.song, nd.album) for nd in graph.nodes]
             edges = [(e.song_a, e.song_b, e.count,
-                      e.example.line_a, e.example.line_b)
+                      [(p.line_a, p.line_b)
+                       for p in (e.examples or [e.example])])
                      for e in graph.edges]
             scope = "多位歌手之间（跨歌手引用）" if cross else artist
             system, user_msg = detective_messages(scope, songs, edges,
                                                   name_lines)
+            # disk cache: same evidence + same model ⇒ same verdict. Keyed
+            # on the full prompt hash, so corpus / threshold / model changes
+            # invalidate it naturally (echo-scan cache pattern).
+            import hashlib
+            cache_key = [hashlib.md5(user_msg.encode("utf-8")).hexdigest(),
+                         req_settings.model_name]
+            cache_path = Path("data/cache/universe") / (
+                re.sub(r"[^\w\u4e00-\u9fff-]+", "_", artist) + ".json")
+            try:
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                cached = None
+            if cached and cached.get("key") == cache_key:
+                yield (render_universe_html(
+                           parse_universe(cached.get("payload"), scope))
+                       + '<div class="preview-hint">⚡ 来自缓存 —— '
+                       '语料或模型变更后会自动重新推理</div>')
+                return
+            if public and not req_settings.api_key:
+                yield _uni_msg(_PUBLIC_KEY_HINT)
+                return
+            yield _uni_msg(f"🕵️ 正在勘查 {len(graph.edges)} 条呼应线索，"
+                           "推理故事宇宙……（约 10-30 秒）")
             from .llm import LLMClient
             try:
                 data = LLMClient(req_settings).generate_json(system, user_msg)
@@ -982,6 +1017,14 @@ def create_app(settings: Settings) -> gr.Blocks:
                 logger.exception("Universe detective failed")
                 yield _uni_msg(f"⚠️ AI 推理失败：{str(exc)[:200]}")
                 return
+            try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(
+                    json.dumps({"key": cache_key, "payload": data},
+                               ensure_ascii=False),
+                    encoding="utf-8")
+            except OSError:
+                logger.warning("universe cache write failed", exc_info=True)
             yield render_universe_html(parse_universe(data, scope))
 
         def on_letter(artist: str, pair_label: str, user_cfg):
@@ -1193,6 +1236,46 @@ def create_app(settings: Settings) -> gr.Blocks:
         quiz_submit_btn.click(on_quiz_submit, [quiz_state, quiz_options],
                               [quiz_state, quiz_result])
 
+        # ── 歌名挖空 ──
+
+        def on_blank_new(state: dict):
+            from .quiz import make_blank_question
+            q = make_blank_question(_quiz_pool())
+            if q is None:
+                return (dict(state or {}, answer="", reveal=""),
+                        '<div class="chat-empty">曲库里还没有「歌词唱到歌名」'
+                        '的歌（且至少需要 2 首歌）。</div>',
+                        gr.Radio(choices=[], visible=False), "")
+            state = dict(state or {}, answer=q.answer, reveal=q.original)
+            html_q = (f'<div class="quiz-line blank-line">“{_esc(q.line)}”</div>'
+                      f'<div class="quiz-meta">歌手：{_esc(q.artist)}</div>')
+            return (state, html_q,
+                    gr.Radio(choices=q.options, value=None, visible=True), "")
+
+        def on_blank_submit(state: dict, choice: str):
+            state = dict(state or {})
+            answer = state.get("answer", "")
+            if not answer:
+                return state, "⚠️ 先点「来一题」抽题。"
+            if not choice:
+                return state, "⚠️ 请先选择一个选项。"
+            state["total"] = state.get("total", 0) + 1
+            if choice == answer:
+                state["score"] = state.get("score", 0) + 1
+                verdict = f"✅ 答对了！挖掉的正是《{answer}》。"
+            else:
+                verdict = f"❌ 不对，挖掉的是《{answer}》。"
+            reveal = state.get("reveal", "")
+            state["answer"] = ""  # one submission per question
+            return (state, f"{verdict}\n\n> {reveal}\n\n当前战绩 "
+                    f"**{state.get('score', 0)} / {state['total']}**")
+
+        blank_new_btn.click(on_blank_new, [blank_state],
+                            [blank_state, blank_html, blank_options,
+                             blank_result])
+        blank_submit_btn.click(on_blank_submit, [blank_state, blank_options],
+                               [blank_state, blank_result])
+
         # ── 彩蛋猜猜乐 ──
 
         def on_egg_quiz_new(artist: str, state: dict):
@@ -1224,7 +1307,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             state = dict(state or {})
             answer = state.get("answer", "")
             if not answer:
-                return state, "⚠️ 先点「开始 / 下一题」抽题。"
+                return state, "⚠️ 先点「抽一题」抽题。"
             if not choice:
                 return state, "⚠️ 请先选择一个选项。"
             state["total"] = state.get("total", 0) + 1
@@ -2047,6 +2130,16 @@ def create_app(settings: Settings) -> gr.Blocks:
             app.load(on_song_select, [song_radio], song_outputs).then(
                 on_echo_map, [song_radio], [echo_map_box, echo_overview])
         else:
+            # role gating: viewers don't see management tabs. With login
+            # disabled (no data/users.json) role_of() says admin for all.
+            _admin_tabs = [t for t in (tab_add, tab_settings) if t is not None]
+
+            def _apply_role(request: gr.Request):
+                from .auth import role_of
+                admin = role_of(getattr(request, "username", None)) == "admin"
+                return [gr.Tab(visible=admin) for _ in _admin_tabs]
+
+            app.load(_apply_role, None, _admin_tabs)
             app.load(lambda: render_evolution_html(ctx["evolution"], lang="zh"),
                      None, [evolution_html])
 

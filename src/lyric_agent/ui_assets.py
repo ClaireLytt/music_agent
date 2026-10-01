@@ -435,6 +435,7 @@ _CSS = """\
   --accent-glow: rgba(9, 105, 218, 0.15);
   --border: #d0d7de;
   --karaoke-rest: #57606a; /* un-sung part of the active karaoke line */
+  --lyric-dim: rgba(31, 35, 40, 0.52); /* upcoming lyric lines */
 }
 
 body, .gradio-container { background: var(--bg-primary) !important; }
@@ -461,6 +462,7 @@ footer, .gradio-container footer { display: none !important; }
   color: var(--text-primary) !important;
   caret-color: var(--accent) !important;
   border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
 }
 .gradio-container input:focus, .gradio-container textarea:focus {
   border-color: var(--accent) !important;
@@ -474,25 +476,47 @@ footer, .gradio-container footer { display: none !important; }
 .app-header h1 { color: var(--accent); font-size: 26px; margin: 0; font-weight: 700; }
 .app-header p { color: var(--text-secondary); margin: 4px 0 0; font-size: 14px; }
 
-/* ── Prominent tab navigation ── */
+/* ── Chip tab navigation: grey pills, selected = solid blue ── */
 .gradio-container .tab-nav, .gradio-container div[role="tablist"] {
-  justify-content: center; gap: 10px; border-bottom: 1px solid var(--border);
-  padding-bottom: 0; margin-bottom: 10px;
+  justify-content: center; gap: 8px; border-bottom: none !important;
+  padding-bottom: 2px; margin-bottom: 14px; flex-wrap: wrap;
 }
 .gradio-container .tab-nav button, .gradio-container button[role="tab"] {
-  font-size: 17px !important; font-weight: 700 !important;
-  padding: 12px 30px !important; border-radius: 12px 12px 0 0 !important;
-  color: var(--text-secondary) !important; background: transparent !important;
-  border: none !important; border-bottom: 3px solid transparent !important;
-  transition: all 0.2s ease;
+  font-size: 15px !important; font-weight: 700 !important;
+  padding: 8px 18px !important; border-radius: 500px !important;
+  color: var(--text-secondary) !important;
+  background: var(--bg-card-hover) !important;
+  border: none !important;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 .gradio-container .tab-nav button:hover, .gradio-container button[role="tab"]:hover {
-  color: var(--text-primary) !important; background: var(--bg-card-hover) !important;
+  color: var(--text-primary) !important; background: #dfe5eb !important;
 }
 .gradio-container .tab-nav button.selected,
 .gradio-container button[role="tab"][aria-selected="true"] {
-  color: var(--accent) !important; background: var(--accent-soft) !important;
-  border-bottom: 3px solid var(--accent) !important;
+  color: #ffffff !important; background: var(--accent) !important;
+}
+
+/* ── Pill buttons, blue on white ── */
+.gradio-container button.primary {
+  background: var(--accent) !important; color: #ffffff !important;
+  border: none !important; border-radius: 500px !important;
+  font-weight: 700 !important; box-shadow: none !important;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.gradio-container button.primary:hover {
+  background: #0a5ac1 !important; transform: scale(1.03);
+}
+.gradio-container button.primary:active { transform: scale(0.98); }
+.gradio-container button.secondary {
+  background: #ffffff !important; color: var(--text-primary) !important;
+  border: 1px solid var(--border) !important; border-radius: 500px !important;
+  font-weight: 600 !important; box-shadow: none !important;
+  transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.gradio-container button.secondary:hover {
+  border-color: var(--accent) !important; color: var(--accent) !important;
+  transform: scale(1.03);
 }
 
 .ll-hidden { display: none !important; }
@@ -543,8 +567,8 @@ footer, .gradio-container footer { display: none !important; }
 .lyric-line:hover { background: var(--bg-card-hover); }
 .lyric-line.picked { background: var(--accent-soft); border-left-color: var(--accent); }
 .lyric-line.played .lyric-text { color: var(--text-played); }
-.lyric-line.active { background: var(--accent-glow); border-left-color: var(--accent); transform: scale(1.01); }
-.lyric-line.active .lyric-text { color: var(--accent); font-weight: 600; font-size: 17px; }
+.lyric-line.active { background: var(--accent-glow); border-left-color: var(--accent); transform: scale(1.02); }
+.lyric-line.active .lyric-text { color: var(--text-primary); font-weight: 800; font-size: 19px; }
 /* karaoke sweep: JS drives a gradient over the active line's text; the
    estimated progress paints sung characters accent-blue */
 @supports (-webkit-background-clip: text) or (background-clip: text) {
@@ -553,7 +577,10 @@ footer, .gradio-container footer { display: none !important; }
     color: transparent; -webkit-text-fill-color: transparent;
   }
 }
-.lyric-text { font-size: 15px; color: var(--text-primary); transition: all 0.25s ease; line-height: 1.65; }
+.lyric-text {
+  font-size: 17px; font-weight: 700; color: var(--lyric-dim);
+  letter-spacing: -0.01em; transition: all 0.25s ease; line-height: 1.6;
+}
 
 /* Search */
 #ll-search { position: relative; z-index: 5; }
@@ -680,6 +707,11 @@ footer, .gradio-container footer { display: none !important; }
 .emo-node circle { stroke: #ffffff; stroke-width: 1.5; }
 .emo-node:hover circle { stroke: var(--accent); stroke-width: 2.5; }
 .emo-label { font-size: 11px; fill: var(--text-secondary); }
+.emo-label.emo-hidden { display: none; }
+.emo-node:hover .emo-label.emo-hidden {
+  display: block; font-weight: 700; fill: var(--text-primary);
+  paint-order: stroke; stroke: var(--bg-primary); stroke-width: 3px;
+}
 
 /* UI probe report table */
 .probe-table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
@@ -709,6 +741,28 @@ footer, .gradio-container footer { display: none !important; }
 .echo-ov-src { font-size: 13px; font-style: italic; color: var(--text-primary); }
 .echo-ov-dst { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
 .echo-ov-sim { margin-left: 6px; font-size: 11px; color: var(--accent); }
+
+/* ── Card hover ──
+   clickable cards lift & brighten; static info cards only brighten
+   (no lift = no false affordance); list rows brighten like tracklist rows.
+   (.uni-* / .egg-pair live in other CSS constants but share this sheet.) */
+.search-hit, .echo-ov-item, .note-item, .egg-pair,
+.echo-card, .uni-char-card, .uni-event, .quiz-line {
+  transition: transform 0.2s ease, background 0.2s ease,
+    border-color 0.2s ease;
+}
+.search-hit.seekable:hover, .echo-ov-item:hover, .note-item:hover,
+.egg-pair:hover {
+  transform: translateY(-3px);
+  background: var(--bg-card-hover);
+}
+.echo-card:hover, .uni-char-card:hover, .uni-event:hover,
+.quiz-line:hover {
+  background: var(--bg-card-hover);
+}
+#ll-songs label:hover, #ll-catalog label:hover {
+  background: var(--bg-card-hover) !important;
+}
 """
 
 
