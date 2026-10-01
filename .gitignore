@@ -26,3 +26,5 @@ data/ui_probe/
 data/cache/
 data/users.json
 data/corpus/embeddings.meta.json
+# 401-era placeholder annotations; delete this line once real ones are generated
+data/songs/patient_zero/annotations.json
