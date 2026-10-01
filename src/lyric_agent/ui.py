@@ -343,12 +343,14 @@ def create_app(settings: Settings) -> gr.Blocks:
                             chat_send = gr.Button("提问", scale=1, variant="primary")
                         debate_btn = gr.Button(
                             "🎭 乐评人 vs 粉丝 · 双视角辩论这句歌词", size="sm")
-                        # side panel grouped into sub-tabs instead of a
-                        # tall stack of accordions
-                        with gr.Tabs():
-                            with gr.Tab("🥚 彩蛋"):
-                                with gr.Accordion("🥚 彩蛋 · 互文追踪", open=True,
-                                                  elem_id="ll-echo"):
+                        # side panel: one flat content per icon, the
+                        # icon dock sits at the BOTTOM (CSS column-reverse
+                        # on #ll-side-dock)
+                        with gr.Tabs(elem_id="ll-side-dock"):
+                            with gr.Tab("🥚"):
+                                with gr.Column(elem_id="ll-echo"):
+                                    gr.HTML('<div class="side-panel-title">'
+                                            '🥚 彩蛋 · 互文追踪</div>')
                                     echo_state = gr.State(None)
                                     echo_html = gr.HTML(_ECHO_HINT)
                                     with gr.Row():
@@ -363,33 +365,41 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     echo_card_img = gr.Image(
                                         label="长按/右键保存图片",
                                         type="filepath", visible=False)
-                                with gr.Accordion("🗺️ 本歌彩蛋总览", open=False,
-                                                  elem_id="ll-echo-overview"):
+                            with gr.Tab("🗺️"):
+                                with gr.Column(elem_id="ll-echo-overview"):
+                                    gr.HTML('<div class="side-panel-title">'
+                                            '🗺️ 本歌彩蛋总览</div>')
                                     echo_overview = gr.HTML(_ECHO_OVERVIEW_EMPTY)
-                            with gr.Tab("📖 导读"):
-                                with gr.Accordion("📖 歌曲导读", open=False,
-                                                  elem_id="ll-intro"):
+                            with gr.Tab("📖"):
+                                with gr.Column(elem_id="ll-intro"):
+                                    gr.HTML('<div class="side-panel-title">'
+                                            '📖 歌曲导读</div>')
                                     intro_html = gr.HTML(_INTRO_EMPTY)
                                     if not public:
                                         intro_btn = gr.Button(
                                             "🪄 生成 30 秒导读", size="sm")
-                                with gr.Accordion("🎬 MV 彩蛋", open=False,
-                                                  elem_id="ll-mv"):
+                            with gr.Tab("🎬"):
+                                with gr.Column(elem_id="ll-mv"):
+                                    gr.HTML('<div class="side-panel-title">'
+                                            '🎬 MV 彩蛋</div>')
                                     mv_html = gr.HTML(MV_EMPTY)
                                     if not public:
                                         mv_btn = gr.Button(
                                             "🎬 生成 MV 彩蛋", size="sm")
-                            with gr.Tab("🛠️ 更多"):
-                                with gr.Accordion("🖼️ 分享卡片", open=False,
-                                                  elem_id="ll-card"):
+                            with gr.Tab("🖼️"):
+                                with gr.Column(elem_id="ll-card"):
+                                    gr.HTML('<div class="side-panel-title">'
+                                            '🖼️ 分享卡片</div>')
                                     card_btn = gr.Button("生成歌词金句卡",
                                                          size="sm")
                                     card_status = gr.Markdown("")
                                     card_img = gr.Image(
                                         label="长按/右键保存图片",
                                         type="filepath", visible=False)
-                                with gr.Accordion("📝 听歌笔记", open=False,
-                                                  elem_id="ll-notes"):
+                            with gr.Tab("📝"):
+                                with gr.Column(elem_id="ll-notes"):
+                                    gr.HTML('<div class="side-panel-title">'
+                                            '📝 听歌笔记</div>')
                                     notes_html = gr.HTML(_render_notes([]))
                                     with gr.Row():
                                         note_input = gr.Textbox(
@@ -398,9 +408,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                                             container=False)
                                         note_add_btn = gr.Button(
                                             "添加", scale=1, size="sm")
-                                if not public:
-                                    with gr.Accordion("📻 AI 电台", open=False,
-                                                      elem_id="ll-radio-acc"):
+                            if not public:
+                                with gr.Tab("📻"):
+                                    with gr.Column(elem_id="ll-radio-acc"):
+                                        gr.HTML('<div class="side-panel-title">'
+                                                '📻 AI 电台</div>')
                                         gr.Markdown(
                                             "勾选播放器下方的「📻 电台模式」后，"
                                             "歌曲播完会自动切到下一首；为歌曲生成过"
@@ -444,38 +456,48 @@ def create_app(settings: Settings) -> gr.Blocks:
                     "「🕸️ 整体网络」看全貌。歌手选「🌐 跨歌手引用」则只看"
                     "**不同歌手之间**的呼应（引用/致敬）。"
                 )
-                with gr.Row():
-                    map_artist = gr.Dropdown(
-                        choices=[], value=None, label="选择歌手",
-                        # choices arrive via app.load; custom values keep direct
-                        # API calls (self_test) from tripping server-side checks
-                        allow_custom_value=True, scale=2,
-                        elem_id="ll-map-artist")
-                    map_focus = gr.Dropdown(
-                        choices=[], value=None, label="聚焦歌曲（按呼应数排序）",
-                        allow_custom_value=True, scale=3,
-                        elem_id="ll-map-focus")
-                map_view = gr.Radio(
-                    choices=[("⭐ 单曲聚焦（简明）", "focus"),
-                             ("🕸️ 整体网络", "net")],
-                    value="focus", show_label=False)
-                echo_map_html = gr.HTML("")
-                # JS -> backend: clicked song on the map (refocus)
-                focus_pick_box = gr.Textbox(
-                    value="", visible=True, elem_id="ll-focus-pick",
-                    elem_classes=["ll-hidden"], show_label=False,
-                    container=False)
-                map_explain_btn = gr.Button("✨ 让 AI 解读这张彩蛋网络", size="sm")
-                map_explain_out = gr.Markdown("", elem_classes=["echo-explain"])
-                gr.Markdown("---\n### 🔍 意象追踪\n"
+                with gr.Tabs():
+                    with gr.Tab("🗺️ 呼应地图"):
+                        with gr.Row():
+                            map_artist = gr.Dropdown(
+                                choices=[], value=None, label="选择歌手",
+                                # choices arrive via app.load; custom values
+                                # keep direct API calls (self_test) from
+                                # tripping server-side checks
+                                allow_custom_value=True, scale=2,
+                                elem_id="ll-map-artist")
+                            map_focus = gr.Dropdown(
+                                choices=[], value=None,
+                                label="聚焦歌曲（按呼应数排序）",
+                                allow_custom_value=True, scale=3,
+                                elem_id="ll-map-focus")
+                        map_view = gr.Radio(
+                            choices=[("⭐ 单曲聚焦（简明）", "focus"),
+                                     ("🕸️ 整体网络", "net")],
+                            value="focus", show_label=False)
+                        echo_map_html = gr.HTML("")
+                        # JS -> backend: clicked song on the map (refocus)
+                        focus_pick_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-focus-pick",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                        map_explain_btn = gr.Button(
+                            "✨ 让 AI 解读这张彩蛋网络", size="sm")
+                        map_explain_out = gr.Markdown(
+                            "", elem_classes=["echo-explain"])
+                    with gr.Tab("🔍 意象追踪"):
+                        gr.Markdown(
                             "输入一个意象或母题（如：雨、scarf、童年、月光），"
-                            "看它在上面所选范围的曲库里如何反复出现与演变（按专辑分组）。")
-                with gr.Row():
-                    imagery_box = gr.Textbox(
-                        show_label=False, placeholder="输入意象，如：雨 / scarf / 童年",
-                        scale=4, container=False)
-                    imagery_btn = gr.Button("追踪", scale=1, variant="primary")
-                imagery_html = gr.HTML("")
+                            "看它在所选范围的曲库里如何反复出现与演变"
+                            "（按专辑分组）。")
+                        with gr.Row():
+                            imagery_box = gr.Textbox(
+                                show_label=False,
+                                placeholder="输入意象，如：雨 / scarf / 童年",
+                                scale=4, container=False)
+                            imagery_btn = gr.Button("追踪", scale=1,
+                                                    variant="primary")
+                        imagery_html = gr.HTML("")
 
             # ══ 页签 3.5: 歌词宇宙侦探 ══
             with gr.Tab("🕵️ 歌词宇宙"):
@@ -520,31 +542,36 @@ def create_app(settings: Settings) -> gr.Blocks:
 
             # ══ 页签 4: 曲库洞察 ══
             with gr.Tab("📊 曲库洞察"):
-                daily_html = gr.HTML("")
-                gr.Markdown("### ☁️ 高频意象词云")
-                cloud_artist = gr.Dropdown(
-                    choices=[], value=None, label="选择歌手（含全部）",
-                    allow_custom_value=True, elem_id="ll-cloud-artist")
-                cloud_html = gr.HTML("")
-                word_trace_html = gr.HTML("")
-                # JS -> backend: clicked word in the cloud
-                word_pick_box = gr.Textbox(
-                    value="", visible=True, elem_id="ll-word-pick",
-                    elem_classes=["ll-hidden"], show_label=False,
-                    container=False)
-                gr.Markdown("### 🎭 曲库情绪地图")
-                emotion_html = gr.HTML("")
-                # JS -> backend: clicked song on the emotion map
-                emo_pick_box = gr.Textbox(
-                    value="", visible=True, elem_id="ll-emo-pick",
-                    elem_classes=["ll-hidden"], show_label=False,
-                    container=False)
-                gr.Markdown("### 📖 歌单故事线\n"
-                            "勾选几首歌，AI 按情绪弧线给出播放顺序，"
-                            "并讲出这个歌单串成的故事。")
-                story_songs = gr.CheckboxGroup(choices=[], label="选择歌曲")
-                story_btn = gr.Button("✨ 生成故事线", size="sm")
-                story_out = gr.Markdown("", elem_classes=["echo-explain"])
+                with gr.Tabs():
+                    with gr.Tab("📅 每日一句"):
+                        daily_html = gr.HTML("")
+                    with gr.Tab("☁️ 意象词云"):
+                        cloud_artist = gr.Dropdown(
+                            choices=[], value=None, label="选择歌手（含全部）",
+                            allow_custom_value=True,
+                            elem_id="ll-cloud-artist")
+                        cloud_html = gr.HTML("")
+                        word_trace_html = gr.HTML("")
+                        # JS -> backend: clicked word in the cloud
+                        word_pick_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-word-pick",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                    with gr.Tab("🎭 情绪地图"):
+                        emotion_html = gr.HTML("")
+                        # JS -> backend: clicked song on the emotion map
+                        emo_pick_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-emo-pick",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                    with gr.Tab("📖 歌单故事线"):
+                        gr.Markdown("勾选几首歌，AI 按情绪弧线给出播放顺序，"
+                                    "并讲出这个歌单串成的故事。")
+                        story_songs = gr.CheckboxGroup(choices=[],
+                                                       label="选择歌曲")
+                        story_btn = gr.Button("✨ 生成故事线", size="sm")
+                        story_out = gr.Markdown(
+                            "", elem_classes=["echo-explain"])
 
             # ══ 页签 5: 互动（竞猜 + 听歌识曲） ══
             with gr.Tab("🎮 互动"):
@@ -620,15 +647,18 @@ def create_app(settings: Settings) -> gr.Blocks:
                     gr.Markdown(
                         f"### 从曲库添加（推荐）\n"
                         f"内置 {len(catalog)} 首中外热门歌曲（带时间戳歌词），"
-                        "搜索后点选一首，一键添加到你的列表。"
+                        "搜索后勾选一首或多首，一键添加到你的列表。"
                     )
                     cat_search = gr.Textbox(
                         label="搜索曲库（歌名 / 歌手 / 专辑）", elem_id="ll-cat-search")
-                    cat_radio = gr.Radio(
-                        choices=cat_labels, value=None,
+                    with gr.Row():
+                        cat_all_btn = gr.Button("☑️ 全选", size="sm", scale=1)
+                        cat_none_btn = gr.Button("⬜ 取消全选", size="sm", scale=1)
+                    cat_radio = gr.CheckboxGroup(
+                        choices=cat_labels, value=[],
                         label=f"曲库歌曲（{len(cat_labels)} 首）",
                         elem_id="ll-catalog")
-                    cat_add_btn = gr.Button("＋ 添加到我的列表", variant="primary")
+                    cat_add_btn = gr.Button("＋ 添加勾选的歌曲", variant="primary")
                     add_status = gr.Markdown("", elem_classes=["add-status"])
                     add_state = gr.State("")  # last added song dir name
                     gen_btn = gr.Button("🪄 为刚添加的歌曲生成 AI 批注（需 API Key，耗时约 1-3 分钟）")
@@ -1966,52 +1996,93 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         # ── 曲库 ──
 
-        def on_cat_search(q: str):
+        def _cat_filter(q: str) -> list[str]:
             q = (q or "").strip().lower()
             items = catalog if not q else [
                 c for c in catalog
                 if q in c["title"].lower() or q in c["album"].lower()
                 or q in c["artist"].lower()
             ]
-            labels = [f"{c['title']} — {c['artist']}" for c in items]
-            return gr.Radio(choices=labels, value=None,
-                            label=f"曲库歌曲（{len(labels)} 首）")
+            return [f"{c['title']} — {c['artist']}" for c in items]
+
+        def on_cat_search(q: str):
+            labels = _cat_filter(q)
+            return gr.CheckboxGroup(choices=labels, value=[],
+                                    label=f"曲库歌曲（{len(labels)} 首）")
+
+        def on_cat_all(q: str):
+            # select-all applies to the CURRENT search filter
+            labels = _cat_filter(q)
+            return gr.CheckboxGroup(choices=labels, value=labels,
+                                    label=f"曲库歌曲（{len(labels)} 首）")
+
+        def on_cat_none():
+            return gr.CheckboxGroup(value=[])
 
         if not public:
             cat_search.change(on_cat_search, [cat_search], [cat_radio])
+            cat_all_btn.click(on_cat_all, [cat_search], [cat_radio])
+            cat_none_btn.click(on_cat_none, None, [cat_radio])
 
-        def on_cat_add(label: str, sort: str):
-            if not label:
-                return "⚠️ 请先在曲库中点选一首歌。", gr.skip(), gr.skip(), gr.skip()
-            entry = next(
-                (c for c in catalog if f"{c['title']} — {c['artist']}" == label),
-                None)
-            if not entry:
-                return "⚠️ 未找到该曲目。", gr.skip(), gr.skip(), gr.skip()
-            slug = re.sub(r"[^\w]+", "_", entry["title"].lower()).strip("_") \
-                or f"song_{int(time.time())}"
-            d = Path(settings.songs_dir) / slug
-            if d.exists():
-                return (f"ℹ️ 《{entry['title']}》已在你的列表中。",
+        def on_cat_add(labels, sort: str):
+            if isinstance(labels, str):  # defensive: single-select payloads
+                labels = [labels]
+            labels = [l for l in (labels or []) if l]
+            if not labels:
+                return ("⚠️ 请先在曲库中勾选至少一首歌。",
                         gr.skip(), gr.skip(), gr.skip())
-            d.mkdir(parents=True)
-            (d / "lyrics.lrc").write_text(entry["lrc"], encoding="utf-8")
-            meta = {
-                "title": entry["title"],
-                "artist": entry["artist"],
-                "album": entry["album"],
-                "year": 0,
-                "era": entry.get("era", ""),
-                "themes": [],
-            }
-            (d / "metadata.json").write_text(
-                json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+            added: list[str] = []
+            existed: list[str] = []
+            missing: list[str] = []
+            last_slug = ""
+            for label in labels:
+                entry = next(
+                    (c for c in catalog
+                     if f"{c['title']} — {c['artist']}" == label), None)
+                if not entry:
+                    missing.append(label)
+                    continue
+                slug = re.sub(r"[^\w]+", "_",
+                              entry["title"].lower()).strip("_") \
+                    or f"song_{int(time.time())}"
+                d = Path(settings.songs_dir) / slug
+                if d.exists():
+                    existed.append(entry["title"])
+                    continue
+                d.mkdir(parents=True)
+                (d / "lyrics.lrc").write_text(entry["lrc"], encoding="utf-8")
+                meta = {
+                    "title": entry["title"],
+                    "artist": entry["artist"],
+                    "album": entry["album"],
+                    "year": 0,
+                    "era": entry.get("era", ""),
+                    "themes": [],
+                }
+                (d / "metadata.json").write_text(
+                    json.dumps(meta, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                added.append(entry["title"])
+                last_slug = slug
+            parts = []
+            if added:
+                shown = "》《".join(added[:8])
+                parts.append(f"✅ 新增 {len(added)} 首：《{shown}》"
+                             + ("…" if len(added) > 8 else ""))
+            if existed:
+                parts.append(f"ℹ️ {len(existed)} 首已在列表中")
+            if missing:
+                parts.append(f"⚠️ {len(missing)} 首未找到")
+            if not added:
+                return "　".join(parts), gr.skip(), gr.skip(), gr.skip()
             refresh_library()
             new_choices = song_choices(sort)
-            new_song = next((s for s in ctx["songs"] if s["name"] == slug), None)
+            new_song = next(
+                (s for s in ctx["songs"] if s["name"] == last_slug), None)
             new_label = song_choice_label(new_song) if new_song else None
-            return (f"✅ 已添加《{entry['title']}》到你的列表，并已切换到该歌曲。",
-                    gr.Radio(choices=new_choices, value=new_label), slug,
+            parts.append("已切换到最后新增的一首；🪄 批注按钮只作用于它。")
+            return ("　".join(parts),
+                    gr.Radio(choices=new_choices, value=new_label), last_slug,
                     gr.Dropdown(choices=song_choices(), value=None))
 
         if not public:
