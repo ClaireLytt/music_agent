@@ -183,9 +183,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             # guard path (no picked line) is what gets exercised
             pg.get_by_role("radio", name="exile").check()
             pg.wait_for_timeout(2500)
-            probe.tab("🛠️ 更多")
-            pg.get_by_text("🖼️ 分享卡片").click()
-            pg.wait_for_timeout(300)
+            probe.tab("🖼️")
             pg.get_by_role("button", name="生成歌词金句卡").click()
             pg.wait_for_timeout(1500)
             must("请先点击" in pg.locator("#ll-card").inner_text(),
@@ -237,9 +235,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("ab_loop", "A-B loop set + clear", c_ab_loop)
 
         def c_notes():
-            probe.tab("🛠️ 更多")
-            pg.get_by_text("📝 听歌笔记").click()
-            pg.wait_for_timeout(400)
+            probe.tab("📝")
             box = pg.get_by_placeholder("在当前播放位置记一句感想…")
             box.fill("ui-probe 自检笔记")
             pg.get_by_role("button", name="添加").click()
@@ -318,7 +314,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_debate_guard)
 
         def c_echo_explain_guard():
-            probe.tab("🥚 彩蛋")
+            probe.tab("🥚")
             pg.get_by_role("button", name="✨ 让 AI 解释这些呼应").click()
             probe.wait_until(
                 lambda: "请先点击一句歌词" in pg.locator("body").inner_text(),
@@ -336,8 +332,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_echo_card_guard)
 
         def c_echo_overview():
-            probe.tab("🥚 彩蛋")
-            pg.get_by_text("🗺️ 本歌彩蛋总览").click()
+            probe.tab("🗺️")
             probe.wait_until(
                 lambda: count(".echo-ov-item") >= 1
                 or "未发现" in pg.locator("#ll-echo-overview").inner_text(),
@@ -355,9 +350,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_echo_overview)
 
         def c_intro_panel():
-            probe.tab("📖 导读")
-            pg.get_by_text("📖 歌曲导读").click()
-            pg.wait_for_timeout(500)
+            probe.tab("📖")
             html = pg.locator("#ll-intro").inner_html()
             must("song-intro" in html or "尚未生成" in html,
                  "intro panel neither text nor empty-state")
@@ -368,9 +361,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             # exile has no intro.txt -> the TTS button must guard, not spend
             pg.get_by_role("radio", name="exile").check()
             pg.wait_for_timeout(2500)
-            probe.tab("🛠️ 更多")
-            pg.get_by_text("📻 AI 电台").click()
-            pg.wait_for_timeout(400)
+            probe.tab("📻")
             pg.get_by_role(
                 "button",
                 name="🎙️ 为本歌生成串场语音（需先有导读）").click()
@@ -435,6 +426,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_map_network)
 
         def c_imagery():
+            probe.tab("🔍 意象追踪")
             pg.get_by_placeholder("输入意象，如：雨 / scarf / 童年").fill("time")
             pg.get_by_role("button", name="追踪").click()
             pg.wait_for_timeout(6000)
@@ -443,6 +435,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
 
         def c_map_cross():
+            probe.tab("🗺️ 呼应地图")
             pg.locator("#ll-map-artist input").click()
             pg.wait_for_timeout(400)
             pg.get_by_role("option", name="🌐 跨歌手引用（全部歌手）").click()
@@ -516,13 +509,19 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         def c_insights():
             probe.tab("📊 曲库洞察")
             pg.wait_for_timeout(1000)
+            # sub-tab panels render lazily — visit each before counting
             must(count(".daily-card") == 1, "daily quote missing")
-            must(count(".cloud-word") >= 10, "word cloud too small")
-            must(count(".emo-node") >= 1, "emotion map empty")
+            probe.tab("☁️ 意象词云")
+            probe.wait_until(lambda: count(".cloud-word") >= 10,
+                             msg="word cloud too small")
+            probe.tab("🎭 情绪地图")
+            probe.wait_until(lambda: count(".emo-node") >= 1,
+                             msg="emotion map empty")
         probe.check("insights", "insights tab (daily/cloud/emotion)",
                     c_insights)
 
         def c_word_click():
+            probe.tab("☁️ 意象词云")
             pg.locator(".cloud-word").first.click()
             pg.wait_for_timeout(6000)
             must(count(".img-timeline") >= 1, "word click opened no timeline")
@@ -530,6 +529,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_word_click)
 
         def c_emo_click():
+            probe.tab("🎭 情绪地图")
             pg.locator(".emo-node").first.click()
             pg.wait_for_timeout(2500)
             sel = pg.get_by_role("tab", name="🎧 播放解读") \
@@ -543,6 +543,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             # the emo_click check intentionally navigated to the play tab;
             # come back before touching insights controls
             probe.tab("📊 曲库洞察")
+            probe.tab("☁️ 意象词云")
             pg.locator("#ll-cloud-artist input").click()
             pg.wait_for_timeout(400)
             pg.get_by_role("option", name="🌍 全部歌手").click()
@@ -552,6 +553,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_cloud_switch)
 
         def c_story_guard():
+            probe.tab("📖 歌单故事线")
             pg.get_by_role("button", name="✨ 生成故事线").click()
             probe.wait_until(
                 lambda: "至少勾选 2 首歌" in pg.locator("body").inner_text(),
@@ -610,9 +612,8 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
         def c_mv_eggs_present():
             probe.tab("🎧 播放解读")
-            probe.tab("📖 导读")
-            pg.locator("#ll-mv").click()  # open the accordion
-            pg.wait_for_timeout(600)
+            probe.tab("🎬")
+            pg.wait_for_timeout(400)
             must("MV 彩蛋" in pg.locator("#ll-mv").inner_text(),
                  "MV eggs accordion missing")
             # LLM-priced button is asserted present but NOT clicked
@@ -636,13 +637,22 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         # ── add-song tab ──
         def c_catalog():
             probe.tab("➕ 添加歌曲")
-            n_before = count("#ll-catalog input[type=radio]")
+            n_before = count("#ll-catalog input[type=checkbox]")
             must(n_before >= 50, f"catalog too small: {n_before}")
             pg.locator("#ll-cat-search input, #ll-cat-search textarea") \
                 .fill("周杰伦")
             pg.wait_for_timeout(1500)
-            n_after = count("#ll-catalog input[type=radio]")
+            n_after = count("#ll-catalog input[type=checkbox]")
             must(0 < n_after < n_before, "catalog search did not filter")
+            # select-all applies to the filtered list; deselect clears it
+            pg.get_by_role("button", name="☑️ 全选").click()
+            pg.wait_for_timeout(800)
+            must(count("#ll-catalog input[type=checkbox]:checked") == n_after,
+                 "select-all did not check all filtered songs")
+            pg.get_by_role("button", name="⬜ 取消全选").click()
+            pg.wait_for_timeout(800)
+            must(count("#ll-catalog input[type=checkbox]:checked") == 0,
+                 "deselect-all left songs checked")
         probe.check("catalog", "catalog renders + search filters", c_catalog)
 
 
