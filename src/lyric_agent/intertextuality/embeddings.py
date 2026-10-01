@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -34,18 +35,50 @@ def generate_embeddings(
 
     out_path = Path(corpus_dir) / "embeddings.npy"
     np.save(str(out_path), embeddings)
+    # fingerprint sidecar: queries are encoded with the configured model at
+    # runtime, so mixing it with vectors from another model yields silently
+    # garbage similarities — load_embeddings() checks this file
+    meta_path = Path(corpus_dir) / "embeddings.meta.json"
+    meta_path.write_text(
+        json.dumps({"model": model_name, "rows": int(embeddings.shape[0])}),
+        encoding="utf-8")
     logger.info("Saved embeddings to %s (shape: %s)", out_path, embeddings.shape)
 
     return embeddings, corpus
 
 
-def load_embeddings(corpus_dir: str) -> tuple[np.ndarray, list[CorpusLine]]:
-    """Load pre-computed embeddings and corpus from disk."""
+def load_embeddings(
+    corpus_dir: str,
+    model_name: str | None = None,
+) -> tuple[np.ndarray, list[CorpusLine]]:
+    """Load pre-computed embeddings and corpus from disk.
+
+    When model_name is given, the fingerprint sidecar must name the same
+    model: query vectors and corpus vectors from different models compare
+    as silent garbage, so a mismatch (or a missing sidecar, which means
+    the .npy predates fingerprinting and its model is unknown) raises
+    with the fix command instead.
+    """
     emb_path = Path(corpus_dir) / "embeddings.npy"
     if not emb_path.exists():
         raise FileNotFoundError(
             f"No embeddings found at {emb_path}. Run `generate_embeddings()` first."
         )
+
+    if model_name:
+        meta_path = Path(corpus_dir) / "embeddings.meta.json"
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            meta = None
+        stored = (meta or {}).get("model")
+        if stored != model_name:
+            raise ValueError(
+                f"embeddings.npy was generated with model "
+                f"{stored or '<unknown>'!r} but the configured model is "
+                f"{model_name!r} — similarities would be garbage. "
+                "Run `lyric-agent embed` to regenerate."
+            )
 
     embeddings = np.load(str(emb_path))
     corpus = load_corpus(corpus_dir)

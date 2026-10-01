@@ -247,3 +247,33 @@ def test_doctor_duplicate_and_freshness(tmp_path):
     assert any("Brand New" in f.message for f in fresh)
     lib = check_library(songs_dir)
     assert any("尚无 AI 批注" in f.message for f in lib)
+
+
+def test_load_embeddings_model_fingerprint(tmp_path):
+    """Mixing query/corpus vectors from different models must fail loudly."""
+    import json
+
+    import numpy as np
+
+    from lyric_agent.intertextuality.embeddings import load_embeddings
+
+    (tmp_path / "discography.jsonl").write_text(
+        json.dumps({"title": "t", "artist": "a", "album": "al",
+                    "lyrics_lines": ["hello world line"]}) + "\n",
+        encoding="utf-8")
+    np.save(str(tmp_path / "embeddings.npy"), np.zeros((1, 4)))
+
+    # no sidecar: model unknown -> must refuse when a model is expected
+    import pytest
+    with pytest.raises(ValueError, match="lyric-agent embed"):
+        load_embeddings(str(tmp_path), "model-A")
+    # legacy call without model check still works
+    emb, corpus = load_embeddings(str(tmp_path))
+    assert emb.shape == (1, 4) and len(corpus) == 1
+
+    (tmp_path / "embeddings.meta.json").write_text(
+        json.dumps({"model": "model-A", "rows": 1}), encoding="utf-8")
+    emb, _ = load_embeddings(str(tmp_path), "model-A")  # match -> ok
+    assert emb.shape == (1, 4)
+    with pytest.raises(ValueError, match="garbage"):
+        load_embeddings(str(tmp_path), "model-B")  # mismatch -> loud
