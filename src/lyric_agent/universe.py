@@ -133,15 +133,23 @@ _DETECTIVE_SCHEMA = (
 def detective_messages(
     scope: str,
     songs: list[tuple[str, str]],       # (title, album)
-    edges: list[tuple[str, str, int, str, str]],  # a, b, count, line_a, line_b
+    edges: list[tuple[str, str, int, list[tuple[str, str]]]],
+        # a, b, count, [(line_a, line_b), ...] strongest first (≤3 used)
     name_lines: list[tuple[str, str]],  # (song, text)
 ) -> tuple[str, str]:
     """(system_prompt, user_message) for the detective call."""
     song_list = "、".join(
         f"《{t}》({al})" if al else f"《{t}》" for t, al in songs[:40])
-    edge_lines = "\n".join(
-        f"- 《{a}》↔《{b}》（{n} 处呼应）：“{la}” ↔ “{lb}”"
-        for a, b, n, la, lb in edges[:15])
+
+    def fmt_edge(a: str, b: str, n: int,
+                 pairs: list[tuple[str, str]]) -> str:
+        head = f"- 《{a}》↔《{b}》（{n} 处呼应）："
+        quoted = [f"“{la}” ↔ “{lb}”" for la, lb in pairs[:3]]
+        if len(quoted) <= 1:
+            return head + (quoted[0] if quoted else "")
+        return head + "\n" + "\n".join(f"  · {q}" for q in quoted)
+
+    edge_lines = "\n".join(fmt_edge(*e) for e in edges[:15])
     clue_lines = "\n".join(
         f"- 《{s}》：“{t}”" for s, t in name_lines) or "（无）"
     user = (

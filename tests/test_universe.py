@@ -42,9 +42,11 @@ def test_extract_name_lines_filters_and_caps():
 def test_detective_and_letter_messages_contain_evidence():
     _sys, user = detective_messages(
         "Taylor Swift", [("betty", "folklore")],
-        [("betty", "cardigan", 3, "line a", "line b")],
+        [("betty", "cardigan", 3,
+          [("line a", "line b"), ("line a2", "line b2")])],
         [("betty", "James is here")])
     assert "《betty》↔《cardigan》" in user and "James is here" in user
+    assert "line a2" in user  # extra evidence pairs reach the prompt
     _sys2, user2 = letter_messages("betty", "cardigan", "la", "lb", 3)
     assert "《betty》" in user2 and "“la”" in user2 and "“lb”" in user2
 

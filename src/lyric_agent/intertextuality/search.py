@@ -160,9 +160,8 @@ def find_song_echoes(
                 sim > NEAR_IDENTICAL_SIMILARITY and texts[row] != line.text):
             echoes.append(None)
             continue
-        if cjk_pair and not cjk_pair_anchored(texts[row], line.text):
-            echoes.append(None)
-            continue
+        # (cjk_pair_anchored guard removed — see echo_map.py: multilingual
+        # embeddings make CJK similarity real; the *_CJK threshold suffices)
         echoes.append(EchoLine(
             song=line.song, album=line.album,
             line=line.text, similarity=round(sim, 3),

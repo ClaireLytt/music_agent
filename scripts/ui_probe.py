@@ -592,6 +592,11 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             tracebacks = re.findall(
                 r"Traceback \(most recent call last\).*?(?:\w+Error[^\n]*)",
                 text, re.DOTALL)
+            # Windows asyncio noise when the browser drops a connection
+            # mid-reload (e.g. the __theme redirect): not an app bug
+            tracebacks = [t for t in tracebacks
+                          if "ConnectionResetError" not in t
+                          and "_call_connection_lost" not in t]
             must(not tracebacks,
                  f"{len(tracebacks)} traceback(s), first: "
                  + tracebacks[0][-200:].replace("\n", " | ") if tracebacks

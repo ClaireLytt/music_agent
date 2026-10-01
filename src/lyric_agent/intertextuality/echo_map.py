@@ -24,7 +24,6 @@ from .corpus import CorpusLine
 from .search import (
     NEAR_IDENTICAL_SIMILARITY,
     artist_matches,
-    cjk_pair_anchored,
     is_cjk_text,
     normalize_rows,
     primary_artist,
@@ -57,8 +56,16 @@ def base_title(title: str) -> str:
     return _BRACKET_RE.sub("", title or "").strip().lower()
 
 
+_CREDIT_RE = re.compile(
+    r"^[\(（\[【\s]*(词|曲|作词|作曲|編曲|编曲|监制|監製|製作|制作|混音|和声|"
+    r"詞|作詞|lyrics?\s+by|composed\s+by|produced\s+by)\s*[:：]",
+    re.IGNORECASE)
+
+
 def is_filler(text: str) -> bool:
-    """True for lines made only of vocalization filler ("Oh, oh, oh-oh")."""
+    """True for vocalization filler ("Oh, oh, oh-oh") and credit lines."""
+    if _CREDIT_RE.match((text or "").strip()):
+        return True  # "词：徐若瑄" etc. — embedded credits, not lyrics
     tokens = _WORD_RE.findall((text or "").lower())
     return bool(tokens) and all(t.strip("'") in _FILLER_VOCAB for t in tokens)
 
@@ -77,6 +84,9 @@ class EchoEdge:
     song_b: str
     count: int
     example: EchoPair
+    # strongest examples (leading one prefers distinct wording), max 3 —
+    # the detective's evidence dossier reads these
+    examples: list[EchoPair] = field(default_factory=list)
 
 
 @dataclass
@@ -150,6 +160,7 @@ def build_echo_graph(
     edge_count: dict[tuple, int] = {}
     edge_example: dict[tuple, EchoPair] = {}
     edge_example_distinct: dict[tuple, EchoPair] = {}
+    edge_pairs: dict[tuple, list[EchoPair]] = {}
     edge_identical: dict[tuple, int] = {}
     for a, b in pairs:
         la, lb = corpus[rows[int(a)]], corpus[rows[int(b)]]
@@ -162,9 +173,12 @@ def build_echo_graph(
         sim = float(sims[a, b])
         if sim > NEAR_IDENTICAL_SIMILARITY and la.text != lb.text:
             continue  # encoder collapse (see NEAR_IDENTICAL_SIMILARITY)
-        if (is_cjk_text(la.text) or is_cjk_text(lb.text)) \
-                and not cjk_pair_anchored(la.text, lb.text):
-            continue  # CJK echoes must share a verbatim phrase (see search.py)
+        # NOTE: the old cjk_pair_anchored guard (verbatim shared phrase)
+        # is gone: it existed because the English-only MiniLM made CJK
+        # similarities meaningless, and it killed legitimate paraphrase
+        # echoes (plus every traditional/simplified pair). With the
+        # multilingual model the stricter *_CJK threshold is the only
+        # CJK-specific gate.
         edge_count[key] = edge_count.get(key, 0) + 1
         if la.text == lb.text:
             edge_identical[key] = edge_identical.get(key, 0) + 1
@@ -172,6 +186,7 @@ def build_echo_graph(
             pair = EchoPair(la.text, lb.text, round(sim, 3))
         else:
             pair = EchoPair(lb.text, la.text, round(sim, 3))
+        edge_pairs.setdefault(key, []).append(pair)
         best = edge_example.get(key)
         if best is None or sim > best.similarity:
             edge_example[key] = pair
@@ -202,9 +217,24 @@ def build_echo_graph(
     def label(k: tuple[str, str]) -> str:
         return f"{k[0]} · {song_artist.get(k, '')}" if cross else k[0]
 
+    def top_examples(key: tuple) -> list[EchoPair]:
+        lead = edge_example_distinct.get(key) or edge_example[key]
+        seen = {(lead.line_a.casefold(), lead.line_b.casefold())}
+        out = [lead]
+        for p in sorted(edge_pairs[key], key=lambda p: p.similarity,
+                        reverse=True):
+            k = (p.line_a.casefold(), p.line_b.casefold())
+            if k not in seen:
+                seen.add(k)
+                out.append(p)
+            if len(out) == 3:
+                break
+        return out
+
     edges = [
         EchoEdge(label(ka), label(kb), n,
-                 edge_example_distinct.get((ka, kb)) or edge_example[(ka, kb)])
+                 edge_example_distinct.get((ka, kb)) or edge_example[(ka, kb)],
+                 top_examples((ka, kb)))
         for (ka, kb), n in edge_count.items()
         if ka in kept_songs and kb in kept_songs
     ]

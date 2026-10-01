@@ -19,20 +19,19 @@ DEFAULT_MODELS = {"anthropic": "claude-sonnet-5", "openai": "deepseek-chat"}
 
 # canonical embedding model: corpus embeddings and query encoding must agree,
 # so every layer (config / embeddings / search) references this one constant
-DEFAULT_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+DEFAULT_EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
 
 # 彩蛋 (easter-egg) similarity thresholds:
 #   ECHO_MIN_SIMILARITY    strong echo — whole-song 🥚 map + artist network map
 #   ECHO_SEARCH_SIMILARITY exploratory — per-line 互文追踪 panel (top-K cards)
-# *_CJK variants apply when either line is mostly CJK: the default English
-# MiniLM model packs Chinese lines into a narrow embedding cone (median
-# cross-song similarity ~0.56), so CJK pairs need a much stricter cutoff.
-# For proper Chinese support set EMBEDDING_MODEL to a multilingual model
-# (e.g. paraphrase-multilingual-MiniLM-L12-v2) and rerun `lyric-agent embed`.
+# *_CJK variants apply when either line is mostly CJK: even with the
+# multilingual model, CJK similarities run hotter than English ones, so
+# CJK pairs keep a somewhat stricter cutoff. (The old English-only
+# all-MiniLM-L6-v2 needed 0.90 here; retune if the model changes again.)
 DEFAULT_ECHO_MIN_SIMILARITY = 0.62
-DEFAULT_ECHO_MIN_SIMILARITY_CJK = 0.90
+DEFAULT_ECHO_MIN_SIMILARITY_CJK = 0.75
 DEFAULT_ECHO_SEARCH_SIMILARITY = 0.35
-DEFAULT_ECHO_SEARCH_SIMILARITY_CJK = 0.60
+DEFAULT_ECHO_SEARCH_SIMILARITY_CJK = 0.45
 DEFAULT_ECHO_TOP_K = 4
 DEFAULT_ECHO_MAP_MAX_NODES = 18
 
