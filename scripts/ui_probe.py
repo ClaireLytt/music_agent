@@ -270,8 +270,10 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 "losing someone you love")
             pg.get_by_role("radio", name="语义").check()
             pg.get_by_role("button", name="搜索", exact=True).click()
-            probe.wait_until(   # first semantic query may load the model
-                lambda: count(".search-mode-tag") >= 1, timeout_s=60,
+            probe.wait_until(   # first semantic query may load the model;
+                # the multilingual L12 model embeds the library ~5x slower
+                # than the old L6 (measured 55s cold on this machine)
+                lambda: count(".search-mode-tag") >= 1, timeout_s=150,
                 msg="semantic search returned nothing (no mode tag)")
             pg.get_by_role("button", name="✕ 清除").click()
             pg.get_by_role("radio", name="关键词").check()
