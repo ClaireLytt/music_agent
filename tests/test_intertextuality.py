@@ -277,3 +277,15 @@ def test_load_embeddings_model_fingerprint(tmp_path):
     assert emb.shape == (1, 4)
     with pytest.raises(ValueError, match="garbage"):
         load_embeddings(str(tmp_path), "model-B")  # mismatch -> loud
+
+
+def test_edge_example_dedup_helpers():
+    """Ad-lib variants of the same hook must count as duplicates."""
+    from lyric_agent.intertextuality.echo_map import covers, norm_line
+
+    base = norm_line("You're the one I want")
+    assert covers(base, norm_line("Oh, you're the one I want"))
+    assert covers(base, norm_line("Ah-ah, darling, you're the one I want!"))
+    assert covers(norm_line("你是我唯一想要的"), norm_line("哦 你是我唯一想要的"))
+    assert not covers(norm_line("rain on me"), norm_line("dancing in the dark"))
+    assert not covers("", base)  # empty never covers
