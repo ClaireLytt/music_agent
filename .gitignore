@@ -24,3 +24,4 @@ logs/
 data/songs/*/notes.json
 data/ui_probe/
 data/cache/
+data/users.json
