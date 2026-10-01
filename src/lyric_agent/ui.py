@@ -48,6 +48,7 @@ from .universe import UNIVERSE_CSS, UNIVERSE_EMPTY
 
 logger = logging.getLogger(__name__)
 
+from .mv_eggs import MV_CSS, MV_EMPTY
 from .ui_assets import _CSS, _HEAD_JS
 from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _CATALOG_PATH,
@@ -89,7 +90,7 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
 def launch_kwargs() -> dict:
     """Style/head kwargs for app.launch() (Gradio 6 moved them off Blocks)."""
     return {
-        "css": _CSS + EVOLUTION_CSS + ECHO_MAP_CSS + UNIVERSE_CSS,
+        "css": _CSS + EVOLUTION_CSS + ECHO_MAP_CSS + UNIVERSE_CSS + MV_CSS,
         "head": _HEAD_JS,
         "theme": gr.themes.Base(primary_hue="blue", neutral_hue="slate"),
     }
@@ -169,7 +170,8 @@ def create_app(settings: Settings) -> gr.Blocks:
         if "echo_index" not in ctx:
             try:
                 from .intertextuality.embeddings import load_embeddings
-                ctx["echo_index"] = load_embeddings(settings.corpus_dir)
+                ctx["echo_index"] = load_embeddings(
+                    settings.corpus_dir, settings.embedding_model)
             except Exception:
                 logger.exception("Intertextuality index unavailable")
                 ctx["echo_index"] = None
@@ -346,6 +348,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                             intro_html = gr.HTML(_INTRO_EMPTY)
                             if not public:
                                 intro_btn = gr.Button("🪄 生成 30 秒导读", size="sm")
+                        with gr.Accordion("🎬 MV 彩蛋", open=False,
+                                          elem_id="ll-mv"):
+                            mv_html = gr.HTML(MV_EMPTY)
+                            if not public:
+                                mv_btn = gr.Button("🎬 生成 MV 彩蛋", size="sm")
                         with gr.Accordion("🖼️ 分享卡片", open=False,
                                           elem_id="ll-card"):
                             card_btn = gr.Button("生成歌词金句卡", size="sm")
@@ -483,6 +490,13 @@ def create_app(settings: Settings) -> gr.Blocks:
                         elem_id="ll-letter-pair")
                     letter_btn = gr.Button("💌 写信", variant="primary", scale=1)
                 letter_html = gr.HTML("")
+                # last generated letter, kept for the PNG card
+                letter_state = gr.State({})
+                with gr.Row():
+                    letter_card_btn = gr.Button("🖼️ 生成信纸卡片", size="sm")
+                letter_card_status = gr.Markdown("")
+                letter_card_img = gr.Image(visible=False, label="信纸卡片",
+                                           interactive=False)
 
             # ══ 页签 4: 曲库洞察 ══
             with gr.Tab("📊 曲库洞察"):
@@ -1030,7 +1044,7 @@ def create_app(settings: Settings) -> gr.Blocks:
         def on_letter(artist: str, pair_label: str, user_cfg):
             """One echo edge → a letter from song A's narrator to song B."""
             if not artist or not pair_label:
-                yield _uni_msg("⚠️ 请先选择歌手和歌曲对。")
+                yield _uni_msg("⚠️ 请先选择歌手和歌曲对。"), gr.skip()
                 return
             graph, _net = _map_graph(artist)
             edge = None
@@ -1039,13 +1053,13 @@ def create_app(settings: Settings) -> gr.Blocks:
                 if pair_label in labels:
                     edge = graph.edges[labels.index(pair_label)]
             if edge is None:
-                yield _uni_msg("⚠️ 未找到该歌曲对，请重新选择。")
+                yield _uni_msg("⚠️ 未找到该歌曲对，请重新选择。"), gr.skip()
                 return
             req_settings = _request_settings(user_cfg)
             if public and not req_settings.api_key:
-                yield _uni_msg(_PUBLIC_KEY_HINT)
+                yield _uni_msg(_PUBLIC_KEY_HINT), gr.skip()
                 return
-            yield _uni_msg("💌 正在代笔写信……（约 5-15 秒）")
+            yield _uni_msg("💌 正在代笔写信……（约 5-15 秒）"), gr.skip()
             from .universe import letter_messages, render_letter_html
             system, user_msg = letter_messages(
                 edge.song_a, edge.song_b,
@@ -1055,20 +1069,42 @@ def create_app(settings: Settings) -> gr.Blocks:
                 resp = LLMClient(req_settings).generate(system, user_msg)
             except Exception as exc:
                 logger.exception("Letter failed")
-                yield _uni_msg(f"⚠️ LLM 调用失败：{str(exc)[:200]}")
+                yield _uni_msg(f"⚠️ LLM 调用失败：{str(exc)[:200]}"), gr.skip()
                 return
             body = (resp.reply_text or "").strip()
             if not body:
-                yield _uni_msg("⚠️ AI 未返回内容，请重试。")
+                yield _uni_msg("⚠️ AI 未返回内容，请重试。"), gr.skip()
                 return
-            yield render_letter_html(edge.song_a, edge.song_b, body,
-                                     edge.example.line_a,
-                                     edge.example.line_b)
+            yield (render_letter_html(edge.song_a, edge.song_b, body,
+                                      edge.example.line_a,
+                                      edge.example.line_b),
+                   {"song_a": edge.song_a, "song_b": edge.song_b,
+                    "body": body, "line_a": edge.example.line_a,
+                    "line_b": edge.example.line_b})
+
+        def on_letter_card(state: dict):
+            state = state or {}
+            if not state.get("body"):
+                return (gr.Image(visible=False),
+                        "⚠️ 请先点「💌 写信」生成一封信。")
+            from .share_card import render_letter_card
+            try:
+                path = render_letter_card(
+                    state["song_a"], state["song_b"], state["body"],
+                    state.get("line_a", ""), state.get("line_b", ""))
+            except Exception as exc:
+                logger.exception("Letter card failed")
+                return (gr.Image(visible=False),
+                        f"⚠️ 卡片生成失败：{_esc(str(exc)[:150])}")
+            return (gr.Image(value=path, visible=True),
+                    f"✅ 已保存：`{path}`")
 
         uni_artist.input(on_uni_artist, [uni_artist], [letter_pair])
         uni_btn.click(on_universe, [uni_artist, user_llm], [uni_html])
+        letter_card_btn.click(on_letter_card, [letter_state],
+                              [letter_card_img, letter_card_status])
         letter_btn.click(on_letter, [uni_artist, letter_pair, user_llm],
-                         [letter_html])
+                         [letter_html, letter_state])
 
         # ── 曲库洞察 ──
 
@@ -1593,8 +1629,42 @@ def create_app(settings: Settings) -> gr.Blocks:
                 logger.exception("Failed saving intro")
             yield _render_intro(text)
 
+        def on_gen_mv(choice: str, user_cfg):
+            from .mv_eggs import (
+                load_mv, mv_messages, parse_mv, render_mv_html, save_mv)
+            if not ctx["songs"]:
+                yield MV_EMPTY
+                return
+            info = find_song(choice)
+            title = info.get("title", "")
+            artist = info.get("artist", "")
+            existing = load_mv(info["dir"])
+            if existing is not None:
+                yield render_mv_html(parse_mv(existing), title, artist)
+                return
+            req_settings = _request_settings(user_cfg)
+            if not req_settings.api_key:
+                yield ('<div class="chat-empty">⚠️ 未配置 API Key，无法生成。'
+                       '请到「⚙️ 设置」页签填写。</div>')
+                return
+            yield ('<div class="chat-empty">🎬 AI 正在回忆这支 MV 的'
+                   '导演、意象与彩蛋……</div>')
+            system, user_msg = mv_messages(
+                title, artist, info.get("album", ""), info.get("year"))
+            from .llm import LLMClient
+            try:
+                data = LLMClient(req_settings).generate_json(system, user_msg)
+            except Exception as exc:
+                logger.exception("MV eggs generation failed")
+                yield (f'<div class="chat-empty">⚠️ 生成失败：'
+                       f'{_esc(str(exc)[:150])}</div>')
+                return
+            save_mv(info["dir"], data)
+            yield render_mv_html(parse_mv(data), title, artist)
+
         if not public:
             intro_btn.click(on_gen_intro, [song_radio, user_llm], [intro_html])
+            mv_btn.click(on_gen_mv, [song_radio, user_llm], [mv_html])
 
         # ── 彩蛋对照卡 ──
 
