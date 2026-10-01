@@ -163,6 +163,9 @@ def test_blank_quiz_guards():
 
 
 def test_letter_card_renders(tmp_path):
+    import pytest
+    pytest.importorskip("PIL")  # share cards are an optional extra; CI
+    # installs the slim dependency set without Pillow
     from pathlib import Path
 
     from lyric_agent.share_card import render_letter_card
