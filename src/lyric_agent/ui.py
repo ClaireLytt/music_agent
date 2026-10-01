@@ -293,12 +293,20 @@ def create_app(settings: Settings) -> gr.Blocks:
                     # ── 左栏: 歌曲 + 搜索 ──
                     with gr.Column(scale=1, min_width=230):
                         choices = song_choices()
-                        song_radio = gr.Radio(
-                            choices=choices,
-                            label="🎵 歌曲列表" if choices else "未找到歌曲，请到「添加歌曲」页签添加",
-                            value=choices[0] if choices else None,
-                            elem_id="ll-songs",
-                        )
+                        with gr.Accordion(
+                                "🎵 歌曲列表" if choices
+                                else "🎵 歌曲列表（空 — 去「添加歌曲」页签）",
+                                open=True, elem_id="ll-songs-acc"):
+                            song_filter = gr.Textbox(
+                                placeholder="筛选歌名 / 歌手 …",
+                                show_label=False, container=False,
+                                elem_id="ll-song-filter")
+                            song_radio = gr.Radio(
+                                choices=choices,
+                                show_label=False,
+                                value=choices[0] if choices else None,
+                                elem_id="ll-songs",
+                            )
                         if not public:
                             with gr.Accordion("🎵 为当前歌曲上传音频", open=False,
                                               elem_id="ll-audio-up"):
@@ -1503,6 +1511,24 @@ def create_app(settings: Settings) -> gr.Blocks:
         if not public:
             audio_file_up.upload(on_audio_upload, [audio_file_up, song_radio],
                                  [audio_up_status, audio_file_up, lyrics_html])
+
+        def on_song_filter(q: str, sort: str):
+            q = (q or "").strip().casefold()
+            labels = song_choices(sort)
+            if q:
+                labels = [
+                    l for l in labels
+                    if q in l.casefold()
+                    or q in find_song(l).get("artist", "").casefold()
+                ]
+            # choices-only update: the current selection (and playback)
+            # stays untouched even while filtered out of view
+            return gr.Radio(choices=labels)
+
+        # .change, not .input: mirrors cat_search — .input never reached
+        # the backend for this textbox (zero API calls observed)
+        song_filter.change(on_song_filter, [song_filter, sort_mode],
+                           [song_radio])
 
         def on_sort(sort: str, choice: str):
             labels = song_choices(sort)

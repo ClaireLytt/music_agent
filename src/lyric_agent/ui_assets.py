@@ -454,6 +454,11 @@ footer, .gradio-container footer { display: none !important; }
   gap: 4px !important;
 }
 #ll-songs label, #ll-catalog label { width: 100%; }
+#ll-songs {
+  max-height: 44vh; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+#ll-song-filter { margin-bottom: 6px; }
 #ll-catalog { max-height: 46vh; overflow-y: auto; }
 
 /* white theme: every field on white with clearly visible text + caret */
@@ -535,6 +540,13 @@ footer, .gradio-container footer { display: none !important; }
 }
 .song-title-display { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
 .song-meta-display { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+/* compact audio-upload dropzone — the default is a huge empty drop area */
+#ll-audio-up .wrap {
+  min-height: 0 !important; padding: 10px 8px !important; font-size: 12.5px;
+}
+#ll-audio-up .wrap .icon-wrap, #ll-audio-up .wrap svg { display: none; }
+#ll-audio-up .wrap .or { margin: 0 4px; }
 
 .no-audio-hint {
   padding: 10px 16px; margin: 8px 0; border-radius: 8px; font-size: 13px;
