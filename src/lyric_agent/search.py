@@ -29,9 +29,11 @@ class SearchHit:
 
 
 class LyricsSearcher:
-    def __init__(self, songs: list[dict], model_name: str | None = None) -> None:
+    def __init__(self, songs: list[dict], model_name: str | None = None,
+                 corpus_dir: str = "data/corpus") -> None:
         """songs: list of song-info dicts from the UI discovery step."""
         self._model_name = model_name
+        self._corpus_dir = corpus_dir
         self._entries: list[SearchHit] = []
         for s in songs:
             lrc = Path(s["dir"]) / "lyrics.lrc"
@@ -63,16 +65,52 @@ class LyricsSearcher:
         return hits[:limit]
 
     # ── semantic ──
+    def _corpus_vectors(self, texts: list[str]) -> dict:
+        """{text: normalized vector} for entry lines already present in the
+        corpus embeddings — library songs are a subset of the corpus, so
+        this skips re-encoding ~everything (measured 55s -> seconds with
+        the multilingual L12 model). Fingerprint-checked: a model mismatch
+        falls back to full encoding."""
+        try:
+            import numpy as np
+
+            from .intertextuality.embeddings import load_embeddings
+            emb, corpus = load_embeddings(self._corpus_dir, self._model_name)
+        except Exception:
+            return {}
+        wanted = set(texts)
+        out: dict = {}
+        for i, line in enumerate(corpus):
+            t = line.text
+            if t in wanted and t not in out:
+                v = emb[i]
+                n = float(np.linalg.norm(v))
+                if n > 0:
+                    out[t] = v / n
+        return out
+
     def _ensure_embeddings(self) -> bool:
         if self._embeddings is not None:
             return True
         try:
+            import numpy as np
+
             from .intertextuality.search import get_model
             self._embed_model = (get_model(self._model_name)
                                  if self._model_name else get_model())
             texts = [e.text for e in self._entries]
-            self._embeddings = self._embed_model.encode(
-                texts, normalize_embeddings=True, show_progress_bar=False)
+            if texts:
+                vectors = self._corpus_vectors(texts)
+                missing = sorted({t for t in texts if t not in vectors})
+                if missing:
+                    for t, v in zip(missing, self._embed_model.encode(
+                            missing, normalize_embeddings=True,
+                            show_progress_bar=False)):
+                        vectors[t] = v
+                self._embeddings = np.stack([vectors[t] for t in texts])
+            else:
+                self._embeddings = self._embed_model.encode(
+                    texts, normalize_embeddings=True, show_progress_bar=False)
             return True
         except ImportError:
             return False

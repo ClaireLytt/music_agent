@@ -138,6 +138,26 @@ class EchoGraph:
     edges: list[EchoEdge] = field(default_factory=list)
 
 
+def graph_to_dict(g: EchoGraph) -> dict:
+    """JSON-safe form for the disk cache (ui._map_graph)."""
+    import dataclasses
+    return dataclasses.asdict(g)
+
+
+def graph_from_dict(d: dict) -> EchoGraph:
+    return EchoGraph(
+        artist=d["artist"], threshold=d["threshold"],
+        song_total=d["song_total"], cross_artist=d["cross_artist"],
+        nodes=[EchoNode(**n) for n in d["nodes"]],
+        edges=[EchoEdge(song_a=e["song_a"], song_b=e["song_b"],
+                        count=e["count"],
+                        example=EchoPair(**e["example"]),
+                        examples=[EchoPair(**p)
+                                  for p in e.get("examples", [])])
+               for e in d["edges"]],
+    )
+
+
 def build_echo_graph(
     embeddings: np.ndarray,
     corpus: list[CorpusLine],
