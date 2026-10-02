@@ -36,6 +36,7 @@ from .config import (
 from .debate import PERSONAS, DebateSession, speak as ai_speak
 from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
                          remove_word)
+from .evidence import QuoteIndex, parse_claims, render_evidence_card
 from .ui_helpers import render_wordbook
 from .evolution.engine import load_or_build
 from .evolution.ui import EVOLUTION_CSS, render_evolution_html
@@ -399,7 +400,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                                             size="sm", scale=1)
                                         echo_card_btn = gr.Button(
                                             "🖼️ 彩蛋对照卡", size="sm", scale=1)
-                                    echo_out = gr.Markdown(
+                                    echo_out = gr.HTML(
                                         "", elem_classes=["echo-explain"])
                                     echo_card_status = gr.Markdown("")
                                     echo_card_img = gr.Image(
@@ -496,6 +497,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # ("jump:<i>" / "del:<i>")
                         fav_box = gr.Textbox(
                             value="", visible=True, elem_id="ll-fav-act",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                        # JS -> backend: evidence-card citation jumps
+                        # ("<label>\t<line_index>\t<ts>")
+                        cite_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-cite-jump",
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
                         # JS -> backend: double-clicked word ("word\tline\tsong\tts")
@@ -628,7 +635,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                                         'MV 彩蛋（公开版不提供现场生成）。</div>')
                             return render_mv_html(parse_mv(cached),
                                                   info.get("title", ""),
-                                                  info.get("artist", ""))
+                                                  info.get("artist", ""),
+                                                  verifier=_quote_verifier(),
+                                                  label_of=_label_of())
                         mv_song_dd.change(_on_mv_song, [mv_song_dd, user_llm],
                                           [mv_html])
 
@@ -1964,7 +1973,9 @@ def create_app(settings: Settings) -> gr.Blocks:
             req_settings = _request_settings(user_cfg)
             existing = load_mv(info["dir"], req_settings.model_name)
             if existing is not None:
-                yield render_mv_html(parse_mv(existing), title, artist)
+                yield render_mv_html(parse_mv(existing), title, artist,
+                                     verifier=_quote_verifier(),
+                                     label_of=_label_of())
                 return
             if not req_settings.api_key:
                 yield ('<div class="chat-empty">⚠️ 未配置 API Key，无法生成。'
@@ -1983,7 +1994,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                        f'{_esc(str(exc)[:150])}</div>')
                 return
             save_mv(info["dir"], data, req_settings.model_name)
-            yield render_mv_html(parse_mv(data), title, artist)
+            yield render_mv_html(parse_mv(data), title, artist,
+                                 verifier=_quote_verifier(),
+                                 label_of=_label_of())
 
         # ── 歌词收藏夹 ──
 
@@ -2278,25 +2291,68 @@ def create_app(settings: Settings) -> gr.Blocks:
                 f"当前歌曲：《{echo['song']}》\n"
                 f"当前歌词行：“{echo['line']}”\n\n"
                 f"在这位歌手的其他作品中检索到以下相似歌词：\n{hits}\n\n"
-                "请分析这句歌词与上面哪些歌构成了真正的呼应或互文"
-                "（重复的意象、措辞、主题），用 2-4 句人话解释；"
-                "如果某条结果只是字面相似、并无实质关联，请直接指出。"
-                "只讨论列表中出现的歌曲。"
+                "请分析这句歌词与上面哪些歌构成了真正的呼应或互文，"
+                "只讨论列表中出现的歌曲，并输出 JSON（不要多余文字）：\n"
+                '{"conclusion": "2-3 句总结这组呼应讲了什么",\n'
+                ' "quotes": [{"text": "逐字照抄的歌词原句", '
+                '"song": "出处歌名"}, ...],\n'
+                ' "facts": ["可查证的事实背景（专辑/年份），没有就留空列表"],\n'
+                ' "speculation": ["明确属于推测/粉丝理论的内容"]}\n'
+                "要求：quotes 里的 text 必须逐字照抄上面给出的歌词，"
+                "不得改写、翻译或缩略；无实质关联的检索结果不要引用。"
             )
             from .llm import LLMClient
             try:
                 resp = LLMClient(req_settings).generate(
-                    system_prompt=("你是精通歌词文本分析的音乐评论人，"
-                                   "用简体中文回答，简洁自然。"),
+                    system_prompt=("你是精通歌词文本分析的音乐评论人。"
+                                   "严格按用户要求的 JSON 结构输出，"
+                                   "用简体中文。"),
                     user_message=user_msg,
                 )
                 text = (resp.reply_text or "").strip()
-                yield text or "⚠️ AI 未返回内容，请重试。"
+                claims = parse_claims(text)
+                if claims is None:
+                    # structured check failed -> degrade to plain text
+                    yield ("⚠️ 本次输出未通过结构化校验，以下为原始回答：\n\n"
+                           + (text or "（空）"))
+                    return
+                idx = ctx.get("quote_index")
+                if idx is None or idx._songs is not ctx["songs"]:
+                    idx = QuoteIndex(ctx["songs"])
+                    ctx["quote_index"] = idx
+                yield render_evidence_card(claims, idx, _label_of())
             except Exception as exc:
                 logger.exception("Echo explain failed")
                 yield f"⚠️ LLM 调用失败：{str(exc)[:200]}"
 
         echo_btn.click(on_echo_explain, [echo_state, user_llm], [echo_out])
+
+        # ── 证据卡引用跳转：切歌并高亮那一行（行号由 JS 记忆并滚动）──
+
+        def _quote_verifier():
+            idx = ctx.get("quote_index")
+            if idx is None or idx._songs is not ctx["songs"]:
+                idx = QuoteIndex(ctx["songs"])
+                ctx["quote_index"] = idx
+            return idx.verify
+
+        def _label_of() -> dict[str, str]:
+            return {s.get("title", ""): song_choice_label(s)
+                    for s in ctx["songs"]}
+
+        def on_cite_jump(payload: str, sort: str, q: str):
+            parts = (payload or "").split("\t")
+            label = parts[0].strip() if parts else ""
+            if label and label in _filtered_labels(sort, q):
+                return gr.Radio(value=label)
+            if label:
+                gr.Warning("该歌曲不在当前列表中（可能被筛选或已删除）。")
+            return gr.skip()
+
+        cite_box.change(
+            on_cite_jump, [cite_box, sort_mode, song_filter], [song_radio],
+        ).then(on_song_select, [song_radio], song_outputs
+        ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
 
         def on_share_card(session, choice: str):
             if session is None or not getattr(session, "lyric_line", ""):

@@ -43,7 +43,8 @@ _MV_SCHEMA = (
     '  "director": "导演名，不确定则留空字符串",\n'
     '  "eggs": [\n'
     '    {"detail": "一个彩蛋 / 值得注意的画面细节",\n'
-    '     "lyric_link": "它呼应的歌词句或歌手其他作品，可空"}\n'
+    '     "lyric_link": "它呼应的歌词原句——必须逐字照抄歌词，'
+    '不得改写/翻译/缩略；没有明确对应句就留空"}\n'
     "  ],\n"
     '  "caveat": "不确定之处的说明，可空"\n'
     "}\n"
@@ -144,7 +145,11 @@ def search_links(title: str, artist: str) -> str:
             f'target="_blank" rel="noopener">▶ YouTube</a>')
 
 
-def render_mv_html(m: MvEggs, title: str, artist: str) -> str:
+def render_mv_html(m: MvEggs, title: str, artist: str,
+                   verifier=None, label_of: dict | None = None) -> str:
+    """verifier: callable(quote, song_hint) -> hit dict | None (evidence.
+    QuoteIndex.verify). With it, each lyric_link is checked against the
+    library: verified quotes get a ✅ + clickable jump, unverified ⚠️."""
     links = search_links(title, artist)
     head = f'<div class="mv-head">🎬 MV 彩蛋 · {_esc(title)}</div>'
     if not m.known or not m.eggs:
@@ -153,10 +158,25 @@ def render_mv_html(m: MvEggs, title: str, artist: str) -> str:
         return (f'<div class="mv-card">{head}'
                 f'<div class="mv-none">{_esc(note)}</div>'
                 f'<div class="mv-foot">{links}</div></div>')
+    def _link_html(link: str) -> str:
+        if not link:
+            return ""
+        if verifier is None:
+            return f'<span class="mv-link">↔ {_esc(link)}</span>'
+        hit = verifier(link, title)
+        if hit:
+            label = (label_of or {}).get(hit["song_title"], "")
+            jump = (f' data-cite-label="{_esc(label)}" '
+                    f'data-cite-line="{hit["line_index"]}"' if label else "")
+            return (f'<span class="mv-link ev-ok"{jump}>↔ ✅ '
+                    f'“{_esc(hit["line_text"])}”——《{_esc(hit["song_title"])}》'
+                    f'第 {hit["line_index"] + 1} 行'
+                    f'{"（点击跳转）" if label else ""}</span>')
+        return (f'<span class="mv-link ev-bad">↔ ⚠️ “{_esc(link)}”'
+                f'（未在曲库中找到，此句可能是 AI 编造）</span>')
+
     rows = "".join(
-        '<li class="mv-egg">' + _esc(detail)
-        + (f'<span class="mv-link">↔ {_esc(link)}</span>' if link else "")
-        + "</li>"
+        '<li class="mv-egg">' + _esc(detail) + _link_html(link) + "</li>"
         for detail, link in m.eggs)
     director = (f'<div class="mv-meta">导演：{_esc(m.director)}</div>'
                 if m.director else "")

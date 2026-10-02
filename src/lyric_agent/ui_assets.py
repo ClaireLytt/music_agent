@@ -33,6 +33,23 @@ _HEAD_JS = """
       const lp = document.querySelector('#ll-line-pick textarea, #ll-line-pick input');
       if (lp && lp.value) { lp.value = ''; lp.dispatchEvent(new Event('input', { bubbles: true })); }
     }
+    // evidence-card jump: once the cited song's lyrics are up, scroll to
+    // the cited line and flash it
+    const pend = window.__llPendingLine;
+    if (pend != null && pend >= 0) {
+      let tries = 0;
+      const t = setInterval(() => {
+        const el = document.querySelector(
+          '#lyrics-scroll .lyric-line[data-index="' + pend + '"]');
+        if (el) {
+          clearInterval(t);
+          el.scrollIntoView({ block: 'center' });
+          el.classList.add('cite-flash');
+          setTimeout(() => el.classList.remove('cite-flash'), 2600);
+        } else if (++tries > 40) clearInterval(t);
+      }, 250);
+      window.__llPendingLine = null;
+    }
   }, 800);
 })();
 // mini translator: double-click an English word inside the lyrics ->
@@ -500,6 +517,16 @@ _HEAD_JS = """
     const wb = e.target.closest('[data-wb]');
     if (wb) {
       writeChannel('ll-wb-act', wb.dataset.wb + '\\t' + Date.now());
+      return;
+    }
+    const cite = e.target.closest('[data-cite-label]');
+    if (cite) {
+      // remember the cited line; the song-switch watcher scrolls to it
+      // once the lyrics re-render
+      window.__llPendingLine = parseInt(cite.dataset.citeLine || '-1', 10);
+      writeChannel('ll-cite-jump',
+                   cite.dataset.citeLabel + '\\t' + cite.dataset.citeLine
+                   + '\\t' + Date.now());
       return;
     }
     if (e.target.closest('details.egg-more')) return;  // expand, not pick
@@ -1004,6 +1031,35 @@ footer, .gradio-container footer { display: none !important; }
   background: var(--accent-soft) !important;
   border-bottom: none !important;
 }
+
+/* evidence card (可追溯证据) */
+.ev-card {
+  margin-top: 8px; padding: 12px 14px; border-radius: 12px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  font-size: 13px; line-height: 1.7;
+}
+.ev-conclusion { font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.ev-sec-title {
+  font-size: 12px; font-weight: 700; color: var(--text-secondary);
+  margin: 10px 0 4px; display: flex; justify-content: space-between;
+}
+.ev-conf { font-weight: 400; }
+.ev-quote { margin: 4px 0; padding-left: 4px; }
+.ev-quote.ev-ok[data-cite-label] { cursor: pointer; border-radius: 8px; }
+.ev-quote.ev-ok[data-cite-label]:hover { background: var(--bg-card-hover); }
+.ev-quote .ev-mark { margin-right: 4px; }
+.ev-quote .ev-src { display: block; font-size: 12px; color: var(--text-secondary); padding-left: 22px; }
+.ev-quote.ev-bad .ev-text { color: var(--text-secondary); text-decoration: line-through; }
+.ev-fact { font-size: 12.5px; color: var(--text-secondary); margin: 3px 0; }
+.ev-spec { font-size: 12.5px; color: var(--text-secondary); margin: 3px 0; padding-left: 4px; border-left: 2px solid var(--border); }
+.mv-link.ev-ok[data-cite-label] { cursor: pointer; }
+.mv-link.ev-ok[data-cite-label]:hover { text-decoration: underline; }
+.mv-link.ev-bad { color: var(--text-secondary); }
+@keyframes ll-cite-flash {
+  0%, 60% { background: var(--accent-soft); }
+  100% { background: transparent; }
+}
+.lyric-line.cite-flash { animation: ll-cite-flash 2.5s ease-out; border-radius: 8px; }
 
 /* mini translator popover + wordbook */
 .ll-dict-pop {
