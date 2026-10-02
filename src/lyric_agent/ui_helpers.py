@@ -580,6 +580,7 @@ def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
         header_html
         + _render_audio_html(song_info, song_data.get("chorus_ts"))
         + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
+          '🖱️ <b>双击英文单词</b>查词义/收藏生词 · '
           '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'
         + f'<div id="lyrics-container"><div id="lyrics-scroll">{"".join(parts)}</div></div>'
     )
