@@ -304,6 +304,33 @@ def create_app(settings: Settings) -> gr.Blocks:
             logger.exception("Failed writing echo scan cache %s", disk_path)
         return payload, overview
 
+    def _warm_up() -> None:
+        # the first echo query otherwise blocks 10-20s on model load; warm
+        # the embedding model + corpus index in the background at startup
+        try:
+            _echo_index()
+            from .intertextuality.search import get_model
+            get_model(settings.embedding_model)
+            # pre-mine motifs for the library's artists so the first
+            # line-pick doesn't stall 1-3s on corpus tokenization
+            index = ctx.get("echo_index")
+            if index:
+                motif_cache = ctx.setdefault("motifs", {})
+                for artist in {s.get("artist", "") for s in ctx["songs"]}:
+                    if artist and artist not in motif_cache:
+                        try:
+                            motif_cache[artist] = {
+                                m["word"]: m["n_songs"]
+                                for m in mine_motifs(index[1], artist)}
+                        except Exception:
+                            motif_cache[artist] = {}
+            logger.info("Warm-up done: model + index + motifs ready")
+        except Exception:
+            logger.exception("Warm-up failed (features degrade gracefully)")
+
+    threading.Thread(target=_warm_up, daemon=True,
+                     name="ll-warmup").start()
+
     with gr.Blocks(title="歌词透镜 — AI 歌词批注播放器") as app:
         # per-visitor LLM config, persisted in the visitor's own browser
         user_llm = gr.BrowserState(
@@ -1528,9 +1555,32 @@ def create_app(settings: Settings) -> gr.Blocks:
                 return gr.skip(), gr.skip()
             return gr.Radio(value=label), gr.Tabs(selected="play")
 
+        def _annotation_coverage() -> str:
+            from .annotator.engine import FAILED_MARKER
+            total, done, partial = len(ctx["songs"]), 0, 0
+            for s in ctx["songs"]:
+                p = Path(s["dir"]) / "annotations.json"
+                if not p.exists():
+                    continue
+                try:
+                    text = p.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                if FAILED_MARKER in text:
+                    partial += 1
+                else:
+                    done += 1
+            note = f"，其中 {partial} 首有失败行待修复" if partial else ""
+            tip = ("" if done + partial == total else
+                   "（未批注的歌没有逐行讲解/导览卡/情绪坐标——"
+                   "运行批量批注补齐）")
+            return (f'<div class="cov-line">🖊️ AI 批注覆盖：'
+                    f'<b>{done}/{total}</b> 首{note}{tip}</div>')
+
         def init_insights(choice: str):
             from .insights import daily_quote, library_emotions
-            daily = _render_daily_quote(daily_quote(ctx["songs"]))
+            daily = (_annotation_coverage()
+                     + _render_daily_quote(daily_quote(ctx["songs"])))
             artists = _corpus_artists()
             cloud_choices = [_ALL_ARTISTS_CHOICE] + artists
             current = find_song(choice).get("artist", "") if ctx["songs"] else ""
@@ -2130,7 +2180,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                 return "ℹ️ 这句已经在收藏夹里了。", gr.skip()
             favs.append({"id": _fav_id(line.text, title), "line": line.text,
                          "title": title, "artist": info.get("artist", ""),
-                         "label": song_choice_label(info)})
+                         "label": song_choice_label(info),
+                         "line_index": line.line_index})
             _save_favorites(favs)
             return (f"✅ 已收藏（共 {len(favs)} 句）。",
                     _render_favorites(favs, song_title=title))
@@ -2263,7 +2314,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                     word = head[4:]
                     line = act[1] if len(act) > 1 else ""
                     song = act[2] if len(act) > 2 else ""
-                    book = add_word(word, line=line, song=song)
+                    hit = _quote_verifier()(line, song) if line else None
+                    book = add_word(
+                        word, line=line, song=song,
+                        label=(_label_of().get(hit["song_title"], "")
+                               if hit else ""),
+                        line_index=hit["line_index"] if hit else -1)
                     gr.Info(f"📒 已收藏单词 {word}。")
                     return render_wordbook(book, song_title=cur)
                 if head.startswith("del:"):
@@ -2588,7 +2644,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                 # NOT an output: clearing it cascades through on_song_filter
                 # and re-sorts the list, undoing the newest-first order
                 on_song_select, [song_radio], song_outputs,
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview]
+            ).then(lambda: gr.Radio(value="added_desc"), None, [sort_mode])
 
         # ── 曲库 ──
 
@@ -2744,7 +2801,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                 # newest-first choices + explicit load; song_filter left out
                 # on purpose (see on_add_song wiring)
                 on_song_select, [song_radio], song_outputs,
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview]
+            ).then(lambda: gr.Radio(value="added_desc"), None, [sort_mode])
 
         def on_generate_ann(slug: str):
             if not slug:

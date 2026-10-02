@@ -377,9 +377,17 @@ def _render_favorites(favs: list[dict], song_title: str | None = None) -> str:
                 '用法：① 在左侧歌词区<b>点选一句歌词</b> → '
                 '② 点上面的「⭐ 收藏当前选中的歌词」。<br>'
                 '收藏只在<b>这首歌</b>打开时显示，✖ 可移除。</div>')
+    def _jump_attr(f: dict, fid: str) -> str:
+        # exact-line jump (cite pipeline) when the entry knows its line;
+        # legacy entries fall back to the song-level jump
+        if f.get("line_index", -1) >= 0 and f.get("label"):
+            return (f'data-cite-label="{_esc(f["label"])}" '
+                    f'data-cite-line="{f["line_index"]}"')
+        return f'data-fav="jump:{_esc(fid)}"'
+
     items = "".join(
-        f'<div class="fav-item" data-fav="jump:{_esc(fid)}" '
-        f'title="点击打开《{_esc(f.get("title", ""))}》">'
+        f'<div class="fav-item" {_jump_attr(f, fid)} '
+        f'title="点击打开《{_esc(f.get("title", ""))}》并定位到这句">'
         f'<div class="fav-line">“{_esc(f.get("line", ""))}”</div>'
         f'<div class="fav-song">——《{_esc(f.get("title", ""))}》'
         f'<span class="fav-del" data-fav="del:{_esc(fid)}" '
@@ -412,7 +420,8 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
         'title="播完自动切下一首；有串场语音时先播报再进歌">'
         '<input type="checkbox" id="ll-radio-toggle"> 📻 电台模式</label>'
         '<label class="ptool-toggle" '
-        'title="导览模式：唱到带 🥚 的句子时，自动弹出该句的讲解与它呼应的歌">'
+        'title="导览模式：唱到带 🥚 的句子时，自动弹出该句的讲解与它呼应的歌，'
+        '并用语音播报（AI DJ）">'
         '<input type="checkbox" id="ll-tour-toggle"> 🎧 导览</label>'
         '</div>'
     )
@@ -608,8 +617,15 @@ def render_wordbook(entries: list[dict],
         src = e.get("line", "")
         phon_html = (f'<span class="wb-phon">/{_esc(phon)}/</span>'
                      if phon else "")
-        src_html = (f'<div class="wb-src">「{_esc(src)}」</div>'
-                    if src else "")
+        if src and e.get("line_index", -1) >= 0 and e.get("label"):
+            src_html = (f'<div class="wb-src wb-jump" '
+                        f'data-cite-label="{_esc(e["label"])}" '
+                        f'data-cite-line="{e["line_index"]}" '
+                        f'title="点击跳到这句歌词">「{_esc(src)}」</div>')
+        elif src:
+            src_html = f'<div class="wb-src">「{_esc(src)}」</div>'
+        else:
+            src_html = ""
         items.append(
             f'<div class="wb-item">'
             f'<span class="wb-del" data-wb="del:{_esc(word)}" '

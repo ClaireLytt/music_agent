@@ -117,14 +117,18 @@ def save_wordbook(entries: list[dict]) -> None:
         json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def add_word(word: str, line: str = "", song: str = "") -> list[dict]:
-    """Add a looked-up word to the wordbook (idempotent). Returns the book."""
+def add_word(word: str, line: str = "", song: str = "",
+             label: str = "", line_index: int = -1) -> list[dict]:
+    """Add a looked-up word to the wordbook (idempotent). Returns the book.
+
+    label/line_index locate the source line for click-to-jump."""
     book = load_wordbook()
     hit = lookup(word) or {"word": word, "phonetic": "", "translation": ""}
     key = hit["word"].lower()
     if any(e.get("word", "").lower() == key for e in book):
         return book
-    book.append({**hit, "line": line, "song": song})
+    book.append({**hit, "line": line, "song": song,
+                 "label": label, "line_index": line_index})
     save_wordbook(book)
     return book
 

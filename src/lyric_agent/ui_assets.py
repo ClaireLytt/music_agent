@@ -313,9 +313,50 @@ _HEAD_JS = """
     if (o.target) html += '：“' + esc(o.target) + '”';
     html += '</div><div class="tour-hint">点击卡片关闭 · 详情见右侧 🥚 面板</div>';
     card.innerHTML = html;
-    card.addEventListener('click', () => card.remove());
+    card.addEventListener('click', () => {
+      card.remove();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      restoreDuck();
+    });
     document.body.appendChild(card);
     setTimeout(() => { if (card.isConnected) card.remove(); }, 9000);
+    speakTour(o);
+  }
+
+  // DJ voice via the browser's own TTS — zero backend, works offline;
+  // silently absent when the platform ships no voices
+  function restoreDuck() {
+    const a = getAudio();
+    if (a && a.dataset.llBaseVol) {
+      a.volume = parseFloat(a.dataset.llBaseVol);
+      delete a.dataset.llBaseVol;
+    }
+  }
+
+  function speakTour(o) {
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      // cancel() does NOT reliably fire the old utterance's 'end' event,
+      // so restore from the stored base volume before ducking again
+      synth.cancel();
+      restoreDuck();
+      let text = '';
+      if (o.note) text += o.note + '。';
+      text += '这句呼应了《' + o.song + '》';
+      if (o.target) text += '里的：' + o.target;
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN';
+      u.rate = 1.15;
+      const a = getAudio();
+      if (a && !a.paused) {
+        a.dataset.llBaseVol = String(a.volume);
+        a.volume = Math.max(0.15, a.volume * 0.3);
+        u.addEventListener('end', restoreDuck);
+        u.addEventListener('error', restoreDuck);
+      }
+      synth.speak(u);
+    } catch (err) {}
   }
 
   function applyRhyme() {
@@ -482,7 +523,11 @@ _HEAD_JS = """
     if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
     if (e.target.id === 'll-tour-toggle') {
       tourOn = e.target.checked;
-      if (!tourOn) document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
+      if (!tourOn) {
+        document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        restoreDuck();
+      }
     }
     if (e.target.id === 'll-rhyme-toggle') {
       rhymeOn = e.target.checked;
@@ -555,9 +600,23 @@ _HEAD_JS = """
     }
     const cite = e.target.closest('[data-cite-label]');
     if (cite) {
+      const lineNo = parseInt(cite.dataset.citeLine || '-1', 10);
+      const cur = document.querySelector('#ll-songs input[type=radio]:checked');
+      if (cur && cur.value === cite.dataset.citeLabel) {
+        // already on the cited song: flash in place (no re-render happens,
+        // so the song-switch watcher would never consume a pending line)
+        const el = document.querySelector(
+          '#lyrics-scroll .lyric-line[data-index="' + lineNo + '"]');
+        if (el) {
+          el.scrollIntoView({ block: 'center' });
+          el.classList.add('cite-flash');
+          setTimeout(() => el.classList.remove('cite-flash'), 2600);
+        }
+        return;
+      }
       // remember the cited line; the song-switch watcher scrolls to it
       // once the lyrics re-render
-      window.__llPendingLine = parseInt(cite.dataset.citeLine || '-1', 10);
+      window.__llPendingLine = lineNo;
       writeChannel('ll-cite-jump',
                    cite.dataset.citeLabel + '\\t' + cite.dataset.citeLine
                    + '\\t' + Date.now());
@@ -1086,6 +1145,14 @@ footer, .gradio-container footer { display: none !important; }
 .arch-hit .ev-src { display: inline; padding-left: 6px; font-size: 12px; color: var(--text-secondary); }
 .arch-foot { margin-top: 12px; font-size: 11.5px; color: var(--text-secondary); }
 
+/* annotation coverage line (曲库洞察) */
+.cov-line {
+  margin-bottom: 10px; padding: 8px 12px; border-radius: 10px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  font-size: 12.5px; color: var(--text-secondary);
+}
+.cov-line b { color: var(--text-primary); }
+
 /* 🎧 tour commentary card */
 .ll-tour-card {
   position: fixed; right: 18px; bottom: 18px; z-index: 1100; width: 300px;
@@ -1164,6 +1231,9 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-phon { color: var(--text-secondary); font-weight: 400; font-size: .9em; }
 .wb-item .wb-meaning { font-size: .9em; color: var(--text-primary); }
 .wb-item .wb-src { font-size: .85em; color: var(--text-secondary); margin-top: 2px; }
+.wb-item .wb-jump { cursor: pointer; }
+.wb-item .wb-jump:hover { color: var(--accent); text-decoration: underline; }
+.fav-item[data-cite-label] { cursor: pointer; }
 .wb-item .wb-del {
   position: absolute; right: 8px; top: 8px; cursor: pointer;
   color: var(--text-secondary); padding: 0 4px; border-radius: 6px;
