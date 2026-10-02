@@ -109,13 +109,14 @@ lyric-agent serve
 
 | Song | Album | 亮点 |
 |------|-------|------|
-| cardigan | folklore (2020) | 隐喻密集、cardigan 三部曲互文 |
-| champagne problems | evermore (2020) | 叙事复杂度、阶级隐喻 |
+| 晴天 | 叶惠美 (2003) | **黄金路径主打**：打开应用即落此歌；逐句批注 → 彩蛋 → 彩蛋地图 → 破案一条龙 |
+| 七里香 / 夜曲 / 青花瓷 | 周杰伦各专辑 | 周杰伦 10 首库内互文：雨/香/青色意象呼应、彩蛋地图单曲聚焦 |
+| 富士山下 | What's Going On (2006) | 陈奕迅/林夕词：意象追踪与考古报告演示 |
+| 孤勇者 | 孤勇者 (2021) | 国民度曲目、情绪地图高唤起区演示 |
+| 北京昨夜下了雪 / 今晚月色真美 | — | TME 官方歌单素材：试听片段对齐（`audio_offset_ms`）、CJK 彩蛋阈值演示 |
+| cardigan | folklore (2020) | 隐喻密集、cardigan 三部曲互文（英文对照） |
 | All Too Well (10 Min) | Red TV (2021) | 意象密度最高的 TS 曲目 |
-| exile ft. Bon Iver | folklore (2020) | 双视角对话（ft. 歌手模糊匹配演示） |
-| Anti-Hero | Midnights (2022) | 自我指涉与反讽 |
 | Save Your Tears | After Hours (2020) | 跨歌手引用演示 |
-| 北京昨夜下了雪 / 今晚月色真美 | — | 中文歌词、试听片段对齐、CJK 彩蛋阈值演示 |
 
 ## CLI Commands
 

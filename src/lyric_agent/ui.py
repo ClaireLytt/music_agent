@@ -355,6 +355,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                     # ── 左栏: 歌曲 + 搜索 ──
                     with gr.Column(scale=1, min_width=230):
                         choices = song_choices()
+                        # 黄金路径：默认落在主打歌《晴天》（不在库时回退第一首）
+                        default_choice = next(
+                            (c for c in choices
+                             if c == "晴天" or c.startswith("晴天 — ")),
+                            choices[0] if choices else None,
+                        )
                         with gr.Accordion(
                                 "🎵 歌曲列表" if choices
                                 else "🎵 歌曲列表（空 — 去「添加歌曲」页签）",
@@ -366,7 +372,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                             song_radio = gr.Radio(
                                 choices=choices,
                                 show_label=False,
-                                value=choices[0] if choices else None,
+                                value=default_choice,
                                 elem_id="ll-songs",
                             )
                         if not public:
