@@ -25,50 +25,71 @@ class QuizQuestion:
 
 
 @dataclass
-class BlankQuizQuestion:
-    line: str              # lyric line with the song title blanked out
-    original: str          # the intact line, revealed after answering
-    answer: str            # correct song title
+class TitlePuzzle:
+    masked: str            # the title with one piece replaced by ____
+    answer: str            # the missing piece
+    title: str             # full title, revealed after answering
     artist: str
-    options: list[str] = field(default_factory=list)  # shuffled titles
+    options: list[str] = field(default_factory=list)  # shuffled pieces
 
 
-def make_blank_question(
-    song_lines: dict[str, tuple[str, list[str]]],
+_WORDY_RE = re.compile(r"[A-Za-z']+")
+_CJK_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _title_piece(title: str, rng: random.Random) -> str | None:
+    """A maskable piece of a title: a >=3-letter word for spaced titles,
+    or a contiguous CJK run of 2 chars (1 for two-char titles). Pieces are
+    always drawn from a single script so a mixed title like '晴天 (Live)'
+    never yields garbage like ' (' or 'e)'."""
+    title = (title or "").strip()
+    words = [w for w in _WORDY_RE.findall(title) if len(w) >= 3]
+    if len(words) >= 2:
+        return rng.choice(words)
+    # CJK: pick from a contiguous run of Han characters only
+    runs = re.findall(r"[\u4e00-\u9fff]+", title)
+    long_runs = [r for r in runs if len(r) >= 2]
+    if long_runs:
+        run = rng.choice(long_runs)
+        i = rng.randrange(len(run) - 1)
+        return run[i:i + 2]
+    if len(title) == 2 and _CJK_CHAR_RE.search(title) and " " not in title:
+        return title[rng.randrange(2)]
+    return None
+
+
+def make_title_puzzle(
+    pool: list[tuple[str, str]],
     rng: random.Random | None = None,
     n_options: int = 4,
-) -> BlankQuizQuestion | None:
-    """Build one title-blank question from {title: (artist, [lines])}.
+) -> TitlePuzzle | None:
+    """歌名拼图: mask one piece of a song title; the player puts it back.
 
-    The complement of make_question: it uses exactly the lines that one
-    throws away — lines that sing the song's own title — and blanks the
-    title out. Prefers distractors by the same artist.
+    pool: [(title, artist), ...]. Distractor pieces come from other
+    titles of the same script (latin words with latin, CJK runs with
+    CJK) so the options look plausible.
     """
     rng = rng or random.Random()
-    pool = {}
-    for t, (a, lines) in song_lines.items():
-        if len(t or "") < 2:
-            continue  # one-char titles blank half the line away
-        pat = re.compile(re.escape(t), re.IGNORECASE)
-        cands = [l for l in lines
-                 if len(l) - len(t) >= 4 and pat.search(l)]
-        if cands:
-            pool[t] = (a, pat, cands)
-    if not pool or len(song_lines) < 2:
+    cands = []
+    for title, artist in pool:
+        piece = _title_piece(title, rng)
+        if piece:
+            cands.append((title, artist, piece))
+    if len(cands) < 2:
         return None
-    answer = rng.choice(list(pool))
-    artist, pat, cands = pool[answer]
-    original = rng.choice(cands)
-    line = pat.sub("＿＿＿", original)
-    others = [t for t in song_lines if t != answer]
-    same_artist = [t for t in others if song_lines[t][0] == artist]
-    rng.shuffle(same_artist)
-    rest = [t for t in others if t not in same_artist]
-    rng.shuffle(rest)
-    options = [answer] + (same_artist + rest)[: n_options - 1]
+    title, artist, piece = rng.choice(cands)
+    masked = title.replace(piece, "____", 1)
+    cjk = bool(_CJK_CHAR_RE.search(piece))
+    distractors = [p for t, _a, p in cands
+                   if t != title and p != piece
+                   and bool(_CJK_CHAR_RE.search(p)) == cjk]
+    rng.shuffle(distractors)
+    options = [piece] + list(dict.fromkeys(distractors))[: n_options - 1]
+    if len(options) < 2:
+        return None
     rng.shuffle(options)
-    return BlankQuizQuestion(line=line, original=original, answer=answer,
-                             artist=artist, options=options)
+    return TitlePuzzle(masked=masked, answer=piece, title=title,
+                       artist=artist, options=options)
 
 
 def make_question(
