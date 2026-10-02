@@ -182,7 +182,6 @@ def test_letter_card_renders(tmp_path):
 
 def test_artist_overview_enriched(tmp_path):
     """Overview shows stat tiles + imagery words + per-album line counts."""
-    from lyric_agent.lrc_parser import parse_lrc
     from lyric_agent.ui_helpers import render_artist_overview
 
     # two songs, one album, with real timed lyrics so stats compute

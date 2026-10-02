@@ -237,19 +237,30 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("ab_loop", "A-B loop set + clear", c_ab_loop)
 
         def c_notes():
+            # scrub probe notes a previous aborted run left on disk —
+            # a stale same-text note breaks the delete-to-zero assertion
+            nf = ROOT / "data" / "songs" / AUDIO_SONG / "notes.json"
+            if nf.exists():
+                stale = json.loads(nf.read_text(encoding="utf-8"))
+                keep = [n for n in stale
+                        if "ui-probe" not in n.get("text", "")]
+                if len(keep) != len(stale):
+                    nf.write_text(json.dumps(keep, ensure_ascii=False),
+                                  encoding="utf-8")
             probe.tab("📝")
             box = pg.get_by_placeholder("在当前播放位置记一句感想…")
             box.fill("ui-probe 自检笔记")
             pg.get_by_role("button", name="添加").click()
-            pg.wait_for_timeout(1500)
-            must(count(".note-item") >= 1, "note not added")
+            probe.wait_until(
+                lambda: count(".note-item >> text=ui-probe 自检笔记") >= 1,
+                msg="note not added")
             # delete exactly the probe note
             item = pg.locator(".note-item",
                               has_text="ui-probe 自检笔记").first
             item.locator(".note-del").click()
-            pg.wait_for_timeout(1500)
-            must(count(".note-item >> text=ui-probe 自检笔记") == 0,
-                 "probe note not deleted")
+            probe.wait_until(
+                lambda: count(".note-item >> text=ui-probe 自检笔记") == 0,
+                msg="probe note not deleted")
         probe.check("notes", "listening note add + delete roundtrip", c_notes)
 
         def c_favorites():
@@ -281,9 +292,10 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             box = pg.locator("#ll-song-filter input, #ll-song-filter textarea")
             n_all = count("#ll-songs input[type=radio]")
             must(n_all >= 2, f"song list too small to filter: {n_all}")
-            # derive a query from an actual song label (library-independent)
-            # instead of a hardcoded title that a CJK-only library lacks
-            first_label = pg.locator("#ll-songs label").first.inner_text().strip()
+            # derive a query from an actual choice value (library-
+            # independent; label TEXT would include the ⋯ menu glyph)
+            first_label = (pg.locator("#ll-songs input[type=radio]").first
+                           .get_attribute("value") or "").strip()
             needle = first_label[:3] or first_label
             box.fill(needle)
             probe.wait_until(
@@ -769,26 +781,35 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("catalog", "catalog renders + search filters", c_catalog)
 
 
-        def _open_manage():
-            # delete/refresh live in a collapsed accordion under the song
-            # list in the play tab; expand it only when it is closed
-            probe.tab("🎧 播放解读")
-            if not pg.locator("#ll-manage-song").is_visible():
-                pg.get_by_text("🗑️ 删除 / 刷新歌曲").click()
-                pg.wait_for_timeout(500)
-
         def c_manage_guards():
-            _open_manage()
-            pg.get_by_role("button", name="🗑️ 删除所选歌曲").click()
-            probe.wait_until(
-                lambda: "请先选择要删除的歌曲"
-                in pg.locator("body").inner_text(),
-                msg="delete without selection guard missing")
-            pg.get_by_role("button", name="🔄 刷新曲库").click()
+            # the selected row carries a ⋯ menu; refresh sits under the list
+            probe.tab("🎧 播放解读")
+            probe.wait_until(lambda: count(".ll-dots") == 1,
+                             msg="⋯ menu missing on the selected song")
+            # opening it must land the menu in-viewport next to the ⋯
+            # button (regression: a transformed ancestor hijacked the
+            # fixed positioning and the list overflow clipped the menu)
+            pg.locator(".ll-dots").click()
+            geo = pg.evaluate(
+                """() => {
+                    const m = document.querySelector('.ll-dots-menu');
+                    const b = document.querySelector('.ll-dots');
+                    if (!m || !b) return null;
+                    const mr = m.getBoundingClientRect();
+                    const br = b.getBoundingClientRect();
+                    return {inView: mr.top >= 0 && mr.left >= 0
+                                && mr.bottom <= window.innerHeight
+                                && mr.right <= window.innerWidth,
+                            gap: Math.abs(mr.top - br.bottom)};
+                }""")
+            must(geo is not None, "⋯ menu did not open on click")
+            must(geo["inView"] and geo["gap"] < 40,
+                 f"⋯ menu misplaced/off-screen: {geo}")
+            pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),
-                msg="refresh library status missing")
-        probe.check("manage_guards", "manage: delete guard + refresh works",
+                msg="refresh library toast missing")
+        probe.check("manage_guards", "⋯ on selected row + refresh works",
                     c_manage_guards)
 
         def c_add_delete_roundtrip():
@@ -815,33 +836,32 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             first = pg.locator("#ll-songs label").first.inner_text()
             must("Zzz Probe Roundtrip" in first,
                  f"new song not at top of list: {first[:60]!r}")
-            # guard: delete without ticking confirm must be refused
-            _open_manage()
-            pg.locator("#ll-manage-song input").click()
-            pg.wait_for_timeout(400)
-            pg.get_by_role("option",
-                           name=re.compile("Zzz Probe Roundtrip")).click()
-            pg.get_by_role("button", name="🗑️ 删除所选歌曲").click()
+            # delete via the ⋯ menu on the selected (new) row: cancel the
+            # native confirm first (song must survive), then accept it
+            probe.tab("🎧 播放解读")
+            probe.wait_until(lambda: count(".ll-dots") == 1,
+                             msg="⋯ menu missing on the new song")
+
+            def _menu_delete():
+                pg.locator(".ll-dots").click()
+                pg.get_by_role("button", name="🗑️ 删除这首歌").click()
+
+            pg.once("dialog", lambda d: d.dismiss())
+            _menu_delete()
+            pg.wait_for_timeout(1200)
+            must("Zzz Probe Roundtrip" in pg.locator("#ll-songs").inner_text(),
+                 "cancelled confirm still deleted the song")
+            pg.once("dialog", lambda d: d.accept())
+            _menu_delete()
             probe.wait_until(
-                lambda: "请勾选确认框" in pg.locator("body").inner_text(),
-                msg="delete confirm guard missing")
-            cb = pg.locator("#ll-manage-confirm input[type=checkbox]")
-            cb.check()
-            pg.get_by_role("button", name="🗑️ 删除所选歌曲").click()
-            probe.wait_until(
-                lambda: "已删除《" in pg.locator("body").inner_text(),
-                msg="delete status missing")
-            probe.wait_until(
-                lambda: not cb.is_checked(),
-                msg="confirm checkbox did not reset after delete")
-            must("Zzz Probe Roundtrip"
-                 not in pg.locator("#ll-songs").inner_text(),
-                 "deleted song still in the list")
+                lambda: "Zzz Probe Roundtrip"
+                not in pg.locator("#ll-songs").inner_text(),
+                msg="deleted song still in the list")
             must(not (ROOT / "data" / "songs"
                       / "zzz_probe_roundtrip").exists(),
                  "song directory still on disk after delete")
         probe.check("add_delete_roundtrip",
-                    "add a song -> top of list -> confirmed delete -> gone",
+                    "add a song -> top of list -> ⋯ delete -> gone",
                     c_add_delete_roundtrip)
 
         def c_refresh_keeps_filter():
@@ -849,15 +869,15 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             probe.tab("🎧 播放解读")
             n_all = count("#ll-songs input[type=radio]")
             must(n_all >= 2, f"library too small: {n_all}")
-            needle = pg.locator("#ll-songs label").first.inner_text().strip()
+            needle = (pg.locator("#ll-songs input[type=radio]").first
+                      .get_attribute("value") or "").strip()
             box = pg.locator("#ll-song-filter input, #ll-song-filter textarea")
             box.fill(needle)
             probe.wait_until(
                 lambda: 0 < count("#ll-songs input[type=radio]") < n_all,
                 msg="filter did not narrow the list")
             n1 = count("#ll-songs input[type=radio]")
-            _open_manage()
-            pg.get_by_role("button", name="🔄 刷新曲库").click()
+            pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),
                 msg="refresh status missing")
