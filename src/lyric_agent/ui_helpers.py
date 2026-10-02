@@ -367,13 +367,27 @@ def render_artist_overview(songs: list, artist: str) -> str:
         + f'<div class="ov-albums">{"".join(cards)}</div>')
 
 
-def _render_favorites(favs: list[dict]) -> str:
+def _render_favorites(favs: list[dict], song_title: str | None = None) -> str:
+    """Favorites panel. With song_title, only that song's entries show —
+    收藏跟随当前打开的歌曲。"""
+    if song_title is not None:
+        favs = [f for f in favs if f.get("title", "") == song_title]
     if not favs:
-        return ('<div class="chat-empty">还没有收藏。在歌词区点选一句歌词，'
-                '再点上面的「⭐ 收藏」。</div>')
+        return ('<div class="chat-empty">这首歌还没有收藏的歌词。<br>'
+                '用法：① 在左侧歌词区<b>点选一句歌词</b> → '
+                '② 点上面的「⭐ 收藏当前选中的歌词」。<br>'
+                '收藏只在<b>这首歌</b>打开时显示，✖ 可移除。</div>')
+    def _jump_attr(f: dict, fid: str) -> str:
+        # exact-line jump (cite pipeline) when the entry knows its line;
+        # legacy entries fall back to the song-level jump
+        if f.get("line_index", -1) >= 0 and f.get("label"):
+            return (f'data-cite-label="{_esc(f["label"])}" '
+                    f'data-cite-line="{f["line_index"]}"')
+        return f'data-fav="jump:{_esc(fid)}"'
+
     items = "".join(
-        f'<div class="fav-item" data-fav="jump:{_esc(fid)}" '
-        f'title="点击打开《{_esc(f.get("title", ""))}》">'
+        f'<div class="fav-item" {_jump_attr(f, fid)} '
+        f'title="点击打开《{_esc(f.get("title", ""))}》并定位到这句">'
         f'<div class="fav-line">“{_esc(f.get("line", ""))}”</div>'
         f'<div class="fav-song">——《{_esc(f.get("title", ""))}》'
         f'<span class="fav-del" data-fav="del:{_esc(fid)}" '
@@ -405,6 +419,10 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
         '<label class="ptool-toggle" '
         'title="播完自动切下一首；有串场语音时先播报再进歌">'
         '<input type="checkbox" id="ll-radio-toggle"> 📻 电台模式</label>'
+        '<label class="ptool-toggle" '
+        'title="导览模式：唱到带 🥚 的句子时，自动弹出该句的讲解与它呼应的歌，'
+        '并用语音播报（AI DJ）">'
+        '<input type="checkbox" id="ll-tour-toggle"> 🎧 导览</label>'
         '</div>'
     )
 
@@ -571,9 +589,52 @@ def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
         header_html
         + _render_audio_html(song_info, song_data.get("chorus_ts"))
         + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
+          '🖱️ <b>双击英文单词</b>查词义/收藏生词 · '
           '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'
         + f'<div id="lyrics-container"><div id="lyrics-scroll">{"".join(parts)}</div></div>'
     )
+
+
+def render_wordbook(entries: list[dict],
+                    song_title: str | None = None) -> str:
+    """📒 单词本 panel. With song_title, only words collected from that
+    song show — 单词本跟随当前打开的歌曲。"""
+    if song_title is not None:
+        entries = [e for e in entries if e.get("song", "") == song_title]
+    if not entries:
+        return ('<div class="chat-empty">这首歌还没有收藏的单词。<br>'
+                '用法：① <b>双击</b>歌词里的英文单词 → ② 弹窗里看释义'
+                '（可点 ✨ 让 AI 结合本句解释）→ ③ 点「⭐ 收藏单词」。<br>'
+                '单词只在<b>收藏它的那首歌</b>打开时显示，✕ 可移除。</div>')
+    items = []
+    for e in entries:
+        word = e.get("word", "")
+        phon = e.get("phonetic", "")
+        # ECDICT translations use a literal backslash-n separator
+        meaning = (e.get("translation", "") or "").replace("\\n", "；")
+        if len(meaning) > 90:
+            meaning = meaning[:90] + "…"
+        src = e.get("line", "")
+        phon_html = (f'<span class="wb-phon">/{_esc(phon)}/</span>'
+                     if phon else "")
+        if src and e.get("line_index", -1) >= 0 and e.get("label"):
+            src_html = (f'<div class="wb-src wb-jump" '
+                        f'data-cite-label="{_esc(e["label"])}" '
+                        f'data-cite-line="{e["line_index"]}" '
+                        f'title="点击跳到这句歌词">「{_esc(src)}」</div>')
+        elif src:
+            src_html = f'<div class="wb-src">「{_esc(src)}」</div>'
+        else:
+            src_html = ""
+        items.append(
+            f'<div class="wb-item">'
+            f'<span class="wb-del" data-wb="del:{_esc(word)}" '
+            f'title="移出单词本">✕</span>'
+            f'<div class="wb-word">{_esc(word)} {phon_html}</div>'
+            f'<div class="wb-meaning">{_esc(meaning)}</div>'
+            f'{src_html}</div>'
+        )
+    return f'<div class="wb-list">{"".join(items)}</div>'
 
 
 # ── Insights renderers (曲库洞察) ─────────────────────────

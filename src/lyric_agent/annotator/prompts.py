@@ -24,6 +24,13 @@ Your task: analyze song lyrics line by line and produce structured annotations.
 7. **Artist Context**: Connection to the artist's biography, public relationships,
    artistic journey, or known inspirations. Output it in the `taylor_swift_context`
    field (legacy field name, kept for data compatibility). Set to null if not applicable.
+8. **Intertextual Echoes**: when the user message lists echoing lines retrieved
+   from the artist's OTHER songs for a line, weave the connection into that
+   line's `taylor_swift_context` (and `metaphor_analysis` when the image is
+   shared): name the other song and say how the image/phrase recurs, inverts
+   or answers it. Quote the echoed lyric verbatim. If a listed echo is only a
+   surface similarity with no real connection, ignore it silently — never
+   force a link.
 
 ## Important Rules
 
@@ -71,12 +78,33 @@ def build_annotation_prompt(
     era: str,
     themes: list[str],
     lyrics_chunk: list[tuple[int, str]],
+    echoes: dict[int, list[dict]] | None = None,
 ) -> str:
-    """Build the user message for annotating a chunk of lyrics."""
+    """Build the user message for annotating a chunk of lyrics.
+
+    echoes: optional {line_index: [{song, album, line, similarity}, ...]}
+    retrieved from the artist's other songs — the model weaves real
+    connections into the annotations (guideline 8).
+    """
     theme_str = ", ".join(themes) if themes else "N/A"
     lines_text = "\n".join(
         f"[Line {idx}] {text}" for idx, text in lyrics_chunk
     )
+
+    echo_block = ""
+    if echoes:
+        rows = []
+        for idx, _text in lyrics_chunk:
+            for hit in echoes.get(idx, []):
+                rows.append(
+                    f"- Line {idx} echoes \"{hit['line']}\" from "
+                    f"\"{hit['song']}\" (album: {hit.get('album') or 'N/A'}, "
+                    f"similarity {hit.get('similarity', 0):.2f})")
+        if rows:
+            echo_block = (
+                "\n**Retrieved intertextual echoes (machine-mined from the "
+                "artist's other songs — see guideline 8):**\n"
+                + "\n".join(rows) + "\n")
 
     return f"""\
 Analyze the following lyrics from "{title}" by {artist}.
@@ -88,6 +116,6 @@ Analyze the following lyrics from "{title}" by {artist}.
 
 **Lyrics to annotate:**
 {lines_text}
-
+{echo_block}
 Return a JSON array with one annotation object per line. Include all lines even if
 the annotation is minimal (at least summary and emotional_tone for each)."""

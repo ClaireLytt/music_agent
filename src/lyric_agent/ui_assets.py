@@ -33,7 +33,117 @@ _HEAD_JS = """
       const lp = document.querySelector('#ll-line-pick textarea, #ll-line-pick input');
       if (lp && lp.value) { lp.value = ''; lp.dispatchEvent(new Event('input', { bubbles: true })); }
     }
+    // evidence-card jump: once the cited song's lyrics are up, scroll to
+    // the cited line and flash it
+    const pend = window.__llPendingLine;
+    if (pend != null && pend >= 0) {
+      let tries = 0;
+      const t = setInterval(() => {
+        const el = document.querySelector(
+          '#lyrics-scroll .lyric-line[data-index="' + pend + '"]');
+        if (el) {
+          clearInterval(t);
+          el.scrollIntoView({ block: 'center' });
+          el.classList.add('cite-flash');
+          setTimeout(() => el.classList.remove('cite-flash'), 2600);
+        } else if (++tries > 40) clearInterval(t);
+      }, 250);
+      window.__llPendingLine = null;
+    }
   }, 800);
+})();
+// mini translator: double-click an English word inside the lyrics ->
+// popover anchored at the selection with the offline dictionary meaning,
+// an optional AI in-context explanation and a ⭐ wordbook button
+(function() {
+  let lastQuery = '';
+  let saved = null;  // {word, line, song} of the open popover
+  function closePop() {
+    document.querySelectorAll('.ll-dict-pop').forEach((p) => p.remove());
+  }
+  function sendChannel(id, value) {
+    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
+    if (!box) return false;
+    box.value = value;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.ll-dict-pop')) closePop();
+  }, true);
+  document.addEventListener('dblclick', (e) => {
+    const lineEl = e.target.closest('.lyric-line');
+    if (!lineEl) return;
+    const sel = window.getSelection();
+    const word = (sel ? sel.toString() : '').trim();
+    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}$/.test(word)) return;
+    closePop();
+    const line = (lineEl.querySelector('.lyric-text') || lineEl).textContent.trim();
+    const titleEl = document.querySelector('.song-title-display');
+    const song = titleEl ? titleEl.textContent.trim() : '';
+    saved = { word: word, line: line, song: song };
+    const pop = document.createElement('div');
+    pop.className = 'll-dict-pop';
+    pop.innerHTML = '<div class="dict-body">⏳ 查询中…</div>';
+    let rect = lineEl.getBoundingClientRect();
+    try {
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      if (r && r.width) rect = r;
+    } catch (err) {}
+    pop.style.left = Math.min(rect.left, window.innerWidth - 300) + 'px';
+    pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 160) + 'px';
+    document.body.appendChild(pop);
+    lastQuery = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
+    sendChannel('ll-dict-pick', lastQuery);
+  });
+  function render(data) {
+    const pop = document.querySelector('.ll-dict-pop');
+    if (!pop || !saved) return;
+    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    let html = '<div class="dict-word">' + esc(data.word);
+    if (data.phonetic) html += ' <span class="dict-phon">/' + esc(data.phonetic) + '/</span>';
+    html += '</div>';
+    if (data.found) {
+      html += '<div class="dict-body">'
+        + esc(data.translation).split('\\n').join('<br>') + '</div>';
+    } else {
+      html += '<div class="dict-body dict-miss">本地词典没有这个词'
+        + '，试试 ✨ AI 解释。</div>';
+    }
+    if (data.ai) html += '<div class="dict-ai">✨ ' + esc(data.ai) + '</div>';
+    html += '<div class="dict-actions">';
+    if (data.canFav) html += '<button class="dict-btn" data-dict-fav>⭐ 收藏单词</button>';
+    if (!data.ai) html += '<button class="dict-btn" data-dict-ai>✨ AI 语境解释</button>';
+    html += '</div>';
+    pop.innerHTML = html;
+    const favBtn = pop.querySelector('[data-dict-fav]');
+    if (favBtn) favBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sendChannel('ll-wb-act', 'add:' + saved.word + '\\t' + saved.line
+                  + '\\t' + saved.song + '\\t' + Date.now());
+      favBtn.textContent = '✓ 已收藏';
+      favBtn.disabled = true;
+    });
+    const aiBtn = pop.querySelector('[data-dict-ai]');
+    if (aiBtn) aiBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      aiBtn.textContent = '✨ 生成中…';
+      aiBtn.disabled = true;
+      lastQuery = saved.word + '\\t' + saved.line + '\\t' + saved.song
+                  + '\\t' + Date.now();
+      sendChannel('ll-dict-ai', lastQuery);
+    });
+  }
+  let lastSeen = '';
+  setInterval(() => {
+    const box = document.querySelector('#ll-dict-out textarea, #ll-dict-out input');
+    if (!box || !box.value || box.value === lastSeen) return;
+    lastSeen = box.value;
+    let data;
+    try { data = JSON.parse(box.value); } catch (err) { return; }
+    if (data.q !== lastQuery) return;  // stale result for a previous word
+    render(data);
+  }, 300);
 })();
 // per-song ⋯ menu: the selected row grows a ⋯ button; expanding it
 // offers 🗑️ delete (native confirm, then the ll-del-song channel).
@@ -161,6 +271,7 @@ _HEAD_JS = """
   // player tools state (survives per-song re-renders of the audio block)
   let abStart = null, abEnd = null;
   let radioOn = false, rhymeOn = false, radioPending = false;
+  let tourOn = false;
   let lastAudioEl = null;
 
   function getAudio() { return document.getElementById('ll-audio'); }
@@ -179,6 +290,73 @@ _HEAD_JS = """
     if (!box) return;
     box.value = value;
     box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // 🎧 导览: commentary card for the line that just became active
+  function maybeTourCard(idx) {
+    if (!tourOn) return;
+    const box = document.querySelector('#ll-echo-map textarea, #ll-echo-map input');
+    if (!box || !box.value) return;
+    let data;
+    try { data = JSON.parse(box.value); } catch (e) { return; }
+    const title = document.querySelector('.song-title-display');
+    if (!title || title.textContent.trim() !== data.song) return;
+    document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
+    const o = (data.lines || []).find((l) => l.i === idx);
+    if (!o) return;
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const card = document.createElement('div');
+    card.className = 'll-tour-card';
+    let html = '<div class="tour-head">🎧 AI 导览</div>';
+    if (o.note) html += '<div class="tour-note">📝 ' + esc(o.note) + '</div>';
+    html += '<div class="tour-echo">🥚 这句呼应《' + esc(o.song) + '》';
+    if (o.target) html += '：“' + esc(o.target) + '”';
+    html += '</div><div class="tour-hint">点击卡片关闭 · 详情见右侧 🥚 面板</div>';
+    card.innerHTML = html;
+    card.addEventListener('click', () => {
+      card.remove();
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      restoreDuck();
+    });
+    document.body.appendChild(card);
+    setTimeout(() => { if (card.isConnected) card.remove(); }, 9000);
+    speakTour(o);
+  }
+
+  // DJ voice via the browser's own TTS — zero backend, works offline;
+  // silently absent when the platform ships no voices
+  function restoreDuck() {
+    const a = getAudio();
+    if (a && a.dataset.llBaseVol) {
+      a.volume = parseFloat(a.dataset.llBaseVol);
+      delete a.dataset.llBaseVol;
+    }
+  }
+
+  function speakTour(o) {
+    try {
+      const synth = window.speechSynthesis;
+      if (!synth) return;
+      // cancel() does NOT reliably fire the old utterance's 'end' event,
+      // so restore from the stored base volume before ducking again
+      synth.cancel();
+      restoreDuck();
+      let text = '';
+      if (o.note) text += o.note + '。';
+      text += '这句呼应了《' + o.song + '》';
+      if (o.target) text += '里的：' + o.target;
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'zh-CN';
+      u.rate = 1.15;
+      const a = getAudio();
+      if (a && !a.paused) {
+        a.dataset.llBaseVol = String(a.volume);
+        a.volume = Math.max(0.15, a.volume * 0.3);
+        u.addEventListener('end', restoreDuck);
+        u.addEventListener('error', restoreDuck);
+      }
+      synth.speak(u);
+    } catch (err) {}
   }
 
   function applyRhyme() {
@@ -241,6 +419,7 @@ _HEAD_JS = """
             });
           }
         }
+        if (idx >= 0 && idx !== undefined) maybeTourCard(idx);
         lastActive = idx;
       }
       // A-B loop: jump back to A whenever playback passes B
@@ -308,6 +487,8 @@ _HEAD_JS = """
     if (r) r.checked = radioOn;
     const y = document.getElementById('ll-rhyme-toggle');
     if (y) y.checked = rhymeOn;
+    const tg = document.getElementById('ll-tour-toggle');
+    if (tg) tg.checked = tourOn;
     applyRhyme();
     initWave(a);
     if (radioPending) {
@@ -340,6 +521,14 @@ _HEAD_JS = """
   document.addEventListener('change', function(e) {
     if (!e.target) return;
     if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
+    if (e.target.id === 'll-tour-toggle') {
+      tourOn = e.target.checked;
+      if (!tourOn) {
+        document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+        restoreDuck();
+      }
+    }
     if (e.target.id === 'll-rhyme-toggle') {
       rhymeOn = e.target.checked;
       applyRhyme();
@@ -402,6 +591,35 @@ _HEAD_JS = """
     const fav = e.target.closest('[data-fav]');
     if (fav) {
       writeChannel('ll-fav-act', fav.dataset.fav + '\\t' + Date.now());
+      return;
+    }
+    const wb = e.target.closest('[data-wb]');
+    if (wb) {
+      writeChannel('ll-wb-act', wb.dataset.wb + '\\t' + Date.now());
+      return;
+    }
+    const cite = e.target.closest('[data-cite-label]');
+    if (cite) {
+      const lineNo = parseInt(cite.dataset.citeLine || '-1', 10);
+      const cur = document.querySelector('#ll-songs input[type=radio]:checked');
+      if (cur && cur.value === cite.dataset.citeLabel) {
+        // already on the cited song: flash in place (no re-render happens,
+        // so the song-switch watcher would never consume a pending line)
+        const el = document.querySelector(
+          '#lyrics-scroll .lyric-line[data-index="' + lineNo + '"]');
+        if (el) {
+          el.scrollIntoView({ block: 'center' });
+          el.classList.add('cite-flash');
+          setTimeout(() => el.classList.remove('cite-flash'), 2600);
+        }
+        return;
+      }
+      // remember the cited line; the song-switch watcher scrolls to it
+      // once the lyrics re-render
+      window.__llPendingLine = lineNo;
+      writeChannel('ll-cite-jump',
+                   cite.dataset.citeLabel + '\\t' + cite.dataset.citeLine
+                   + '\\t' + Date.now());
       return;
     }
     if (e.target.closest('details.egg-more')) return;  // expand, not pick
@@ -879,12 +1097,13 @@ footer, .gradio-container footer { display: none !important; }
   paint-order: stroke; stroke: var(--bg-primary); stroke-width: 3px;
 }
 
-/* side-panel icon dock: tab nav flipped to the bottom, icon-only */
-.ll-icon-dock { display: flex; flex-direction: column-reverse; }
+/* side-panel icon dock: icon-only tab nav on TOP, content expands below */
+.ll-icon-dock { display: flex; flex-direction: column; }
 .ll-icon-dock > .tab-nav, .ll-icon-dock > div[role="tablist"] {
   justify-content: center; gap: 6px;
-  border-bottom: none !important; border-top: 1px solid var(--border);
-  padding: 8px 0 2px; margin: 10px 0 0;
+  border-top: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  padding: 2px 0 8px; margin: 0 0 10px;
   position: relative; z-index: 3; background: var(--bg-primary);
 }
 .ll-icon-dock > .tabitem, .ll-icon-dock > div[role="tabpanel"] {
@@ -905,6 +1124,121 @@ footer, .gradio-container footer { display: none !important; }
   background: var(--accent-soft) !important;
   border-bottom: none !important;
 }
+
+/* archaeology report (母题考古) */
+.arch-report {
+  padding: 14px 16px; border-radius: 12px; background: var(--bg-card);
+  border: 1px solid var(--border); font-size: 13px; line-height: 1.7;
+}
+.arch-head { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.arch-overview { color: var(--text-primary); margin-bottom: 10px; }
+.arch-motif {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 10px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+}
+.arch-word { font-weight: 700; font-size: 14px; }
+.arch-n { font-weight: 400; font-size: 12px; color: var(--text-secondary); margin-left: 8px; }
+.arch-arc { margin: 4px 0 8px; color: var(--text-primary); }
+.arch-hit { margin: 3px 0; font-size: 12.5px; }
+.arch-hit.ev-ok[data-cite-label] { cursor: pointer; border-radius: 8px; padding: 2px 4px; }
+.arch-hit.ev-ok[data-cite-label]:hover { background: var(--bg-card-hover); }
+.arch-hit .ev-src { display: inline; padding-left: 6px; font-size: 12px; color: var(--text-secondary); }
+.arch-foot { margin-top: 12px; font-size: 11.5px; color: var(--text-secondary); }
+
+/* annotation coverage line (曲库洞察) */
+.cov-line {
+  margin-bottom: 10px; padding: 8px 12px; border-radius: 10px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  font-size: 12.5px; color: var(--text-secondary);
+}
+.cov-line b { color: var(--text-primary); }
+
+/* 🎧 tour commentary card */
+.ll-tour-card {
+  position: fixed; right: 18px; bottom: 18px; z-index: 1100; width: 300px;
+  padding: 12px 14px; border-radius: 12px; cursor: pointer;
+  background: var(--bg-card); border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
+  font-size: 12.5px; line-height: 1.65;
+  animation: ll-tour-in .35s ease-out;
+}
+@keyframes ll-tour-in {
+  from { transform: translateY(14px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.ll-tour-card .tour-head { font-weight: 700; margin-bottom: 4px; }
+.ll-tour-card .tour-note { color: var(--text-primary); margin-bottom: 4px; }
+.ll-tour-card .tour-echo { color: var(--text-primary); }
+.ll-tour-card .tour-hint { margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
+
+/* evidence card (可追溯证据) */
+.ev-card {
+  margin-top: 8px; padding: 12px 14px; border-radius: 12px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  font-size: 13px; line-height: 1.7;
+}
+.ev-conclusion { font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.ev-sec-title {
+  font-size: 12px; font-weight: 700; color: var(--text-secondary);
+  margin: 10px 0 4px; display: flex; justify-content: space-between;
+}
+.ev-conf { font-weight: 400; }
+.ev-quote { margin: 4px 0; padding-left: 4px; }
+.ev-quote.ev-ok[data-cite-label] { cursor: pointer; border-radius: 8px; }
+.ev-quote.ev-ok[data-cite-label]:hover { background: var(--bg-card-hover); }
+.ev-quote .ev-mark { margin-right: 4px; }
+.ev-quote .ev-src { display: block; font-size: 12px; color: var(--text-secondary); padding-left: 22px; }
+.ev-quote.ev-bad .ev-text { color: var(--text-secondary); text-decoration: line-through; }
+.ev-fact { font-size: 12.5px; color: var(--text-secondary); margin: 3px 0; }
+.ev-spec { font-size: 12.5px; color: var(--text-secondary); margin: 3px 0; padding-left: 4px; border-left: 2px solid var(--border); }
+.mv-link.ev-ok[data-cite-label] { cursor: pointer; }
+.mv-link.ev-ok[data-cite-label]:hover { text-decoration: underline; }
+.mv-link.ev-bad { color: var(--text-secondary); }
+@keyframes ll-cite-flash {
+  0%, 60% { background: var(--accent-soft); }
+  100% { background: transparent; }
+}
+.lyric-line.cite-flash { animation: ll-cite-flash 2.5s ease-out; border-radius: 8px; }
+
+/* mini translator popover + wordbook */
+.ll-dict-pop {
+  position: fixed; z-index: 1200; width: 290px; padding: 12px 14px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
+  font-size: .9em; line-height: 1.55;
+}
+.ll-dict-pop .dict-word { font-weight: 700; margin-bottom: 4px; }
+.ll-dict-pop .dict-phon { color: var(--text-secondary); font-weight: 400; }
+.ll-dict-pop .dict-body { color: var(--text-primary); max-height: 150px; overflow-y: auto; }
+.ll-dict-pop .dict-miss { color: var(--text-secondary); }
+.ll-dict-pop .dict-ai {
+  margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--text-primary);
+}
+.ll-dict-pop .dict-actions { margin-top: 10px; display: flex; gap: 8px; }
+.ll-dict-pop .dict-btn {
+  all: unset; cursor: pointer; padding: 5px 10px; border-radius: 8px;
+  background: var(--bg-card-hover); font-size: .92em;
+}
+.ll-dict-pop .dict-btn:hover { background: var(--accent-soft); }
+.ll-dict-pop .dict-btn[disabled] { opacity: .6; cursor: default; }
+.wb-list { display: flex; flex-direction: column; gap: 8px; }
+.wb-item {
+  position: relative; padding: 8px 26px 8px 10px; border-radius: 10px;
+  background: var(--bg-card); border: 1px solid var(--border);
+}
+.wb-item .wb-word { font-weight: 700; }
+.wb-item .wb-phon { color: var(--text-secondary); font-weight: 400; font-size: .9em; }
+.wb-item .wb-meaning { font-size: .9em; color: var(--text-primary); }
+.wb-item .wb-src { font-size: .85em; color: var(--text-secondary); margin-top: 2px; }
+.wb-item .wb-jump { cursor: pointer; }
+.wb-item .wb-jump:hover { color: var(--accent); text-decoration: underline; }
+.fav-item[data-cite-label] { cursor: pointer; }
+.wb-item .wb-del {
+  position: absolute; right: 8px; top: 8px; cursor: pointer;
+  color: var(--text-secondary); padding: 0 4px; border-radius: 6px;
+}
+.wb-item .wb-del:hover { color: #dc2626; background: var(--bg-card-hover); }
 
 /* lyric favorites */
 .fav-list { display: flex; flex-direction: column; gap: 6px;

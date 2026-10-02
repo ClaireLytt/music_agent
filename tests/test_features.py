@@ -216,3 +216,252 @@ def test_title_puzzle_no_mixed_script_garbage():
             # never containing spaces/parens/punctuation
             assert piece.strip() == piece
             assert not any(c in piece for c in " ()（）.-"), (title, piece)
+
+
+def test_debate_speak_fills_persona_placeholders(monkeypatch):
+    """speak() must send persona_system() output, never the raw template
+    (the {fan_scope}/{artist_scope} placeholders)."""
+    from lyric_agent import debate
+    from lyric_agent.config import Settings
+
+    sent = {}
+
+    class FakeResp:
+        reply_text = "ok"
+
+    class FakeClient:
+        def __init__(self, settings):
+            pass
+
+        def generate(self, system_prompt, user_message, on_text_delta):
+            sent["system"] = system_prompt
+            on_text_delta("ok")
+            return FakeResp()
+
+    import lyric_agent.llm as llm
+    monkeypatch.setattr(llm, "LLMClient", FakeClient)
+    session = debate.DebateSession(
+        lyric_line="line", song_title="song", artist="Taylor Swift")
+    settings = Settings(api_key="test-key")
+    list(debate.speak(settings, session, "fan"))
+    assert "{fan_scope}" not in sent["system"]
+    assert "Taylor Swift" in sent["system"]
+
+
+def test_dictionary_lookup_and_lemma():
+    """Offline dict: direct hit, plural via lemma, dancin' suffix, miss."""
+    from lyric_agent.dictionary import lookup
+    assert "围巾" in lookup("scarf")["translation"]
+    assert lookup("cobblestones")["word"] == "cobblestone"
+    assert lookup("dancin'")["word"] == "dancing"
+    assert lookup("Crestfallen")["word"] == "crestfallen"
+    assert lookup("xyzzyqq") is None
+    assert lookup("不是英文") is None
+
+
+def test_wordbook_roundtrip(tmp_path, monkeypatch):
+    from lyric_agent import dictionary as d
+    monkeypatch.setattr(d, "_WORDBOOK_PATH", tmp_path / "wb.json")
+    book = d.add_word("scarf", line="left my scarf there", song="All Too Well")
+    assert len(book) == 1 and book[0]["word"] == "scarf"
+    assert d.add_word("Scarf") == book  # idempotent, case-insensitive
+    assert d.remove_word("SCARF") == []
+
+
+def test_render_wordbook_escapes():
+    from lyric_agent.ui_helpers import render_wordbook
+    html = render_wordbook([{"word": "a<b", "phonetic": "x&y",
+                             "translation": "n. 释义\n第二行",
+                             "line": "<script>", "song": "s"}])
+    assert "a&lt;b" in html and "x&amp;y" in html and "&lt;script&gt;" in html
+    assert "data-wb=" in html
+    assert "还没有收藏的单词" in render_wordbook([])
+
+
+def _evidence_fixture(tmp_path):
+    songs = []
+    for name, lines in (
+        ("all_too_well", ["I walked through the door with you",
+                          "And I, left my scarf there at your sister's house"]),
+        ("red", ["Losing him was blue like I'd never known"]),
+    ):
+        d = tmp_path / name
+        d.mkdir()
+        lrc = "\n".join(f"[00:0{i+1}.00] {t}" for i, t in enumerate(lines))
+        (d / "lyrics.lrc").write_text(lrc, encoding="utf-8")
+        songs.append({"title": name.replace("_", " ").title(),
+                      "dir": str(d)})
+    return songs
+
+
+def test_evidence_verify_quote(tmp_path):
+    from lyric_agent.evidence import QuoteIndex
+    idx = QuoteIndex(_evidence_fixture(tmp_path))
+    # exact (normalized: case/punctuation-insensitive)
+    hit = idx.verify("left my scarf there at your sister's house",
+                     song_hint="All Too Well")
+    assert hit and hit["song_title"] == "All Too Well"
+    assert hit["line_index"] == 1
+    # containment fallback (>=15 normalized chars)
+    assert idx.verify("losing him was blue like") is not None
+    # hallucinated quote -> None
+    assert idx.verify("the moon is made of synthwave") is None
+    assert idx.verify("") is None
+
+
+def test_evidence_parse_claims():
+    from lyric_agent.evidence import parse_claims
+    raw = """```json
+{"conclusion": "围巾是信物", "quotes": [{"text": "left my scarf", "song": "ATW"},
+ "bare string quote"], "facts": ["Red 2012"], "speculation": ["指向某前任"]}
+```"""
+    c = parse_claims(raw)
+    assert c["conclusion"] == "围巾是信物"
+    assert len(c["quotes"]) == 2 and c["quotes"][1]["song"] == ""
+    assert c["facts"] == ["Red 2012"] and c["speculation"] == ["指向某前任"]
+    assert parse_claims("not json at all") is None
+    assert parse_claims("") is None
+
+
+def test_evidence_card_layers_and_interception(tmp_path):
+    from lyric_agent.evidence import QuoteIndex, render_evidence_card
+    idx = QuoteIndex(_evidence_fixture(tmp_path))
+    claims = {
+        "conclusion": "结论<script>",
+        "quotes": [
+            {"text": "left my scarf there at your sister's house",
+             "song": "All Too Well"},
+            {"text": "a fabricated quote that never existed", "song": "Red"},
+        ],
+        "facts": ["Red 发行于 2012"],
+        "speculation": ["<img onerror=x> 推测内容"],
+    }
+    html = render_evidence_card(claims, idx,
+                                {"All Too Well": "All Too Well"})
+    # verified quote: ✅ + clickable jump with the line index
+    assert "✅" in html and 'data-cite-label="All Too Well"' in html
+    assert 'data-cite-line="1"' in html
+    # hallucinated quote intercepted: ⚠️, no jump attrs on it
+    assert "⚠️" in html and "未在曲库中找到" in html
+    assert html.count("data-cite-label") == 1
+    # layers + confidence (1 verified -> 中)
+    assert "💭 推测" in html and "📅" in html and "置信度：中" in html
+    # hostile input never reaches HTML unescaped
+    assert "<script>" not in html and "<img" not in html
+
+
+def test_archaeology_mine_motifs():
+    from collections import namedtuple
+    from lyric_agent.archaeology import mine_motifs
+    Row = namedtuple("Row", "song album line_index text artist")
+    corpus = []
+    # "scarf" recurs in 3 songs; "the"/"first" are glue; one other artist
+    for i, song in enumerate(("A", "B", "C")):
+        corpus.append(Row(song, "Alb", 0,
+                          f"the scarf on the first chair {i}", "X"))
+        corpus.append(Row(song, "Alb", 1, "we walked home", "X"))
+    corpus.append(Row("D", "Alb", 0, "scarf scarf scarf", "Other"))
+    motifs = mine_motifs(corpus, "X", min_songs=3)
+    words = [m["word"] for m in motifs]
+    assert "scarf" in words             # recurs across >=3 songs
+    assert "first" not in words         # everyday rank filtered
+    m = motifs[words.index("scarf")]
+    assert m["n_songs"] == 3 and len(m["hits"]) == 3
+    assert mine_motifs(corpus, "Nobody") == []
+
+
+def test_archaeology_parse_and_render():
+    from lyric_agent.archaeology import parse_report, render_report
+    n = parse_report('```json\n{"overview": "总述<b>", '
+                     '"motifs": [{"word": "scarf", "arc": "弧线"}]}\n```')
+    assert n["overview"] == "总述<b>" and n["arcs"]["scarf"] == "弧线"
+    assert parse_report("junk") is None
+    motifs = [{"word": "scarf", "n_songs": 3, "total": 5, "hits": [
+        {"song": "A", "album": "Alb", "line_index": 0,
+         "text": "the scarf on the chair"}]}]
+    def verifier(quote, hint):
+        return {"song_title": "A", "line_index": 0,
+                "line_text": quote, "dir": ""}
+    html = render_report("X<y>", motifs, n, verifier, {"A": "A"})
+    # jumpable verified hit + escaped hostile narrative + artist
+    assert 'data-cite-label="A"' in html and "✅" in html
+    assert "<b>" not in html and "X&lt;y&gt;" in html
+    assert "弧线" in html
+    assert "语料不足" in render_report("X", [], {}, None, None)
+
+
+def test_debate_context_carries_line_dossier(monkeypatch):
+    """The per-line dossier (echoes + motifs) must reach every persona."""
+    from lyric_agent import debate
+    from lyric_agent.config import Settings
+
+    sent = {}
+
+    class FakeResp:
+        reply_text = "ok"
+
+    class FakeClient:
+        def __init__(self, settings):
+            pass
+
+        def generate(self, system_prompt, user_message, on_text_delta):
+            sent["user"] = user_message
+            on_text_delta("ok")
+            return FakeResp()
+
+    import lyric_agent.llm as llm
+    monkeypatch.setattr(llm, "LLMClient", FakeClient)
+    session = debate.DebateSession(
+        lyric_line="left my scarf there", song_title="All Too Well",
+        artist="Taylor Swift",
+        annotation_context="围巾是信物　修辞：转喻",
+        echo_context="- 《ATW10》：“you keep my old scarf”（相似度 0.7）")
+    list(debate.speak(Settings(api_key="k"), session, "assistant"))
+    assert "you keep my old scarf" in sent["user"]
+    assert "围巾是信物" in sent["user"] and "转喻" in sent["user"]
+
+
+def test_generate_annotations_resume(tmp_path, monkeypatch):
+    """Chunk persistence + resume: failed lines are redone on rerun, good
+    lines are reused without new LLM calls."""
+    import json
+    from lyric_agent.annotator import engine
+    from lyric_agent.config import Settings
+
+    d = tmp_path / "song"
+    d.mkdir()
+    (d / "lyrics.lrc").write_text(
+        "[00:01.00] line zero\n[00:02.00] line one\n", encoding="utf-8")
+    (d / "metadata.json").write_text(json.dumps(
+        {"title": "T", "artist": "A"}), encoding="utf-8")
+
+    calls = {"n": 0}
+
+    class FlakyClient:
+        def __init__(self, settings):
+            pass
+
+        def generate_json(self, system, user):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("proxy died")
+            return [{"line_index": i, "lyric_text": t, "summary": f"ok {i}",
+                     "emotional_tone": "calm"}
+                    for i, t in enumerate(("line zero", "line one"))]
+
+    monkeypatch.setattr(engine, "LLMClient", FlakyClient)
+    monkeypatch.setattr(engine, "_mine_song_echoes",
+                        lambda *a, **k: {})
+    settings = Settings(api_key="k")
+
+    song = engine.generate_annotations(settings, d, chunk_size=10)
+    assert all(a.summary == engine.FAILED_MARKER for a in song.annotations)
+    assert (d / "annotations.json").exists()  # persisted despite failure
+
+    song2 = engine.generate_annotations(settings, d, chunk_size=10)
+    assert [a.summary for a in song2.annotations] == ["ok 0", "ok 1"]
+    n_after_success = calls["n"]
+
+    # third run: everything good -> zero LLM calls
+    engine.generate_annotations(settings, d, chunk_size=10)
+    assert calls["n"] == n_after_success

@@ -24,12 +24,16 @@ def test_parse_tolerant():
     assert parse_mv({"eggs": "nope"}).eggs == []
     m = parse_mv({
         "known": True, "director": " X ",
-        "eggs": [{"detail": "piano turns gold", "lyric_link": "gold rush"},
+        "eggs": [{"detail": "piano turns gold", "lyric_link": "gold rush",
+                  "moment": "副歌"},
+                 {"detail": "bad ts", "moment": "大概中间某处"},
                  {"detail": ""}, 42, {"lyric_link": "no detail"}],
         "caveat": "maybe",
     })
     assert m.known and m.director == "X"
-    assert m.eggs == [("piano turns gold", "gold rush")]
+    # 3-tuples; moments outside the enum are dropped (anti-fabrication)
+    assert m.eggs == [("piano turns gold", "gold rush", "副歌"),
+                      ("bad ts", "", "")]
     assert m.caveat == "maybe"
 
 
@@ -40,6 +44,10 @@ def test_render_known_and_unknown():
         "cardigan", "Taylor Swift")
     assert "a &lt;b&gt; detail" in html_known  # escaped
     assert "some &amp; lyric" in html_known
+    # timestamp chip renders for 3-tuple eggs (old 2-tuple caches still work)
+    html_ts = render_mv_html(
+        MvEggs(known=True, eggs=[("egg", "", "副歌")]), "x", "y")
+    assert "🎞️ 副歌" in html_ts
     assert "search.bilibili.com" in html_known
     assert "youtube.com/results" in html_known
     # unknown MV -> honest guard, no invented eggs

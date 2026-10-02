@@ -35,12 +35,15 @@ class LLMClient:
         self.settings = settings
         self.provider = settings.llm_provider
 
+        timeout = getattr(settings, "llm_timeout", 120) or 120
         if self.provider == "anthropic":
             import anthropic
-            self._client = anthropic.Anthropic(api_key=settings.api_key)
+            self._client = anthropic.Anthropic(api_key=settings.api_key,
+                                               timeout=timeout)
         elif self.provider == "openai":
             import openai
-            kwargs: dict[str, Any] = {"api_key": settings.api_key}
+            kwargs: dict[str, Any] = {"api_key": settings.api_key,
+                                      "timeout": timeout}
             if settings.llm_base_url:
                 kwargs["base_url"] = settings.llm_base_url
             self._client = openai.OpenAI(**kwargs)

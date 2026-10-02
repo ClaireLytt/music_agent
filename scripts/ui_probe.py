@@ -285,6 +285,129 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("favorites", "favorite a lyric line: add + delete",
                     c_favorites)
 
+        def c_dict_popover():
+            # mini translator: select an English word in the lyrics, dispatch
+            # dblclick, expect the offline-dictionary popover; then ⭐ it into
+            # the wordbook and delete it again (net-zero on wordbook.json)
+            probe.tab("🎧 播放解读")
+            word = pg.evaluate("""() => {
+              const lines = document.querySelectorAll('#lyrics-scroll .lyric-line');
+              for (const line of lines) {
+                const el = line.querySelector('.lyric-text');
+                if (!el || !el.firstChild) continue;
+                const m = el.textContent.match(/[A-Za-z]{5,}/);
+                if (!m) continue;
+                const node = el.firstChild;
+                const i = node.textContent.indexOf(m[0]);
+                if (i < 0) continue;
+                const range = document.createRange();
+                range.setStart(node, i); range.setEnd(node, i + m[0].length);
+                const sel = window.getSelection();
+                sel.removeAllRanges(); sel.addRange(range);
+                line.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+                return m[0];
+              }
+              return null;
+            }""")
+            must(word, "no english word found in current lyrics")
+            probe.wait_until(
+                lambda: count(".ll-dict-pop") == 1
+                and ("收藏单词" in pg.locator(".ll-dict-pop").inner_text()
+                     or "本地词典" in pg.locator(".ll-dict-pop").inner_text()),
+                msg="translator popover did not render a result")
+            if count("[data-dict-fav]"):
+                pg.locator("[data-dict-fav]").click()
+                probe.tab("⭐")
+                probe.wait_until(lambda: count(".wb-item") >= 1,
+                                 msg="word not added to wordbook")
+                item = pg.locator(".wb-item", has_text=word).first
+                item.locator(".wb-del").click()
+                probe.wait_until(
+                    lambda: count(f".wb-item >> text={word}") == 0,
+                    msg="word not removed from wordbook")
+        probe.check("dict_popover",
+                    "dblclick word -> dict popover -> wordbook roundtrip",
+                    c_dict_popover)
+
+        def c_cite_jump():
+            # evidence-card citation jump: a [data-cite-label] click must
+            # switch to that song and flash the cited line (zero-LLM: the
+            # card is injected, exercising the delegate + channel + watcher)
+            probe.tab("🎧 播放解读")
+            target = pg.evaluate("""() => {
+              const radios = document.querySelectorAll('#ll-songs input[type=radio]');
+              const cur = document.querySelector('#ll-songs input[type=radio]:checked');
+              for (const r of radios) {
+                if (r !== cur) {
+                  const el = document.createElement('div');
+                  el.id = 'probe-cite';
+                  el.dataset.citeLabel = r.value;
+                  el.dataset.citeLine = '2';
+                  el.textContent = 'probe cite';
+                  document.body.appendChild(el);
+                  return r.value;
+                }
+              }
+              return null;
+            }""")
+            must(target, "library too small for a cite jump")
+            pg.locator("#probe-cite").click()
+            probe.wait_until(
+                lambda: pg.evaluate(
+                    """() => { const c = document.querySelector(
+                        '#ll-songs input[type=radio]:checked');
+                      return c ? c.value : ''; }""") == target,
+                msg="cite jump did not switch the song")
+            probe.wait_until(
+                lambda: count(".lyric-line.cite-flash") >= 1,
+                msg="cited line did not flash after the jump")
+            pg.evaluate("() => document.getElementById('probe-cite').remove()")
+        probe.check("cite_jump",
+                    "evidence citation click -> song switch + line flash",
+                    c_cite_jump)
+
+        def c_archaeology_guard():
+            # 考古报告 guard path (free): the cross-artist pseudo-entry is
+            # not a single artist, so generation must refuse politely
+            probe.tab("🕵️ 歌词宇宙")
+            pg.get_by_role("tab", name="🏺 考古报告").click()
+            pg.wait_for_timeout(400)
+            prev = pg.evaluate(
+                """() => { const b = document.querySelector('#ll-uni-artist input');
+                   return b ? b.value : ''; }""")
+            pg.locator("#ll-uni-artist input").click()
+            pg.wait_for_timeout(400)
+            pg.get_by_role("option",
+                           name="🌐 跨歌手引用（全部歌手）").click()
+            pg.get_by_role("button",
+                           name="🏺 生成考古报告（已有缓存则秒开）").click()
+            probe.wait_until(
+                lambda: "请先在上方选择一位具体的歌手"
+                in pg.locator("body").inner_text(),
+                msg="archaeology artist guard missing")
+            if prev:
+                pg.locator("#ll-uni-artist input").click()
+                pg.wait_for_timeout(400)
+                pg.get_by_role("option", name=prev, exact=True).click()
+        probe.check("archaeology_guard",
+                    "archaeology report refuses the cross-artist entry",
+                    c_archaeology_guard)
+
+        def c_tour_toggle():
+            # 🎧 导览 toggle ships with the player tools — audio songs only
+            # (reading-mode songs have no player toolbar at all)
+            probe.tab("🎧 播放解读")
+            pg.get_by_role("radio", name=AUDIO_SONG, exact=True).check()
+            probe.wait_until(lambda: count("#ll-tour-toggle") == 1,
+                             msg="tour toggle missing on an audio song")
+            pg.locator("#ll-tour-toggle").check()
+            pg.wait_for_timeout(300)
+            must(pg.locator("#ll-tour-toggle").is_checked(),
+                 "tour toggle did not check")
+            pg.locator("#ll-tour-toggle").uncheck()
+        probe.check("tour_toggle", "🎧 tour toggle present + togglable",
+                    c_tour_toggle)
+
         def c_song_filter():
             # the filter narrows the radio by title/artist and restores on
             # clear — this path previously broke (dead .input event)

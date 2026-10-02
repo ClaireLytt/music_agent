@@ -43,7 +43,10 @@ _MV_SCHEMA = (
     '  "director": "导演名，不确定则留空字符串",\n'
     '  "eggs": [\n'
     '    {"detail": "一个彩蛋 / 值得注意的画面细节",\n'
-    '     "lyric_link": "它呼应的歌词句或歌手其他作品，可空"}\n'
+    '     "moment": "画面出现的位置，只能从这些词里选：'
+    '片头/主歌/副歌/桥段/结尾/贯穿全片；不确定就留空",\n'
+    '     "lyric_link": "它呼应的歌词原句——必须逐字照抄歌词，'
+    '不得改写/翻译/缩略；没有明确对应句就留空"}\n'
     "  ],\n"
     '  "caveat": "不确定之处的说明，可空"\n'
     "}\n"
@@ -65,11 +68,15 @@ def mv_messages(title: str, artist: str, album: str = "",
     return MV_SYSTEM, user
 
 
+_MOMENTS = {"片头", "主歌", "副歌", "桥段", "结尾", "贯穿全片"}
+
+
 @dataclass
 class MvEggs:
     known: bool = False
     director: str = ""
-    eggs: list[tuple[str, str]] = field(default_factory=list)
+    # (detail, lyric_link, timestamp) — older caches carry 2-tuples
+    eggs: list[tuple] = field(default_factory=list)
     caveat: str = ""
 
 
@@ -90,8 +97,12 @@ def parse_mv(data) -> MvEggs:
             if not detail:
                 continue
             link = e.get("lyric_link")
+            ts = e.get("moment") or e.get("timestamp")
+            ts = ts.strip() if isinstance(ts, str) else ""
+            if ts not in _MOMENTS:
+                ts = ""  # enum-validated: anything else was invented
             m.eggs.append(
-                (detail, link.strip() if isinstance(link, str) else ""))
+                (detail, link.strip() if isinstance(link, str) else "", ts))
             if len(m.eggs) == MAX_EGGS:
                 break
     caveat = data.get("caveat")
@@ -144,7 +155,11 @@ def search_links(title: str, artist: str) -> str:
             f'target="_blank" rel="noopener">▶ YouTube</a>')
 
 
-def render_mv_html(m: MvEggs, title: str, artist: str) -> str:
+def render_mv_html(m: MvEggs, title: str, artist: str,
+                   verifier=None, label_of: dict | None = None) -> str:
+    """verifier: callable(quote, song_hint) -> hit dict | None (evidence.
+    QuoteIndex.verify). With it, each lyric_link is checked against the
+    library: verified quotes get a ✅ + clickable jump, unverified ⚠️."""
     links = search_links(title, artist)
     head = f'<div class="mv-head">🎬 MV 彩蛋 · {_esc(title)}</div>'
     if not m.known or not m.eggs:
@@ -153,11 +168,31 @@ def render_mv_html(m: MvEggs, title: str, artist: str) -> str:
         return (f'<div class="mv-card">{head}'
                 f'<div class="mv-none">{_esc(note)}</div>'
                 f'<div class="mv-foot">{links}</div></div>')
-    rows = "".join(
-        '<li class="mv-egg">' + _esc(detail)
-        + (f'<span class="mv-link">↔ {_esc(link)}</span>' if link else "")
-        + "</li>"
-        for detail, link in m.eggs)
+    def _link_html(link: str) -> str:
+        if not link:
+            return ""
+        if verifier is None:
+            return f'<span class="mv-link">↔ {_esc(link)}</span>'
+        hit = verifier(link, title)
+        if hit:
+            label = (label_of or {}).get(hit["song_title"], "")
+            jump = (f' data-cite-label="{_esc(label)}" '
+                    f'data-cite-line="{hit["line_index"]}"' if label else "")
+            return (f'<span class="mv-link ev-ok"{jump}>↔ ✅ '
+                    f'“{_esc(hit["line_text"])}”——《{_esc(hit["song_title"])}》'
+                    f'第 {hit["line_index"] + 1} 行'
+                    f'{"（点击跳转）" if label else ""}</span>')
+        return (f'<span class="mv-link ev-bad">↔ ⚠️ “{_esc(link)}”'
+                f'（未在曲库中找到，此句可能是 AI 编造）</span>')
+
+    rows = []
+    for egg in m.eggs:
+        detail, link, ts = (tuple(egg) + ("", ""))[:3]
+        stamp = (f'<span class="mv-ts" title="画面在 MV 中的位置">🎞️ '
+                 f'{_esc(ts)}</span>' if ts else "")
+        rows.append('<li class="mv-egg">' + stamp + _esc(detail)
+                    + _link_html(link) + "</li>")
+    rows = "".join(rows)
     director = (f'<div class="mv-meta">导演：{_esc(m.director)}</div>'
                 if m.director else "")
     caveat = (f'<div class="mv-caveat">⚖️ {_esc(m.caveat)}</div>'
@@ -179,6 +214,11 @@ MV_CSS = """
 .mv-eggs { margin: 8px 0 0; padding-left: 18px; }
 .mv-egg { font-size: 13px; color: var(--text-primary); line-height: 1.7; margin-bottom: 6px; }
 .mv-link { display: block; font-size: 12px; font-style: italic; color: var(--accent); }
+.mv-ts {
+  display: inline-block; margin-right: 6px; padding: 0 7px;
+  border-radius: 999px; font-size: 11.5px; line-height: 1.7;
+  background: var(--accent-soft); color: var(--text-primary);
+}
 .mv-caveat { font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
 .mv-none { font-size: 13px; color: var(--text-secondary); margin-top: 6px; line-height: 1.7; }
 .mv-foot { font-size: 11.5px; color: var(--text-secondary); margin-top: 10px; }

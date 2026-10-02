@@ -88,6 +88,9 @@ class Settings:
     echo_top_k: int = DEFAULT_ECHO_TOP_K
     echo_map_max_nodes: int = DEFAULT_ECHO_MAP_MAX_NODES
     ui_port: int = 7860
+    # per-request LLM timeout (seconds); the SDK defaults are 10 minutes,
+    # which turns one dead proxy request into a 10-minute stall
+    llm_timeout: int = 120
     # public deployment: per-visitor API keys (browser localStorage), read-only
     # library, no server-side chat history, hackathon playlist songs excluded
     public_mode: bool = False
@@ -101,6 +104,7 @@ def load_settings(require_api_key: bool = False) -> Settings:
     """
     load_dotenv()
     public_mode = os.getenv("PUBLIC_MODE", "").strip().lower() in ("1", "true", "yes")
+    llm_timeout = int(os.getenv("LLM_TIMEOUT", "120") or 120)
     user = {} if public_mode else _load_user_settings()
 
     generic_key = os.getenv("API_KEY", "")
@@ -151,4 +155,5 @@ def load_settings(require_api_key: bool = False) -> Settings:
             os.getenv("ECHO_MAP_MAX_NODES", str(DEFAULT_ECHO_MAP_MAX_NODES))),
         ui_port=int(os.getenv("UI_PORT", "7860")),
         public_mode=public_mode,
+        llm_timeout=llm_timeout,
     )
