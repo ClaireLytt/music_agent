@@ -423,6 +423,10 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     with gr.Column(elem_id="ll-favs"):
                                         gr.HTML('<div class="side-panel-title">'
                                                 '⭐ 歌词收藏夹</div>')
+                                        gr.Markdown(
+                                            "点选左侧一句歌词 → 点下面的按钮收藏。"
+                                            "收藏**只在这首歌**打开时显示。",
+                                            elem_classes=["wb-hint"])
                                         fav_add_btn = gr.Button(
                                             "⭐ 收藏当前选中的歌词", size="sm")
                                         fav_status = gr.Markdown("")
@@ -432,8 +436,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                                                 'style="margin-top:14px">'
                                                 '📒 单词本</div>')
                                         gr.Markdown(
-                                            "双击歌词里的英文单词即可查词，"
-                                            "弹窗里点 ⭐ 收藏到这里。",
+                                            "**双击**歌词里的英文单词即可查词，"
+                                            "弹窗里点 ⭐ 收藏到这里；"
+                                            "单词**只在收藏它的那首歌**里显示。",
                                             elem_classes=["wb-hint"])
                                         wordbook_html = gr.HTML(
                                             render_wordbook(load_wordbook()))
@@ -907,13 +912,20 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         # ── Handlers ──
 
+        def _collections_for(title: str) -> tuple:
+            """收藏歌词 + 单词本, both scoped to the open song."""
+            if public:
+                return ()
+            return (_render_favorites(_load_favorites(), song_title=title),
+                    render_wordbook(load_wordbook(), song_title=title))
+
         def on_song_select(choice: str):
             if not ctx["songs"]:
                 return ("", None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
                         render_evolution_html(ctx["evolution"], lang="zh"),
                         None, _ECHO_HINT, "", "", gr.Image(visible=False),
                         _INTRO_EMPTY, "", gr.Image(visible=False),
-                        _render_notes([]))
+                        _render_notes([])) + _collections_for("")
             info = find_song(choice)
             audio = resolve_audio(info["dir"])
             info["audio_type"], info["audio_src"] = audio.type, audio.path_or_url or ""
@@ -925,11 +937,15 @@ def create_app(settings: Settings) -> gr.Blocks:
             intro = _render_intro(_load_intro(info["dir"]))
             return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT, evo,
                     None, _ECHO_HINT, "", "", gr.Image(visible=False),
-                    intro, "", gr.Image(visible=False), _notes_for(info))
+                    intro, "", gr.Image(visible=False), _notes_for(info)
+                    ) + _collections_for(info["title"])
 
         song_outputs = [lyrics_html, chat_state, chat_topic, chat_html, evolution_html,
                         echo_state, echo_html, echo_out, card_status, card_img,
                         intro_html, echo_card_status, echo_card_img, notes_html]
+        if not public:
+            # the two per-song collections re-render on every song switch
+            song_outputs += [favs_html, wordbook_html]
 
         def on_echo_map(choice: str) -> tuple[str, str]:
             if not ctx["songs"]:
@@ -1991,9 +2007,10 @@ def create_app(settings: Settings) -> gr.Blocks:
                          "title": title, "artist": info.get("artist", ""),
                          "label": song_choice_label(info)})
             _save_favorites(favs)
-            return f"✅ 已收藏（共 {len(favs)} 句）。", _render_favorites(favs)
+            return (f"✅ 已收藏（共 {len(favs)} 句）。",
+                    _render_favorites(favs, song_title=title))
 
-        def on_fav_act(payload: str, sort: str):
+        def on_fav_act(payload: str, sort: str, choice: str):
             # payload is 'del:<id>' or 'jump:<id>' — id is stable, so neither
             # drifts with list position (multi-tab / stale render safe)
             act = (payload or "").split("\t")[0].strip()
@@ -2003,7 +2020,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                 kept = [f for f in favs if f.get("id") != fid]
                 if len(kept) != len(favs):
                     _save_favorites(kept)
-                return _render_favorites(kept), gr.skip(), gr.skip()
+                cur = find_song(choice).get("title", "")
+                return (_render_favorites(kept, song_title=cur),
+                        gr.skip(), gr.skip())
             if act.startswith("jump:"):
                 fid = act[5:]
                 from .intertextuality.search import artist_matches
@@ -2028,7 +2047,7 @@ def create_app(settings: Settings) -> gr.Blocks:
         if not public:
             fav_add_btn.click(on_fav_add, [line_pick, song_radio],
                               [fav_status, favs_html])
-            fav_box.change(on_fav_act, [fav_box, sort_mode],
+            fav_box.change(on_fav_act, [fav_box, sort_mode, song_radio],
                            [favs_html, song_radio, fav_status])
 
         # ── mini 翻译器（双击取词）──
@@ -2107,22 +2126,24 @@ def create_app(settings: Settings) -> gr.Blocks:
                            [dict_out_box])
 
         if not public:
-            def on_wb_act(payload: str):
+            def on_wb_act(payload: str, choice: str):
                 act = (payload or "").split("\t")
                 head = act[0].strip() if act else ""
+                cur = find_song(choice).get("title", "")
                 if head.startswith("add:"):
                     word = head[4:]
                     line = act[1] if len(act) > 1 else ""
                     song = act[2] if len(act) > 2 else ""
                     book = add_word(word, line=line, song=song)
-                    gr.Info(f"📒 已收藏单词 {word}（共 {len(book)} 个）。")
-                    return render_wordbook(book)
+                    gr.Info(f"📒 已收藏单词 {word}。")
+                    return render_wordbook(book, song_title=cur)
                 if head.startswith("del:"):
                     book = remove_word(head[4:])
-                    return render_wordbook(book)
+                    return render_wordbook(book, song_title=cur)
                 return gr.skip()
 
-            wb_act_box.change(on_wb_act, [wb_act_box], [wordbook_html])
+            wb_act_box.change(on_wb_act, [wb_act_box, song_radio],
+                              [wordbook_html])
 
         if not public:
             intro_btn.click(on_gen_intro, [song_radio, user_llm], [intro_html])
@@ -2819,7 +2840,10 @@ def create_app(settings: Settings) -> gr.Blocks:
         if not public:
             # favs_html was frozen at Blocks-construction time; refresh it
             # for each new session/reload from the current file
-            app.load(lambda: _render_favorites(_load_favorites()),
-                     None, [favs_html])
+            def _reload_collections(choice: str):
+                title = find_song(choice).get("title", "")
+                return _collections_for(title)
+            app.load(_reload_collections, [song_radio],
+                     [favs_html, wordbook_html])
 
     return app

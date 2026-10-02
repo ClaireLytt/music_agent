@@ -367,10 +367,16 @@ def render_artist_overview(songs: list, artist: str) -> str:
         + f'<div class="ov-albums">{"".join(cards)}</div>')
 
 
-def _render_favorites(favs: list[dict]) -> str:
+def _render_favorites(favs: list[dict], song_title: str | None = None) -> str:
+    """Favorites panel. With song_title, only that song's entries show —
+    收藏跟随当前打开的歌曲。"""
+    if song_title is not None:
+        favs = [f for f in favs if f.get("title", "") == song_title]
     if not favs:
-        return ('<div class="chat-empty">还没有收藏。在歌词区点选一句歌词，'
-                '再点上面的「⭐ 收藏」。</div>')
+        return ('<div class="chat-empty">这首歌还没有收藏的歌词。<br>'
+                '用法：① 在左侧歌词区<b>点选一句歌词</b> → '
+                '② 点上面的「⭐ 收藏当前选中的歌词」。<br>'
+                '收藏只在<b>这首歌</b>打开时显示，✖ 可移除。</div>')
     items = "".join(
         f'<div class="fav-item" data-fav="jump:{_esc(fid)}" '
         f'title="点击打开《{_esc(f.get("title", ""))}》">'
@@ -576,11 +582,17 @@ def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
     )
 
 
-def render_wordbook(entries: list[dict]) -> str:
-    """📒 单词本 panel: collected words with meaning + source line."""
+def render_wordbook(entries: list[dict],
+                    song_title: str | None = None) -> str:
+    """📒 单词本 panel. With song_title, only words collected from that
+    song show — 单词本跟随当前打开的歌曲。"""
+    if song_title is not None:
+        entries = [e for e in entries if e.get("song", "") == song_title]
     if not entries:
-        return ('<div class="chat-empty">还没有收藏的单词。双击歌词里的'
-                '英文单词，在弹窗里点 ⭐ 收藏。</div>')
+        return ('<div class="chat-empty">这首歌还没有收藏的单词。<br>'
+                '用法：① <b>双击</b>歌词里的英文单词 → ② 弹窗里看释义'
+                '（可点 ✨ 让 AI 结合本句解释）→ ③ 点「⭐ 收藏单词」。<br>'
+                '单词只在<b>收藏它的那首歌</b>打开时显示，✕ 可移除。</div>')
     items = []
     for e in entries:
         word = e.get("word", "")
