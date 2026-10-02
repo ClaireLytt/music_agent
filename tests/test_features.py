@@ -348,3 +348,43 @@ def test_evidence_card_layers_and_interception(tmp_path):
     assert "💭 推测" in html and "📅" in html and "置信度：中" in html
     # hostile input never reaches HTML unescaped
     assert "<script>" not in html and "<img" not in html
+
+
+def test_archaeology_mine_motifs():
+    from collections import namedtuple
+    from lyric_agent.archaeology import mine_motifs
+    Row = namedtuple("Row", "song album line_index text artist")
+    corpus = []
+    # "scarf" recurs in 3 songs; "the"/"first" are glue; one other artist
+    for i, song in enumerate(("A", "B", "C")):
+        corpus.append(Row(song, "Alb", 0,
+                          f"the scarf on the first chair {i}", "X"))
+        corpus.append(Row(song, "Alb", 1, "we walked home", "X"))
+    corpus.append(Row("D", "Alb", 0, "scarf scarf scarf", "Other"))
+    motifs = mine_motifs(corpus, "X", min_songs=3)
+    words = [m["word"] for m in motifs]
+    assert "scarf" in words             # recurs across >=3 songs
+    assert "first" not in words         # everyday rank filtered
+    m = motifs[words.index("scarf")]
+    assert m["n_songs"] == 3 and len(m["hits"]) == 3
+    assert mine_motifs(corpus, "Nobody") == []
+
+
+def test_archaeology_parse_and_render():
+    from lyric_agent.archaeology import parse_report, render_report
+    n = parse_report('```json\n{"overview": "总述<b>", '
+                     '"motifs": [{"word": "scarf", "arc": "弧线"}]}\n```')
+    assert n["overview"] == "总述<b>" and n["arcs"]["scarf"] == "弧线"
+    assert parse_report("junk") is None
+    motifs = [{"word": "scarf", "n_songs": 3, "total": 5, "hits": [
+        {"song": "A", "album": "Alb", "line_index": 0,
+         "text": "the scarf on the chair"}]}]
+    def verifier(quote, hint):
+        return {"song_title": "A", "line_index": 0,
+                "line_text": quote, "dir": ""}
+    html = render_report("X<y>", motifs, n, verifier, {"A": "A"})
+    # jumpable verified hit + escaped hostile narrative + artist
+    assert 'data-cite-label="A"' in html and "✅" in html
+    assert "<b>" not in html and "X&lt;y&gt;" in html
+    assert "弧线" in html
+    assert "语料不足" in render_report("X", [], {}, None, None)

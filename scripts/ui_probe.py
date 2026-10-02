@@ -366,6 +366,33 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     "evidence citation click -> song switch + line flash",
                     c_cite_jump)
 
+        def c_archaeology_guard():
+            # 考古报告 guard path (free): the cross-artist pseudo-entry is
+            # not a single artist, so generation must refuse politely
+            probe.tab("🕵️ 歌词宇宙")
+            pg.get_by_role("tab", name="🏺 考古报告").click()
+            pg.wait_for_timeout(400)
+            prev = pg.evaluate(
+                """() => { const b = document.querySelector('#ll-uni-artist input');
+                   return b ? b.value : ''; }""")
+            pg.locator("#ll-uni-artist input").click()
+            pg.wait_for_timeout(400)
+            pg.get_by_role("option",
+                           name="🌐 跨歌手引用（全部歌手）").click()
+            pg.get_by_role("button",
+                           name="🏺 生成考古报告（已有缓存则秒开）").click()
+            probe.wait_until(
+                lambda: "请先在上方选择一位具体的歌手"
+                in pg.locator("body").inner_text(),
+                msg="archaeology artist guard missing")
+            if prev:
+                pg.locator("#ll-uni-artist input").click()
+                pg.wait_for_timeout(400)
+                pg.get_by_role("option", name=prev, exact=True).click()
+        probe.check("archaeology_guard",
+                    "archaeology report refuses the cross-artist entry",
+                    c_archaeology_guard)
+
         def c_song_filter():
             # the filter narrows the radio by title/artist and restores on
             # clear — this path previously broke (dead .input event)
