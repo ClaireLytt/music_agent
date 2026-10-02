@@ -576,6 +576,35 @@ def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
     )
 
 
+def render_wordbook(entries: list[dict]) -> str:
+    """📒 单词本 panel: collected words with meaning + source line."""
+    if not entries:
+        return ('<div class="chat-empty">还没有收藏的单词。双击歌词里的'
+                '英文单词，在弹窗里点 ⭐ 收藏。</div>')
+    items = []
+    for e in entries:
+        word = e.get("word", "")
+        phon = e.get("phonetic", "")
+        # ECDICT translations use a literal backslash-n separator
+        meaning = (e.get("translation", "") or "").replace("\\n", "；")
+        if len(meaning) > 90:
+            meaning = meaning[:90] + "…"
+        src = e.get("line", "")
+        phon_html = (f'<span class="wb-phon">/{_esc(phon)}/</span>'
+                     if phon else "")
+        src_html = (f'<div class="wb-src">「{_esc(src)}」</div>'
+                    if src else "")
+        items.append(
+            f'<div class="wb-item">'
+            f'<span class="wb-del" data-wb="del:{_esc(word)}" '
+            f'title="移出单词本">✕</span>'
+            f'<div class="wb-word">{_esc(word)} {phon_html}</div>'
+            f'<div class="wb-meaning">{_esc(meaning)}</div>'
+            f'{src_html}</div>'
+        )
+    return f'<div class="wb-list">{"".join(items)}</div>'
+
+
 # ── Insights renderers (曲库洞察) ─────────────────────────
 
 def _render_daily_quote(q: dict | None) -> str:

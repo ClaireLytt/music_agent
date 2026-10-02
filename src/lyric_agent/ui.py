@@ -34,6 +34,9 @@ from .config import (
     save_user_settings,
 )
 from .debate import PERSONAS, DebateSession, speak as ai_speak
+from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
+                         remove_word)
+from .ui_helpers import render_wordbook
 from .evolution.engine import load_or_build
 from .evolution.ui import EVOLUTION_CSS, render_evolution_html
 from .lrc_parser import parse_lrc
@@ -425,6 +428,15 @@ def create_app(settings: Settings) -> gr.Blocks:
                                         fav_status = gr.Markdown("")
                                         favs_html = gr.HTML(
                                             _render_favorites(_load_favorites()))
+                                        gr.HTML('<div class="side-panel-title" '
+                                                'style="margin-top:14px">'
+                                                '📒 单词本</div>')
+                                        gr.Markdown(
+                                            "双击歌词里的英文单词即可查词，"
+                                            "弹窗里点 ⭐ 收藏到这里。",
+                                            elem_classes=["wb-hint"])
+                                        wordbook_html = gr.HTML(
+                                            render_wordbook(load_wordbook()))
                             with gr.Tab("🖼️"):
                                 with gr.Column(elem_id="ll-card"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -481,6 +493,27 @@ def create_app(settings: Settings) -> gr.Blocks:
                             value="", visible=True, elem_id="ll-fav-act",
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
+                        # JS -> backend: double-clicked word ("word\tline\tsong\tts")
+                        dict_pick_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-dict-pick",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                        # backend -> JS: dictionary/AI result JSON for the popover
+                        dict_out_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-dict-out",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                        # JS -> backend: "✨ AI 语境解释" requests
+                        dict_ai_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-dict-ai",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                        if not public:
+                            # JS -> backend: wordbook add/del
+                            wb_act_box = gr.Textbox(
+                                value="", visible=True, elem_id="ll-wb-act",
+                                elem_classes=["ll-hidden"], show_label=False,
+                                container=False)
                         # JS -> backend: delete-note clicks (note index)
                         note_del_box = gr.Textbox(
                             value="", visible=True, elem_id="ll-note-del",
@@ -1997,6 +2030,99 @@ def create_app(settings: Settings) -> gr.Blocks:
                               [fav_status, favs_html])
             fav_box.change(on_fav_act, [fav_box, sort_mode],
                            [favs_html, song_radio, fav_status])
+
+        # ── mini 翻译器（双击取词）──
+
+        def on_dict_pick(payload: str):
+            parts = (payload or "").split("\t")
+            word = parts[0].strip() if parts else ""
+            if not word:
+                return gr.skip()
+            hit = dict_lookup(word)
+            result = {
+                "q": payload,
+                "word": (hit or {}).get("word", word),
+                "phonetic": (hit or {}).get("phonetic", ""),
+                # normalize ECDICT's literal backslash-n to real newlines
+                "translation": ((hit or {}).get("translation", "")
+                                .replace("\\n", "\n")),
+                "found": hit is not None,
+                "canFav": not public,
+            }
+            return gr.Textbox(value=json.dumps(result, ensure_ascii=False))
+
+        dict_pick_box.change(on_dict_pick, [dict_pick_box], [dict_out_box])
+
+        _AI_CACHE_PATH = Path(settings.songs_dir).parent / "dict" / "ai_cache.json"
+
+        def on_dict_ai(payload: str, user_cfg):
+            parts = (payload or "").split("\t")
+            if len(parts) < 3 or not parts[0].strip():
+                return gr.skip()
+            word, line, song = parts[0].strip(), parts[1], parts[2]
+            req_settings = _request_settings(user_cfg)
+            hit = dict_lookup(word) or {}
+            base = {
+                "q": payload, "word": hit.get("word", word),
+                "phonetic": hit.get("phonetic", ""),
+                "translation": (hit.get("translation", "")
+                                .replace("\\n", "\n")),
+                "found": bool(hit), "canFav": not public,
+            }
+            if not req_settings.api_key:
+                base["ai"] = (_PUBLIC_KEY_HINT if public else
+                              "⚠️ AI 语境解释需要配置 API Key（⚙️ 设置）。")
+                return gr.Textbox(value=json.dumps(base, ensure_ascii=False))
+            import hashlib
+            key = hashlib.md5(f"{word}\x00{line}".encode()).hexdigest()
+            try:
+                cache = json.loads(_AI_CACHE_PATH.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                cache = {}
+            if key not in cache:
+                from .llm import LLMClient
+                try:
+                    resp = LLMClient(req_settings).generate(
+                        system_prompt=(
+                            "你是英语歌词阅读助手。用户双击了歌词里的一个单词。"
+                            "用简体中文回答，不超过 80 字，不要客套："
+                            "先说这个词在这句歌词语境中的含义，再给出整句的通顺翻译。"),
+                        user_message=(f"单词：{word}\n"
+                                      f"歌词句：{line}\n出自：《{song}》"),
+                    )
+                    cache[key] = resp.reply_text.strip()
+                    _AI_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    _AI_CACHE_PATH.write_text(
+                        json.dumps(cache, ensure_ascii=False, indent=2),
+                        encoding="utf-8")
+                except Exception as exc:
+                    logger.exception("dict AI explain failed")
+                    base["ai"] = f"⚠️ LLM 调用失败：{str(exc)[:120]}"
+                    return gr.Textbox(
+                        value=json.dumps(base, ensure_ascii=False))
+            base["ai"] = cache[key]
+            return gr.Textbox(value=json.dumps(base, ensure_ascii=False))
+
+        dict_ai_box.change(on_dict_ai, [dict_ai_box, user_llm],
+                           [dict_out_box])
+
+        if not public:
+            def on_wb_act(payload: str):
+                act = (payload or "").split("\t")
+                head = act[0].strip() if act else ""
+                if head.startswith("add:"):
+                    word = head[4:]
+                    line = act[1] if len(act) > 1 else ""
+                    song = act[2] if len(act) > 2 else ""
+                    book = add_word(word, line=line, song=song)
+                    gr.Info(f"📒 已收藏单词 {word}（共 {len(book)} 个）。")
+                    return render_wordbook(book)
+                if head.startswith("del:"):
+                    book = remove_word(head[4:])
+                    return render_wordbook(book)
+                return gr.skip()
+
+            wb_act_box.change(on_wb_act, [wb_act_box], [wordbook_html])
 
         if not public:
             intro_btn.click(on_gen_intro, [song_radio, user_llm], [intro_html])

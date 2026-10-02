@@ -35,6 +35,99 @@ _HEAD_JS = """
     }
   }, 800);
 })();
+// mini translator: double-click an English word inside the lyrics ->
+// popover anchored at the selection with the offline dictionary meaning,
+// an optional AI in-context explanation and a ⭐ wordbook button
+(function() {
+  let lastQuery = '';
+  let saved = null;  // {word, line, song} of the open popover
+  function closePop() {
+    document.querySelectorAll('.ll-dict-pop').forEach((p) => p.remove());
+  }
+  function sendChannel(id, value) {
+    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
+    if (!box) return false;
+    box.value = value;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.ll-dict-pop')) closePop();
+  }, true);
+  document.addEventListener('dblclick', (e) => {
+    const lineEl = e.target.closest('.lyric-line');
+    if (!lineEl) return;
+    const sel = window.getSelection();
+    const word = (sel ? sel.toString() : '').trim();
+    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}$/.test(word)) return;
+    closePop();
+    const line = (lineEl.querySelector('.lyric-text') || lineEl).textContent.trim();
+    const titleEl = document.querySelector('.song-title-display');
+    const song = titleEl ? titleEl.textContent.trim() : '';
+    saved = { word: word, line: line, song: song };
+    const pop = document.createElement('div');
+    pop.className = 'll-dict-pop';
+    pop.innerHTML = '<div class="dict-body">⏳ 查询中…</div>';
+    let rect = lineEl.getBoundingClientRect();
+    try {
+      const r = sel.getRangeAt(0).getBoundingClientRect();
+      if (r && r.width) rect = r;
+    } catch (err) {}
+    pop.style.left = Math.min(rect.left, window.innerWidth - 300) + 'px';
+    pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 160) + 'px';
+    document.body.appendChild(pop);
+    lastQuery = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
+    sendChannel('ll-dict-pick', lastQuery);
+  });
+  function render(data) {
+    const pop = document.querySelector('.ll-dict-pop');
+    if (!pop || !saved) return;
+    const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    let html = '<div class="dict-word">' + esc(data.word);
+    if (data.phonetic) html += ' <span class="dict-phon">/' + esc(data.phonetic) + '/</span>';
+    html += '</div>';
+    if (data.found) {
+      html += '<div class="dict-body">'
+        + esc(data.translation).split('\\n').join('<br>') + '</div>';
+    } else {
+      html += '<div class="dict-body dict-miss">本地词典没有这个词'
+        + '，试试 ✨ AI 解释。</div>';
+    }
+    if (data.ai) html += '<div class="dict-ai">✨ ' + esc(data.ai) + '</div>';
+    html += '<div class="dict-actions">';
+    if (data.canFav) html += '<button class="dict-btn" data-dict-fav>⭐ 收藏单词</button>';
+    if (!data.ai) html += '<button class="dict-btn" data-dict-ai>✨ AI 语境解释</button>';
+    html += '</div>';
+    pop.innerHTML = html;
+    const favBtn = pop.querySelector('[data-dict-fav]');
+    if (favBtn) favBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sendChannel('ll-wb-act', 'add:' + saved.word + '\\t' + saved.line
+                  + '\\t' + saved.song + '\\t' + Date.now());
+      favBtn.textContent = '✓ 已收藏';
+      favBtn.disabled = true;
+    });
+    const aiBtn = pop.querySelector('[data-dict-ai]');
+    if (aiBtn) aiBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      aiBtn.textContent = '✨ 生成中…';
+      aiBtn.disabled = true;
+      lastQuery = saved.word + '\\t' + saved.line + '\\t' + saved.song
+                  + '\\t' + Date.now();
+      sendChannel('ll-dict-ai', lastQuery);
+    });
+  }
+  let lastSeen = '';
+  setInterval(() => {
+    const box = document.querySelector('#ll-dict-out textarea, #ll-dict-out input');
+    if (!box || !box.value || box.value === lastSeen) return;
+    lastSeen = box.value;
+    let data;
+    try { data = JSON.parse(box.value); } catch (err) { return; }
+    if (data.q !== lastQuery) return;  // stale result for a previous word
+    render(data);
+  }, 300);
+})();
 // per-song ⋯ menu: the selected row grows a ⋯ button; expanding it
 // offers 🗑️ delete (native confirm, then the ll-del-song channel).
 // Admin-only: the role-gating block below strips it for viewers.
@@ -402,6 +495,11 @@ _HEAD_JS = """
     const fav = e.target.closest('[data-fav]');
     if (fav) {
       writeChannel('ll-fav-act', fav.dataset.fav + '\\t' + Date.now());
+      return;
+    }
+    const wb = e.target.closest('[data-wb]');
+    if (wb) {
+      writeChannel('ll-wb-act', wb.dataset.wb + '\\t' + Date.now());
       return;
     }
     if (e.target.closest('details.egg-more')) return;  // expand, not pick
@@ -906,6 +1004,43 @@ footer, .gradio-container footer { display: none !important; }
   background: var(--accent-soft) !important;
   border-bottom: none !important;
 }
+
+/* mini translator popover + wordbook */
+.ll-dict-pop {
+  position: fixed; z-index: 1200; width: 290px; padding: 12px 14px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 12px; box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
+  font-size: .9em; line-height: 1.55;
+}
+.ll-dict-pop .dict-word { font-weight: 700; margin-bottom: 4px; }
+.ll-dict-pop .dict-phon { color: var(--text-secondary); font-weight: 400; }
+.ll-dict-pop .dict-body { color: var(--text-primary); max-height: 150px; overflow-y: auto; }
+.ll-dict-pop .dict-miss { color: var(--text-secondary); }
+.ll-dict-pop .dict-ai {
+  margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--text-primary);
+}
+.ll-dict-pop .dict-actions { margin-top: 10px; display: flex; gap: 8px; }
+.ll-dict-pop .dict-btn {
+  all: unset; cursor: pointer; padding: 5px 10px; border-radius: 8px;
+  background: var(--bg-card-hover); font-size: .92em;
+}
+.ll-dict-pop .dict-btn:hover { background: var(--accent-soft); }
+.ll-dict-pop .dict-btn[disabled] { opacity: .6; cursor: default; }
+.wb-list { display: flex; flex-direction: column; gap: 8px; }
+.wb-item {
+  position: relative; padding: 8px 26px 8px 10px; border-radius: 10px;
+  background: var(--bg-card); border: 1px solid var(--border);
+}
+.wb-item .wb-word { font-weight: 700; }
+.wb-item .wb-phon { color: var(--text-secondary); font-weight: 400; font-size: .9em; }
+.wb-item .wb-meaning { font-size: .9em; color: var(--text-primary); }
+.wb-item .wb-src { font-size: .85em; color: var(--text-secondary); margin-top: 2px; }
+.wb-item .wb-del {
+  position: absolute; right: 8px; top: 8px; cursor: pointer;
+  color: var(--text-secondary); padding: 0 4px; border-radius: 6px;
+}
+.wb-item .wb-del:hover { color: #dc2626; background: var(--bg-card-hover); }
 
 /* lyric favorites */
 .fav-list { display: flex; flex-direction: column; gap: 6px;
