@@ -36,6 +36,14 @@ MAX_EDGE_EXAMPLES = 10  # distinct pairs kept per edge
 _NORM_LINE_RE = re.compile(r"[\W_]+", re.UNICODE)
 
 
+def is_filler_line(text: str) -> bool:
+    """True when the line is ONLY vocalization filler ("Yeah, yeah",
+    "Oh-oh") — such lines echo everything and mean nothing, so the
+    whole-song scan skips them."""
+    tokens = _WORD_RE.findall((text or "").casefold())
+    return bool(tokens) and all(t.strip("'") in _FILLER_VOCAB for t in tokens)
+
+
 def norm_line(text: str) -> str:
     """Casefolded, punctuation-free form for duplicate detection.
 
