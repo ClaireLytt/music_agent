@@ -35,6 +35,91 @@ _HEAD_JS = """
     }
   }, 800);
 })();
+// per-song ⋯ menu: the selected row grows a ⋯ button; expanding it
+// offers 🗑️ delete (native confirm, then the ll-del-song channel).
+// Admin-only: the role-gating block below strips it for viewers.
+(function() {
+  let menuOpenedAt = 0;
+  function closeMenus() {
+    document.querySelectorAll('.ll-dots-menu').forEach((m) => m.remove());
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.ll-dots') && !e.target.closest('.ll-dots-menu'))
+      closeMenus();
+  }, true);
+  // the menu is viewport-fixed: close it only when its anchor moves,
+  // i.e. the scrolled container holds the dots button (page/song list).
+  // An unrelated panel must NOT close it: during playback the lyric sync
+  // smooth-scrolls its own container continuously.
+  document.addEventListener('scroll', (e) => {
+    if (!document.querySelector('.ll-dots-menu')) return;
+    // scroll events arrive async: one pending from just before the click
+    // (inertia / scroll-into-view) lands right after the menu opens
+    if (performance.now() - menuOpenedAt < 200) return;
+    const btn = document.querySelector('.ll-dots');
+    const t = e.target === document ? document.documentElement : e.target;
+    if (!btn || !t || t.nodeType !== 1 || t.contains(btn)) closeMenus();
+  }, true);
+  setInterval(() => {
+    const delBox = document.querySelector('#ll-del-song textarea, #ll-del-song input');
+    if (!delBox) return;  // public build: no delete at all
+    const roleBox = document.querySelector('#ll-role textarea, #ll-role input');
+    if (roleBox && roleBox.value && roleBox.value !== 'admin') return;
+    const checked = document.querySelector('#ll-songs input[type=radio]:checked');
+    document.querySelectorAll('.ll-dots').forEach((b) => {
+      const lab = b.closest('label');
+      if (!checked || !lab || !lab.contains(checked)) {
+        b.remove();
+        closeMenus();
+      }
+    });
+    if (!checked) return;
+    const label = checked.closest('label');
+    if (!label || label.querySelector('.ll-dots')) return;
+    const btn = document.createElement('span');
+    btn.className = 'll-dots';
+    btn.textContent = '⋯';
+    btn.title = '更多操作';
+    // keep focus off the row's radio input: label activation would focus
+    // it and the browser scrolls it into view inside #ll-songs, and that
+    // scroll closes the menu we are about to open
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    });
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (document.querySelector('.ll-dots-menu')) { closeMenus(); return; }
+      const menu = document.createElement('div');
+      menu.className = 'll-dots-menu';
+      // viewport-fixed and mounted on <body>: inside the row the dots
+      // span's transform would hijack the fixed containing block and the
+      // list's overflow would clip the menu out of sight
+      const r = btn.getBoundingClientRect();
+      menu.style.top = (r.bottom + 4) + 'px';
+      menu.style.left = Math.max(8, r.right - 150) + 'px';
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.textContent = '🗑️ 删除这首歌';
+      del.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        closeMenus();
+        const cur = document.querySelector('#ll-songs input[type=radio]:checked');
+        if (!cur) return;
+        if (!window.confirm('确定永久删除《' + cur.value + '》？\\n'
+                            + '（连同歌词/批注/音频目录，不可恢复）')) return;
+        delBox.value = cur.value + '\\t' + Date.now();
+        delBox.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      menu.appendChild(del);
+      document.body.appendChild(menu);
+      menuOpenedAt = performance.now();
+    });
+    label.appendChild(btn);
+  }, 800);
+})();
 // role gating: the backend writes the login role into #ll-role; for
 // non-admins the management tabs are hidden. UI-level gating only.
 (function() {
@@ -46,9 +131,11 @@ _HEAD_JS = """
       if (t.includes('添加歌曲') || t.includes('⚙️ 设置'))
         btn.style.display = 'none';
     });
-    // the delete/refresh block sits in the play tab now — hide it too
-    const acc = document.querySelector('#ll-manage-acc');
-    if (acc) acc.style.display = 'none';
+    // refresh + per-song ⋯ menu are admin-only too
+    const rb = document.querySelector('#ll-refresh-btn');
+    if (rb) rb.style.display = 'none';
+    document.querySelectorAll('.ll-dots, .ll-dots-menu')
+        .forEach((el) => el.remove());
   }
   setInterval(applyRole, 1500);
 })();
@@ -500,6 +587,25 @@ footer, .gradio-container footer { display: none !important; }
   gap: 4px !important;
 }
 #ll-songs label, #ll-catalog label { width: 100%; }
+/* per-song ⋯ menu (selected row only) */
+#ll-songs label { position: relative; }
+.ll-dots {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  padding: 0 7px; border-radius: 7px; cursor: pointer;
+  color: var(--text-secondary); font-weight: 700; line-height: 1.6;
+}
+.ll-dots:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.ll-dots-menu {
+  position: fixed; z-index: 1000; padding: 4px; min-width: 130px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(15, 23, 42, .14);
+}
+.ll-dots-menu button {
+  all: unset; display: block; padding: 6px 12px; border-radius: 7px;
+  cursor: pointer; font-size: .88em; white-space: nowrap;
+  color: var(--text-primary);
+}
+.ll-dots-menu button:hover { background: rgba(220, 38, 38, .09); color: #dc2626; }
 #ll-songs {
   max-height: 44vh; overflow-y: auto;
   scrollbar-width: thin; scrollbar-color: var(--border) transparent;

@@ -333,27 +333,16 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     file_types=[".mp3", ".wav", ".flac",
                                                 ".ogg", ".m4a"])
                                 audio_up_status = gr.Markdown("")
-                            with gr.Accordion("🗑️ 删除 / 刷新歌曲", open=False,
-                                              elem_id="ll-manage-acc"):
-                                gr.Markdown(
-                                    "**永久删除**一首歌（连同其歌词/批注/音频"
-                                    "目录）。手动增删过歌曲目录后，点「刷新曲库」"
-                                    "让列表同步。")
-                                manage_song = gr.Dropdown(
-                                    choices=choices, value=None,
-                                    label="选择要删除的歌曲",
-                                    elem_id="ll-manage-song",
-                                    # newly added songs land via the add
-                                    # handlers' updates; custom values keep
-                                    # raw API calls working
-                                    allow_custom_value=True)
-                                manage_confirm = gr.Checkbox(
-                                    label="我确认要删除这首歌（不可恢复）",
-                                    value=False,
-                                    elem_id="ll-manage-confirm")
-                                manage_del_btn = gr.Button("🗑️ 删除所选歌曲")
-                                manage_refresh_btn = gr.Button("🔄 刷新曲库")
-                                manage_status = gr.Markdown("")
+                            # delete rides the per-song ⋯ menu (JS):
+                            # the menu confirms, then writes the label here
+                            del_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-del-song",
+                                elem_classes=["ll-hidden"],
+                                show_label=False, container=False)
+                            manage_refresh_btn = gr.Button(
+                                "🔄 刷新曲库（手动增删过歌曲目录后同步）",
+                                size="sm", elem_id="ll-refresh-btn")
                         sort_mode = gr.Radio(
                             choices=[
                                 ("添加顺序（最早在前）", "added_asc"),
@@ -2198,7 +2187,7 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         def on_add_song(title, artist, album, lrc_text, lrc_file, audio_file, sort):
             def fail(msg):
-                return msg, gr.skip(), "", gr.skip()
+                return msg, gr.skip(), ""
 
             title = (title or "").strip()
             if not title:
@@ -2265,15 +2254,14 @@ def create_app(settings: Settings) -> gr.Blocks:
             )
             return (status,
                     gr.Radio(choices=song_choices("added_desc"),
-                             value=new_label), slug,
-                    gr.Dropdown(choices=song_choices(), value=None))
+                             value=new_label), slug)
 
         if not public:
             add_btn.click(
                 on_add_song,
                 [add_title, add_artist, add_album,
                  add_lrc, add_lrc_file, add_audio_file, sort_mode],
-                [add_status, song_radio, add_state, manage_song],
+                [add_status, song_radio, add_state],
             ).then(
                 # choices come pre-sorted newest-first so the new song is at
                 # the TOP; rebuilding choices doesn't fire song_radio.change,
@@ -2360,7 +2348,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             if not labels:
                 return ("⚠️ 请先勾选至少一首可添加的歌"
                         "（标「✓ 已在列表」的无法重复添加）。",
-                        gr.skip(), gr.skip(), gr.skip())
+                        gr.skip(), gr.skip())
             added: list[str] = []
             existed: list[str] = []
             missing: list[str] = []
@@ -2419,7 +2407,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             if missing:
                 parts.append(f"⚠️ {len(missing)} 首未找到")
             if not added:
-                return ("　".join(parts), gr.skip(), gr.skip(), gr.skip())
+                return ("　".join(parts), gr.skip(), gr.skip())
             refresh_library()
             new_song = next(
                 (s for s in ctx["songs"] if s["name"] == last_slug), None)
@@ -2429,13 +2417,11 @@ def create_app(settings: Settings) -> gr.Blocks:
             return ("　".join(parts),
                     gr.Radio(choices=song_choices("added_desc"),
                              value=last_label),
-                    last_slug,
-                    gr.Dropdown(choices=song_choices(), value=None))
+                    last_slug)
 
         if not public:
             cat_add_btn.click(on_cat_add, [cat_radio, sort_mode],
-                              [add_status, song_radio, add_state,
-                               manage_song]).then(
+                              [add_status, song_radio, add_state]).then(
                 # newest-first choices + explicit load; song_filter left out
                 # on purpose (see on_add_song wiring)
                 on_song_select, [song_radio], song_outputs,
@@ -2468,45 +2454,42 @@ def create_app(settings: Settings) -> gr.Blocks:
         # ── 管理歌曲列表 ──
 
         def _library_updates(keep_choice: str | None, sort: str, q: str):
-            """Fresh Radio + manage-Dropdown updates after a library change,
-            honoring the user's current sort mode and filter text."""
+            """Fresh Radio update after a library change, honoring the
+            user's current sort mode and filter text."""
             labels = _filtered_labels(sort, q)
             value = keep_choice if keep_choice in labels else \
                 (labels[0] if labels else None)
-            # the manage dropdown always lists the full library (you may
-            # want to delete a song the filter is hiding)
-            return (gr.Radio(choices=labels, value=value),
-                    gr.Dropdown(choices=song_choices(), value=None))
+            return gr.Radio(choices=labels, value=value)
 
         def on_manage_refresh(choice: str, sort: str, q: str):
             refresh_library()
             _SONG_DATA_CACHE.clear()
             ctx.pop("echo_maps", None)
-            radio, dd = _library_updates(choice, sort, q)
-            return f"🔄 已刷新，共 {len(ctx['songs'])} 首歌。", radio, dd
+            gr.Info(f"🔄 已刷新，共 {len(ctx['songs'])} 首歌。")
+            return _library_updates(choice, sort, q)
 
-        def on_manage_delete(label: str, confirm: bool, choice: str,
-                             sort: str, q: str):
+        def on_del_song(payload: str, sort: str, q: str):
+            # payload: '<label>\t<ts>' from the ⋯ menu, already confirmed
+            # by a native dialog in the browser
+            label = (payload or "").split("\t")[0].strip()
             if not label:
-                return "⚠️ 请先选择要删除的歌曲。", gr.skip(), gr.skip()
-            if not confirm:
-                return "⚠️ 请勾选确认框后再删除。", gr.skip(), gr.skip()
+                return gr.skip()
             info = next(
                 (s for s in ctx["songs"] if song_choice_label(s) == label), None)
             if not info:
-                return "⚠️ 未找到该歌曲，请先刷新曲库。", gr.skip(), gr.skip()
+                gr.Warning("未找到该歌曲，点「刷新曲库」让列表同步。")
+                return gr.skip()
             try:
                 shutil.rmtree(info["dir"])
             except Exception as exc:
                 logger.exception("Delete song failed")
-                return (f"⚠️ 删除失败（文件可能被占用）：{str(exc)[:120]}",
-                        gr.skip(), gr.skip())
+                gr.Warning(f"删除失败（文件可能被占用）：{str(exc)[:120]}")
+                return gr.skip()
             _SONG_DATA_CACHE.pop(info["dir"], None)
             ctx.setdefault("echo_maps", {}).pop(info["dir"], None)
             refresh_library()
-            radio, dd = _library_updates(
-                choice if choice != label else None, sort, q)
-            return f"🗑️ 已删除《{label}》。", radio, dd
+            gr.Info(f"🗑️ 已删除《{label}》。")
+            return _library_updates(None, sort, q)
 
         if not public:
             # rebuilding Radio choices never fires .change, so chain the
@@ -2515,15 +2498,12 @@ def create_app(settings: Settings) -> gr.Blocks:
             # markers/overview on screen
             manage_refresh_btn.click(
                 on_manage_refresh, [song_radio, sort_mode, song_filter],
-                [manage_status, song_radio, manage_song],
+                [song_radio],
             ).then(on_song_select, [song_radio], song_outputs
             ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
-            manage_del_btn.click(
-                on_manage_delete,
-                [manage_song, manage_confirm, song_radio, sort_mode,
-                 song_filter],
-                [manage_status, song_radio, manage_song],
-            ).then(lambda: gr.Checkbox(value=False), None, [manage_confirm]
+            del_box.change(
+                on_del_song, [del_box, sort_mode, song_filter],
+                [song_radio],
             ).then(on_song_select, [song_radio], song_outputs
             ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
 
