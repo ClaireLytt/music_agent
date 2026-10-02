@@ -53,6 +53,7 @@ def generate_annotations(
         metadata.artist = _lrc_meta.artist
 
     client = LLMClient(settings)
+    echoes = _mine_song_echoes(settings, metadata, timed_lines)
 
     all_annotations: list[Annotation] = []
     chunks = _chunk_lines(timed_lines, chunk_size)
@@ -72,6 +73,7 @@ def generate_annotations(
             era=metadata.era,
             themes=metadata.themes,
             lyrics_chunk=lyrics_chunk,
+            echoes=echoes,
         )
 
         try:
@@ -141,6 +143,41 @@ def regenerate_annotation(
     ann.line_index = line_index
     ann.lyric_text = lyric_text
     return ann
+
+
+def _mine_song_echoes(settings: Settings, metadata: SongMetadata,
+                      timed_lines: list[TimedLine],
+                      top_k: int = 2) -> dict[int, list[dict]]:
+    """Per-line intertextual echoes from the artist's other songs, mined
+    once before annotation so the LLM can weave real connections in
+    (guideline 8). Any failure degrades to no echoes — annotation must
+    never be blocked by the corpus index."""
+    try:
+        from ..intertextuality.embeddings import load_embeddings
+        from ..intertextuality.search import search_similar
+        embeddings, corpus = load_embeddings(
+            settings.corpus_dir, settings.embedding_model)
+    except Exception:
+        logger.info("No intertextuality index — annotating without echoes")
+        return {}
+    echoes: dict[int, list[dict]] = {}
+    for ln in timed_lines:
+        try:
+            hits = search_similar(
+                ln.text, embeddings, corpus,
+                model_name=settings.embedding_model, top_k=top_k,
+                exclude_song=metadata.title, artist=metadata.artist)
+        except Exception:
+            logger.exception("echo mining failed for line %d", ln.line_index)
+            continue
+        if hits:
+            echoes[ln.line_index] = [
+                {"song": h.song, "album": h.album, "line": h.line,
+                 "similarity": round(h.similarity, 2)} for h in hits]
+    if echoes:
+        logger.info("Mined echoes for %d/%d lines of %s",
+                    len(echoes), len(timed_lines), metadata.title)
+    return echoes
 
 
 def _chunk_lines(lines: list[TimedLine], size: int) -> list[list[TimedLine]]:
