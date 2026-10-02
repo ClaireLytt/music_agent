@@ -21,10 +21,14 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE = 10
 
 
+FAILED_MARKER = "[Annotation generation failed]"
+
+
 def generate_annotations(
     settings: Settings,
     song_dir: str | Path,
     chunk_size: int = CHUNK_SIZE,
+    fresh: bool = False,
 ) -> Song:
     """Generate annotations for a song and save to annotations.json.
 
@@ -53,15 +57,43 @@ def generate_annotations(
         metadata.artist = _lrc_meta.artist
 
     client = LLMClient(settings)
-    echoes = _mine_song_echoes(settings, metadata, timed_lines)
+
+    # resume/repair: lines already annotated (and not failure placeholders)
+    # are reused verbatim; only missing/failed lines cost LLM calls
+    done: dict[int, Annotation] = {}
+    if not fresh and out_path.exists():
+        try:
+            prev = Song.load(out_path)
+            done = {a.line_index: a for a in prev.annotations
+                    if a.summary and a.summary != FAILED_MARKER}
+        except Exception:
+            logger.exception("Unreadable existing annotations — regenerating")
+    chunks = _chunk_lines(timed_lines, chunk_size)
+    todo = [c for c in chunks
+            if any(ln.line_index not in done for ln in c)]
+    if done:
+        logger.info("Resume: %d/%d lines already annotated, %d/%d chunks "
+                    "to run", len(done), len(timed_lines), len(todo),
+                    len(chunks))
+    echoes = (_mine_song_echoes(settings, metadata, timed_lines)
+              if todo else {})
 
     all_annotations: list[Annotation] = []
-    chunks = _chunk_lines(timed_lines, chunk_size)
 
-    for i, chunk in enumerate(chunks):
+    def _persist() -> Song:
+        merged = dict(done)
+        for a in all_annotations:
+            merged[a.line_index] = a
+        song = Song(metadata=metadata,
+                    annotations=[merged[k] for k in sorted(merged)],
+                    lrc_path=str(lrc_path))
+        song.save(out_path)
+        return song
+
+    for i, chunk in enumerate(todo):
         logger.info(
             "Annotating %s chunk %d/%d (%d lines)",
-            metadata.title, i + 1, len(chunks), len(chunk),
+            metadata.title, i + 1, len(todo), len(chunk),
         )
 
         lyrics_chunk = [(ln.line_index, ln.text) for ln in chunk]
@@ -82,12 +114,15 @@ def generate_annotations(
         except Exception as exc:
             logger.error("LLM call failed for chunk %d: %s", i + 1, exc)
             for ln in chunk:
+                if ln.line_index in done:
+                    continue
                 all_annotations.append(Annotation(
                     line_index=ln.line_index,
                     lyric_text=ln.text,
-                    summary="[Annotation generation failed]",
+                    summary=FAILED_MARKER,
                     emotional_tone="unknown",
                 ))
+            _persist()  # keep earlier chunks even if this one failed
             continue
 
         if isinstance(raw, dict):
@@ -104,16 +139,19 @@ def generate_annotations(
         else:
             logger.error("No valid annotations parsed for chunk %d", i + 1)
             for ln in chunk:
+                if ln.line_index in done:
+                    continue
                 all_annotations.append(Annotation(
                     line_index=ln.line_index,
                     lyric_text=ln.text,
-                    summary="[Annotation generation failed]",
+                    summary=FAILED_MARKER,
                     emotional_tone="unknown",
                 ))
+        _persist()  # chunk-level persistence: a crash never loses progress
 
-    song = Song(metadata=metadata, annotations=all_annotations, lrc_path=str(lrc_path))
-    song.save(out_path)
-    logger.info("Saved annotations to %s (%d lines)", out_path, len(all_annotations))
+    song = _persist()
+    logger.info("Saved annotations to %s (%d lines)", out_path,
+                len(song.annotations))
     return song
 
 

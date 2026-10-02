@@ -419,3 +419,49 @@ def test_debate_context_carries_line_dossier(monkeypatch):
     list(debate.speak(Settings(api_key="k"), session, "assistant"))
     assert "you keep my old scarf" in sent["user"]
     assert "围巾是信物" in sent["user"] and "转喻" in sent["user"]
+
+
+def test_generate_annotations_resume(tmp_path, monkeypatch):
+    """Chunk persistence + resume: failed lines are redone on rerun, good
+    lines are reused without new LLM calls."""
+    import json
+    from lyric_agent.annotator import engine
+    from lyric_agent.config import Settings
+
+    d = tmp_path / "song"
+    d.mkdir()
+    (d / "lyrics.lrc").write_text(
+        "[00:01.00] line zero\n[00:02.00] line one\n", encoding="utf-8")
+    (d / "metadata.json").write_text(json.dumps(
+        {"title": "T", "artist": "A"}), encoding="utf-8")
+
+    calls = {"n": 0}
+
+    class FlakyClient:
+        def __init__(self, settings):
+            pass
+
+        def generate_json(self, system, user):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("proxy died")
+            return [{"line_index": i, "lyric_text": t, "summary": f"ok {i}",
+                     "emotional_tone": "calm"}
+                    for i, t in enumerate(("line zero", "line one"))]
+
+    monkeypatch.setattr(engine, "LLMClient", FlakyClient)
+    monkeypatch.setattr(engine, "_mine_song_echoes",
+                        lambda *a, **k: {})
+    settings = Settings(api_key="k")
+
+    song = engine.generate_annotations(settings, d, chunk_size=10)
+    assert all(a.summary == engine.FAILED_MARKER for a in song.annotations)
+    assert (d / "annotations.json").exists()  # persisted despite failure
+
+    song2 = engine.generate_annotations(settings, d, chunk_size=10)
+    assert [a.summary for a in song2.annotations] == ["ok 0", "ok 1"]
+    n_after_success = calls["n"]
+
+    # third run: everything good -> zero LLM calls
+    engine.generate_annotations(settings, d, chunk_size=10)
+    assert calls["n"] == n_after_success

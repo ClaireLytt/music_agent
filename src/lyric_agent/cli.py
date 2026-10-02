@@ -21,13 +21,16 @@ def cli(verbose: bool) -> None:
 @cli.command()
 @click.argument("song_dir", type=click.Path(exists=True))
 @click.option("--chunk-size", default=10, help="Lines per LLM call")
-def generate(song_dir: str, chunk_size: int) -> None:
-    """Generate annotations for a song directory."""
+@click.option("--fresh", is_flag=True,
+              help="ignore existing annotations and regenerate everything "
+                   "(default resumes: good lines kept, failed lines redone)")
+def generate(song_dir: str, chunk_size: int, fresh: bool) -> None:
+    """Generate annotations for a song directory (resumable)."""
     from .annotator.engine import generate_annotations
     from .config import load_settings
 
     settings = load_settings(require_api_key=True)
-    song = generate_annotations(settings, song_dir, chunk_size)
+    song = generate_annotations(settings, song_dir, chunk_size, fresh=fresh)
     click.echo(f"Generated {len(song.annotations)} annotations for '{song.metadata.title}'")
 
 
