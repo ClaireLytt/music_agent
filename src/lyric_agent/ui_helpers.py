@@ -223,6 +223,168 @@ def _load_song_data(song_dir: str) -> dict[str, Any]:
 
 # ── HTML renderers ────────────────────────────────────────
 
+_FAVORITES_PATH = Path("data/favorites.json")
+
+
+def _fav_id(line: str, title: str) -> str:
+    """Stable identity for a favorite (favorites dedup on line+title), so
+    delete/jump match by id and never drift with list position."""
+    import hashlib
+    return hashlib.md5(
+        f"{line}\x00{title}".encode("utf-8")).hexdigest()[:12]
+
+
+def _load_favorites() -> list[dict]:
+    try:
+        if _FAVORITES_PATH.exists():
+            data = json.loads(_FAVORITES_PATH.read_text(encoding="utf-8"))
+            if not isinstance(data, list):
+                return []
+            # backfill ids for entries written before ids existed
+            for f in data:
+                if isinstance(f, dict) and not f.get("id"):
+                    f["id"] = _fav_id(f.get("line", ""), f.get("title", ""))
+            return data
+    except (OSError, ValueError):
+        logger.exception("Failed reading favorites")
+    return []
+
+
+def _save_favorites(favs: list[dict]) -> None:
+    try:
+        _FAVORITES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _FAVORITES_PATH.write_text(
+            json.dumps(favs, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        logger.exception("Failed saving favorites")
+
+
+_OVERVIEW_CSS = """
+.ov-head { font-size: 20px; font-weight: 800; color: var(--text-primary);
+  margin: 2px 0 2px; }
+.ov-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 14px; }
+.ov-tiles { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.ov-tile { flex: 1 1 110px; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-card); text-align: center; }
+.ov-tile-num { font-size: 24px; font-weight: 800; color: var(--accent);
+  line-height: 1.1; }
+.ov-tile-label { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.ov-section-title { font-size: 13px; font-weight: 700; color: var(--text-primary);
+  margin: 6px 0 8px; }
+.ov-imagery { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: baseline;
+  margin-bottom: 16px; }
+.ov-word { color: var(--accent); line-height: 1.1; }
+.ov-word .ov-word-n { font-size: 11px; color: var(--text-secondary);
+  margin-left: 2px; }
+.ov-albums { display: flex; flex-direction: column; gap: 10px; }
+.ov-album { padding: 12px 16px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-card); }
+.ov-album-name { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.ov-album-meta { font-size: 12px; color: var(--text-secondary);
+  margin: 2px 0 8px; }
+.ov-songs { display: flex; flex-wrap: wrap; gap: 6px; }
+.ov-song { font-size: 12px; padding: 3px 10px; border-radius: 100px;
+  background: var(--bg-primary); border: 1px solid var(--border);
+  color: var(--text-primary); cursor: pointer; }
+.ov-song:hover { border-color: var(--accent); color: var(--accent); }
+.ov-themes { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.ov-theme { font-size: 11px; padding: 2px 8px; border-radius: 100px;
+  background: var(--accent-soft); color: var(--accent); }
+"""
+
+
+def render_artist_overview(songs: list, artist: str) -> str:
+    """Artist-agnostic overview: stat tiles + top imagery words (from the
+    artist's lyrics) + albums with per-album line counts. Works for every
+    artist — unlike the Taylor-only era timeline — with no LLM cost, and
+    enriches itself from lyrics that already exist on disk."""
+    from .insights import word_frequencies
+    from .intertextuality.search import artist_matches
+    from .lrc_parser import load_lrc_file
+
+    mine = ([s for s in songs
+             if artist and artist_matches(artist, s.get("artist", ""))]
+            if artist else [])
+    if not mine:
+        return ('<div class="chat-empty">这位歌手暂无歌曲。</div>')
+
+    albums: dict[str, list] = {}
+    album_lines: dict[str, int] = {}
+    total_lines = 0
+    freq_input: list = []
+    for s in mine:
+        album = s.get("album") or "未知专辑"
+        albums.setdefault(album, []).append(s)
+        try:
+            _m, timed = load_lrc_file(str(Path(s["dir"]) / "lyrics.lrc"))
+        except Exception:
+            timed = []
+        album_lines[album] = album_lines.get(album, 0) + len(timed)
+        total_lines += len(timed)
+        freq_input.extend((ln.text, artist) for ln in timed)
+
+    top_words = word_frequencies(freq_input, artist, top_n=14)
+    imagery = ""
+    if top_words:
+        chips = "".join(
+            f'<span class="ov-word">{_esc(w)}'
+            f'<span class="ov-word-n">·{n}</span></span>'
+            for w, n in top_words)
+        imagery = (
+            '<div class="ov-section-title">🔑 高频意象（来自歌词）</div>'
+            f'<div class="ov-imagery">{chips}</div>')
+
+    tiles = (
+        '<div class="ov-tiles">'
+        f'<div class="ov-tile"><div class="ov-tile-num">{len(mine)}</div>'
+        '<div class="ov-tile-label">歌曲</div></div>'
+        f'<div class="ov-tile"><div class="ov-tile-num">{len(albums)}</div>'
+        '<div class="ov-tile-label">专辑</div></div>'
+        f'<div class="ov-tile"><div class="ov-tile-num">{total_lines}</div>'
+        '<div class="ov-tile-label">歌词行</div></div>'
+        '</div>')
+
+    cards = []
+    for album, items in sorted(albums.items(),
+                               key=lambda kv: (-len(kv[1]), kv[0])):
+        # data-ov-pick jumps to the song on the play tab (on_overview_pick)
+        song_html = "".join(
+            f'<span class="ov-song" data-ov-pick="{_esc(s.get("title", ""))}"'
+            f' title="在播放解读里打开">{_esc(s.get("title", ""))}</span>'
+            for s in items)
+        lines = album_lines.get(album, 0)
+        meta = f"{len(items)} 首" + (f" · {lines} 行歌词" if lines else "")
+        cards.append(
+            f'<div class="ov-album"><div class="ov-album-name">'
+            f'💿 {_esc(album)}</div>'
+            f'<div class="ov-album-meta">{meta}</div>'
+            f'<div class="ov-songs">{song_html}</div></div>')
+    return (
+        f'<div class="ov-head">🎤 {_esc(artist)}</div>'
+        f'<div class="ov-sub">点任意歌曲在「🎧 播放解读」里打开。</div>'
+        + tiles + imagery
+        + '<div class="ov-section-title">💿 专辑</div>'
+        + f'<div class="ov-albums">{"".join(cards)}</div>')
+
+
+def _render_favorites(favs: list[dict]) -> str:
+    if not favs:
+        return ('<div class="chat-empty">还没有收藏。在歌词区点选一句歌词，'
+                '再点上面的「⭐ 收藏」。</div>')
+    items = "".join(
+        f'<div class="fav-item" data-fav="jump:{_esc(fid)}" '
+        f'title="点击打开《{_esc(f.get("title", ""))}》">'
+        f'<div class="fav-line">“{_esc(f.get("line", ""))}”</div>'
+        f'<div class="fav-song">——《{_esc(f.get("title", ""))}》'
+        f'<span class="fav-del" data-fav="del:{_esc(fid)}" '
+        f'title="移除">✖</span>'
+        f'</div></div>'
+        for f in favs
+        for fid in [f.get("id") or _fav_id(f.get("line", ""),
+                                           f.get("title", ""))])
+    return f'<div class="fav-list">{items}</div>'
+
+
 def _file_url(path: str | Path) -> str:
     return "/gradio_api/file=" + str(Path(path).resolve()).replace("\\", "/")
 
@@ -534,8 +696,11 @@ def _render_emotion_map(emotions: list) -> str:
         if any(e.tone == t for e in emotions)
     )
     return (
-        '<div class="cloud-hint">每个点是一首歌（基于 AI 批注的逐行情绪均值）'
-        '· 点击任意歌曲直接播放 · 拥挤处的歌名悬停圆点可见</div>'
+        f'<div class="cloud-hint">每个点是一首歌（基于 AI 批注的逐行'
+        f'情绪均值）· 点击任意歌曲直接播放 · 拥挤处的歌名悬停圆点可见。'
+        f'<br>当前仅 {len(emotions)} 首已有 AI 批注才会在此出现；'
+        f'到「⚙️ 设置 → 🧠」重建或用 <code>lyric-agent generate-all</code> '
+        f'批注更多歌后，这里会更丰富。</div>'
         f'<div class="evo-legend">{legend}</div>'
         f'<svg viewBox="0 0 {_EMO_W} {_EMO_H}" class="egg-svg" role="img">'
         + "".join(parts) + '</svg>'

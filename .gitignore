@@ -32,3 +32,4 @@ data/songs/patient_zero/annotations.json
 # tracked demo songs are unaffected (ignore only hides untracked files).
 # To track a new song on purpose: git add -f data/songs/<dir>
 data/songs/*/
+data/favorites.json

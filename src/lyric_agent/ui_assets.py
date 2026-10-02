@@ -16,6 +16,25 @@ _HEAD_JS = """
     }
   } catch (e) {}
 })();
+// keep the selected song visible inside the capped song list (only when
+// the selection changes — never fight the user's own scrolling)
+(function() {
+  let lastSel = null;
+  setInterval(() => {
+    const c = document.querySelector('#ll-songs input[type=radio]:checked');
+    if (!c || c.value === lastSel) return;
+    const first = lastSel === null;
+    lastSel = c.value;
+    const label = c.closest('label');
+    if (label) label.scrollIntoView({ block: 'nearest' });
+    // song changed -> drop the stale picked-line index so a later
+    // favorite/ask doesn't act on the previous song's line
+    if (!first) {
+      const lp = document.querySelector('#ll-line-pick textarea, #ll-line-pick input');
+      if (lp && lp.value) { lp.value = ''; lp.dispatchEvent(new Event('input', { bubbles: true })); }
+    }
+  }, 800);
+})();
 // role gating: the backend writes the login role into #ll-role; for
 // non-admins the management tabs are hidden. UI-level gating only.
 (function() {
@@ -283,6 +302,16 @@ _HEAD_JS = """
     const emo = e.target.closest('[data-emo-pick]');
     if (emo) {
       writeChannel('ll-emo-pick', emo.dataset.emoPick + '\\t' + Date.now());
+      return;
+    }
+    const ov = e.target.closest('[data-ov-pick]');
+    if (ov) {
+      writeChannel('ll-ov-pick', ov.dataset.ovPick + '\\t' + Date.now());
+      return;
+    }
+    const fav = e.target.closest('[data-fav]');
+    if (fav) {
+      writeChannel('ll-fav-act', fav.dataset.fav + '\\t' + Date.now());
       return;
     }
     if (e.target.closest('details.egg-more')) return;  // expand, not pick
@@ -742,27 +771,42 @@ footer, .gradio-container footer { display: none !important; }
 }
 
 /* side-panel icon dock: tab nav flipped to the bottom, icon-only */
-#ll-side-dock { display: flex; flex-direction: column-reverse; }
-#ll-side-dock > .tab-nav, #ll-side-dock > div[role="tablist"] {
+.ll-icon-dock { display: flex; flex-direction: column-reverse; }
+.ll-icon-dock > .tab-nav, .ll-icon-dock > div[role="tablist"] {
   justify-content: center; gap: 6px;
   border-bottom: none !important; border-top: 1px solid var(--border);
   padding: 8px 0 2px; margin: 10px 0 0;
+  position: relative; z-index: 3; background: var(--bg-primary);
 }
-#ll-side-dock > .tab-nav button, #ll-side-dock button[role="tab"] {
+.ll-icon-dock > .tabitem, .ll-icon-dock > div[role="tabpanel"] {
+  overflow: visible; padding-bottom: 6px;
+}
+.ll-icon-dock > .tab-nav button, .ll-icon-dock button[role="tab"] {
   font-size: 18px !important; font-weight: 400 !important;
   padding: 6px 12px !important; border-radius: 10px !important;
   border-bottom: none !important; background: transparent !important;
   line-height: 1 !important;
 }
-#ll-side-dock > .tab-nav button:hover,
-#ll-side-dock button[role="tab"]:hover {
+.ll-icon-dock > .tab-nav button:hover,
+.ll-icon-dock button[role="tab"]:hover {
   background: var(--bg-card-hover) !important;
 }
-#ll-side-dock > .tab-nav button.selected,
-#ll-side-dock button[role="tab"][aria-selected="true"] {
+.ll-icon-dock > .tab-nav button.selected,
+.ll-icon-dock button[role="tab"][aria-selected="true"] {
   background: var(--accent-soft) !important;
   border-bottom: none !important;
 }
+
+/* lyric favorites */
+.fav-list { display: flex; flex-direction: column; gap: 6px;
+  max-height: 40vh; overflow-y: auto; scrollbar-width: thin; }
+.fav-item { padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg-card); cursor: pointer; }
+.fav-item:hover { border-color: var(--accent); }
+.fav-line { font-size: 13px; font-style: italic; color: var(--text-primary); }
+.fav-song { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+.fav-del { float: right; color: var(--text-secondary); padding: 0 4px; }
+.fav-del:hover { color: #cf222e; }
 
 /* UI probe report table */
 .probe-table { border-collapse: collapse; font-size: 12.5px; width: 100%; }
