@@ -239,6 +239,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             settings.embedding_model,
             settings.echo_min_similarity,
             settings.echo_min_similarity_cjk,
+            "tour-v3",  # + target/note; filler-only lines dropped
         ]
         cache = ctx.setdefault("echo_maps", {})
         cached = cache.get(song_dir)
@@ -272,13 +273,23 @@ def create_app(settings: Settings) -> gr.Blocks:
         except Exception:
             logger.exception("Echo map failed for %s", song_dir)
             return "", _ECHO_OVERVIEW_EMPTY
+        from .intertextuality.echo_map import is_filler_line
         hits = [
-            (ln, e) for ln, e in zip(lines, echoes) if e is not None
+            (ln, e) for ln, e in zip(lines, echoes)
+            if e is not None and not is_filler_line(ln.text)
         ]
+        anns = data["annotations"]
+
+        def _note(i: int) -> str:
+            a = anns.get(i)
+            s = (a.summary or "").strip() if a else ""
+            return s[:90] + "…" if len(s) > 90 else s
+
         payload = json.dumps({
             "song": info.get("title", ""),
             "lines": [
-                {"i": ln.line_index, "song": e.song, "sim": e.similarity}
+                {"i": ln.line_index, "song": e.song, "sim": e.similarity,
+                 "target": e.line[:80], "note": _note(ln.line_index)}
                 for ln, e in hits
             ],
         }, ensure_ascii=False)
@@ -1858,6 +1869,34 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         # ── AI 助手（行级问答）──
 
+        def _artist_motifs(artist: str) -> dict[str, int]:
+            """word -> n_songs for the artist's mined motifs (cached)."""
+            cache = ctx.setdefault("motifs", {})
+            if artist not in cache:
+                index = _echo_index()
+                if index is None:
+                    cache[artist] = {}
+                else:
+                    cache[artist] = {m["word"]: m["n_songs"]
+                                     for m in mine_motifs(index[1], artist)}
+            return cache[artist]
+
+        def _line_dossier(line_text: str, info: dict,
+                          echoes: list[dict] | None) -> str:
+            """机器检索到的行级互文档案 for the AI context."""
+            parts = []
+            for r in (echoes or [])[:3]:
+                parts.append(f"- 《{r['song']}》：“{r['line']}”"
+                             f"（相似度 {r['similarity']}）")
+            motifs = _artist_motifs(info.get("artist", ""))
+            words = [w for w in re.findall(r"[a-zA-Z']{3,}|[\u4e00-\u9fff]{2,}",
+                                           line_text.casefold())
+                     if w in motifs]
+            for w in sorted(set(words), key=lambda x: -motifs[x]):
+                parts.append(f"- 「{w}」是这位歌手的母题词，"
+                             f"出现在 {motifs[w]} 首歌里")
+            return "\n".join(parts)
+
         def on_line_pick(idx_str: str, choice: str, session):
             idx_str = (idx_str or "").strip()
             if not idx_str.isdigit() or not ctx["songs"]:
@@ -1880,15 +1919,23 @@ def create_app(settings: Settings) -> gr.Blocks:
             saved = None if public else _load_chat_history(info["dir"]).get(str(idx))
             history = saved["turns"] if saved and isinstance(
                 saved.get("turns"), list) else []
+            ann_parts = []
+            if ann:
+                ann_parts.append(ann.summary)
+                if getattr(ann, "metaphor_analysis", None):
+                    ann_parts.append(f"修辞：{ann.metaphor_analysis}")
+                if getattr(ann, "taylor_swift_context", None):
+                    ann_parts.append(f"背景：{ann.taylor_swift_context}")
+            echoes = find_echoes(line.text, info)
             session = DebateSession(
                 lyric_line=line.text,
                 song_title=info.get("title", ""),
                 artist=info.get("artist", ""),
-                annotation_context=ann.summary if ann else "",
+                annotation_context="　".join(ann_parts),
+                echo_context=_line_dossier(line.text, info, echoes),
                 line_index=idx,
                 history=history,
             )
-            echoes = find_echoes(line.text, info)
             if echoes is None:
                 echo, echo_render = None, _ECHO_NO_INDEX
             else:

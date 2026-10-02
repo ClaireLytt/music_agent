@@ -271,6 +271,7 @@ _HEAD_JS = """
   // player tools state (survives per-song re-renders of the audio block)
   let abStart = null, abEnd = null;
   let radioOn = false, rhymeOn = false, radioPending = false;
+  let tourOn = false;
   let lastAudioEl = null;
 
   function getAudio() { return document.getElementById('ll-audio'); }
@@ -289,6 +290,32 @@ _HEAD_JS = """
     if (!box) return;
     box.value = value;
     box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // 🎧 导览: commentary card for the line that just became active
+  function maybeTourCard(idx) {
+    if (!tourOn) return;
+    const box = document.querySelector('#ll-echo-map textarea, #ll-echo-map input');
+    if (!box || !box.value) return;
+    let data;
+    try { data = JSON.parse(box.value); } catch (e) { return; }
+    const title = document.querySelector('.song-title-display');
+    if (!title || title.textContent.trim() !== data.song) return;
+    document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
+    const o = (data.lines || []).find((l) => l.i === idx);
+    if (!o) return;
+    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+    const card = document.createElement('div');
+    card.className = 'll-tour-card';
+    let html = '<div class="tour-head">🎧 AI 导览</div>';
+    if (o.note) html += '<div class="tour-note">📝 ' + esc(o.note) + '</div>';
+    html += '<div class="tour-echo">🥚 这句呼应《' + esc(o.song) + '》';
+    if (o.target) html += '：“' + esc(o.target) + '”';
+    html += '</div><div class="tour-hint">点击卡片关闭 · 详情见右侧 🥚 面板</div>';
+    card.innerHTML = html;
+    card.addEventListener('click', () => card.remove());
+    document.body.appendChild(card);
+    setTimeout(() => { if (card.isConnected) card.remove(); }, 9000);
   }
 
   function applyRhyme() {
@@ -351,6 +378,7 @@ _HEAD_JS = """
             });
           }
         }
+        if (idx >= 0 && idx !== undefined) maybeTourCard(idx);
         lastActive = idx;
       }
       // A-B loop: jump back to A whenever playback passes B
@@ -418,6 +446,8 @@ _HEAD_JS = """
     if (r) r.checked = radioOn;
     const y = document.getElementById('ll-rhyme-toggle');
     if (y) y.checked = rhymeOn;
+    const tg = document.getElementById('ll-tour-toggle');
+    if (tg) tg.checked = tourOn;
     applyRhyme();
     initWave(a);
     if (radioPending) {
@@ -450,6 +480,10 @@ _HEAD_JS = """
   document.addEventListener('change', function(e) {
     if (!e.target) return;
     if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
+    if (e.target.id === 'll-tour-toggle') {
+      tourOn = e.target.checked;
+      if (!tourOn) document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
+    }
     if (e.target.id === 'll-rhyme-toggle') {
       rhymeOn = e.target.checked;
       applyRhyme();
@@ -1051,6 +1085,24 @@ footer, .gradio-container footer { display: none !important; }
 .arch-hit.ev-ok[data-cite-label]:hover { background: var(--bg-card-hover); }
 .arch-hit .ev-src { display: inline; padding-left: 6px; font-size: 12px; color: var(--text-secondary); }
 .arch-foot { margin-top: 12px; font-size: 11.5px; color: var(--text-secondary); }
+
+/* 🎧 tour commentary card */
+.ll-tour-card {
+  position: fixed; right: 18px; bottom: 18px; z-index: 1100; width: 300px;
+  padding: 12px 14px; border-radius: 12px; cursor: pointer;
+  background: var(--bg-card); border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
+  font-size: 12.5px; line-height: 1.65;
+  animation: ll-tour-in .35s ease-out;
+}
+@keyframes ll-tour-in {
+  from { transform: translateY(14px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.ll-tour-card .tour-head { font-weight: 700; margin-bottom: 4px; }
+.ll-tour-card .tour-note { color: var(--text-primary); margin-bottom: 4px; }
+.ll-tour-card .tour-echo { color: var(--text-primary); }
+.ll-tour-card .tour-hint { margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
 
 /* evidence card (可追溯证据) */
 .ev-card {

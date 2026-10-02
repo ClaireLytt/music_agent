@@ -411,6 +411,9 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
         '<label class="ptool-toggle" '
         'title="播完自动切下一首；有串场语音时先播报再进歌">'
         '<input type="checkbox" id="ll-radio-toggle"> 📻 电台模式</label>'
+        '<label class="ptool-toggle" '
+        'title="导览模式：唱到带 🥚 的句子时，自动弹出该句的讲解与它呼应的歌">'
+        '<input type="checkbox" id="ll-tour-toggle"> 🎧 导览</label>'
         '</div>'
     )
 

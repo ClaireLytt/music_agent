@@ -62,6 +62,9 @@ class DebateSession:
     song_title: str
     artist: str = ""
     annotation_context: str = ""
+    # machine-retrieved intertext for THIS line (echoes + motif membership),
+    # so every persona can ground its reading in the artist's other songs
+    echo_context: str = ""
     line_index: int = -1
     history: list[dict] = field(default_factory=list)  # {"speaker","text"}
 
@@ -84,6 +87,10 @@ def _build_context(session: DebateSession) -> str:
     ]
     if session.annotation_context:
         parts.append(f"已有的 AI 批注参考：{session.annotation_context}")
+    if session.echo_context:
+        parts.append("这句歌词在这位歌手其他作品中的呼应（机器检索，"
+                     "可在回答中引用，但不相关的可忽略）：\n"
+                     + session.echo_context)
     if session.history:
         parts.append("辩论记录：")
         for turn in session.history:
