@@ -285,6 +285,50 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("favorites", "favorite a lyric line: add + delete",
                     c_favorites)
 
+        def c_dict_popover():
+            # mini translator: select an English word in the lyrics, dispatch
+            # dblclick, expect the offline-dictionary popover; then ⭐ it into
+            # the wordbook and delete it again (net-zero on wordbook.json)
+            probe.tab("🎧 播放解读")
+            word = pg.evaluate("""() => {
+              const lines = document.querySelectorAll('#lyrics-scroll .lyric-line');
+              for (const line of lines) {
+                const el = line.querySelector('.lyric-text');
+                if (!el || !el.firstChild) continue;
+                const m = el.textContent.match(/[A-Za-z]{5,}/);
+                if (!m) continue;
+                const node = el.firstChild;
+                const i = node.textContent.indexOf(m[0]);
+                if (i < 0) continue;
+                const range = document.createRange();
+                range.setStart(node, i); range.setEnd(node, i + m[0].length);
+                const sel = window.getSelection();
+                sel.removeAllRanges(); sel.addRange(range);
+                line.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+                return m[0];
+              }
+              return null;
+            }""")
+            must(word, "no english word found in current lyrics")
+            probe.wait_until(
+                lambda: count(".ll-dict-pop") == 1
+                and ("收藏单词" in pg.locator(".ll-dict-pop").inner_text()
+                     or "本地词典" in pg.locator(".ll-dict-pop").inner_text()),
+                msg="translator popover did not render a result")
+            if count("[data-dict-fav]"):
+                pg.locator("[data-dict-fav]").click()
+                probe.tab("⭐")
+                probe.wait_until(lambda: count(".wb-item") >= 1,
+                                 msg="word not added to wordbook")
+                item = pg.locator(".wb-item", has_text=word).first
+                item.locator(".wb-del").click()
+                probe.wait_until(
+                    lambda: count(f".wb-item >> text={word}") == 0,
+                    msg="word not removed from wordbook")
+        probe.check("dict_popover",
+                    "dblclick word -> dict popover -> wordbook roundtrip",
+                    c_dict_popover)
+
         def c_song_filter():
             # the filter narrows the radio by title/artist and restores on
             # clear — this path previously broke (dead .input event)

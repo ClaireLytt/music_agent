@@ -246,3 +246,33 @@ def test_debate_speak_fills_persona_placeholders(monkeypatch):
     list(debate.speak(settings, session, "fan"))
     assert "{fan_scope}" not in sent["system"]
     assert "Taylor Swift" in sent["system"]
+
+
+def test_dictionary_lookup_and_lemma():
+    """Offline dict: direct hit, plural via lemma, dancin' suffix, miss."""
+    from lyric_agent.dictionary import lookup
+    assert "围巾" in lookup("scarf")["translation"]
+    assert lookup("cobblestones")["word"] == "cobblestone"
+    assert lookup("dancin'")["word"] == "dancing"
+    assert lookup("Crestfallen")["word"] == "crestfallen"
+    assert lookup("xyzzyqq") is None
+    assert lookup("不是英文") is None
+
+
+def test_wordbook_roundtrip(tmp_path, monkeypatch):
+    from lyric_agent import dictionary as d
+    monkeypatch.setattr(d, "_WORDBOOK_PATH", tmp_path / "wb.json")
+    book = d.add_word("scarf", line="left my scarf there", song="All Too Well")
+    assert len(book) == 1 and book[0]["word"] == "scarf"
+    assert d.add_word("Scarf") == book  # idempotent, case-insensitive
+    assert d.remove_word("SCARF") == []
+
+
+def test_render_wordbook_escapes():
+    from lyric_agent.ui_helpers import render_wordbook
+    html = render_wordbook([{"word": "a<b", "phonetic": "x&y",
+                             "translation": "n. 释义\n第二行",
+                             "line": "<script>", "song": "s"}])
+    assert "a&lt;b" in html and "x&amp;y" in html and "&lt;script&gt;" in html
+    assert "data-wb=" in html
+    assert "还没有收藏的单词" in render_wordbook([])
