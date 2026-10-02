@@ -62,7 +62,7 @@
         "country pop"
       ],
       "theme_weights": {},
-      "avg_rhetoric_density": 0.0,
+      "avg_rhetoric_density": 0.461,
       "ai_summary": "",
       "songs": [
         "back_to_december",
@@ -96,7 +96,7 @@
         "nostalgia": 0.67,
         "identity": 0.33
       },
-      "avg_rhetoric_density": 0.429,
+      "avg_rhetoric_density": 0.354,
       "ai_summary": "Red 是 Taylor 从乡村转向流行的第一次全面越界——「像一段心碎那样五彩斑斓」。情感表达直白而炽烈：围巾、秋叶、深夜车灯构成她第一套成熟的意象系统。All Too Well 在十年后以 10 分钟版本重生，标志着 Taylor's Version 重录运动的核心宣言：夺回叙事权。",
       "songs": [
         "22",
@@ -125,7 +125,7 @@
         "synth-pop"
       ],
       "theme_weights": {},
-      "avg_rhetoric_density": 0.0,
+      "avg_rhetoric_density": 0.484,
       "ai_summary": "",
       "songs": [
         "bad_blood",
@@ -215,7 +215,7 @@
         "pain": 0.67,
         "irony": 0.33
       },
-      "avg_rhetoric_density": 0.47,
+      "avg_rhetoric_density": 0.472,
       "ai_summary": "隔离期间的文学转向——从自传体写作跳到虚构叙事，第一次大规模使用第三人称视角。与 Aaron Dessner 的合作带来极简的室内民谣美学，歌词密度与隐喻复杂度达到生涯峰值。Betty–James–Augustine 三部曲证明：她不再只写自己的故事，而是在建造一个可以住进去的世界。",
       "songs": [
         "august",
