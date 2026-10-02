@@ -38,11 +38,16 @@ with io.open(SRC, encoding="utf-8", errors="replace", newline="") as f:
         ])
         if not has_signal:
             continue
-        kept[w.lower()] = (w, (row.get("phonetic") or "").strip(), tr)
+        rank = 0
+        for col in ("frq", "bnc"):
+            v = (row.get(col) or "0").strip()
+            if v.isdigit() and int(v) > 0:
+                rank = int(v) if rank == 0 else min(rank, int(v))
+        kept[w.lower()] = (w, (row.get("phonetic") or "").strip(), tr, rank)
 
 with gzip.open(OUT, "wt", encoding="utf-8", newline="") as gz:
     wr = csv.writer(gz)
-    wr.writerow(["word", "phonetic", "translation"])
+    wr.writerow(["word", "phonetic", "translation", "frq"])
     for key in sorted(kept):
         wr.writerow(kept[key])
 

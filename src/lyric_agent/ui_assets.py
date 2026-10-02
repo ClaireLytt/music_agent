@@ -1032,6 +1032,26 @@ footer, .gradio-container footer { display: none !important; }
   border-bottom: none !important;
 }
 
+/* archaeology report (母题考古) */
+.arch-report {
+  padding: 14px 16px; border-radius: 12px; background: var(--bg-card);
+  border: 1px solid var(--border); font-size: 13px; line-height: 1.7;
+}
+.arch-head { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+.arch-overview { color: var(--text-primary); margin-bottom: 10px; }
+.arch-motif {
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 10px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+}
+.arch-word { font-weight: 700; font-size: 14px; }
+.arch-n { font-weight: 400; font-size: 12px; color: var(--text-secondary); margin-left: 8px; }
+.arch-arc { margin: 4px 0 8px; color: var(--text-primary); }
+.arch-hit { margin: 3px 0; font-size: 12.5px; }
+.arch-hit.ev-ok[data-cite-label] { cursor: pointer; border-radius: 8px; padding: 2px 4px; }
+.arch-hit.ev-ok[data-cite-label]:hover { background: var(--bg-card-hover); }
+.arch-hit .ev-src { display: inline; padding-left: 6px; font-size: 12px; color: var(--text-secondary); }
+.arch-foot { margin-top: 12px; font-size: 11.5px; color: var(--text-secondary); }
+
 /* evidence card (可追溯证据) */
 .ev-card {
   margin-top: 8px; padding: 12px 14px; border-radius: 12px;

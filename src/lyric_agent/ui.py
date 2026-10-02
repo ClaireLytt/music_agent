@@ -36,6 +36,8 @@ from .config import (
 from .debate import PERSONAS, DebateSession, speak as ai_speak
 from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
                          remove_word)
+from .archaeology import (load_report, mine_motifs, parse_report,
+                           render_report, report_messages, save_report)
 from .evidence import QuoteIndex, parse_claims, render_evidence_card
 from .ui_helpers import render_wordbook
 from .evolution.engine import load_or_build
@@ -659,6 +661,20 @@ def create_app(settings: Settings) -> gr.Blocks:
                             "🕵️ 开始破案（AI 推理，约 10-30 秒）",
                             variant="primary")
                         uni_html = gr.HTML(UNIVERSE_EMPTY)
+                    with gr.Tab("🏺 考古报告"):
+                        gr.Markdown(
+                            "机器全库挖掘这位歌手反复埋藏的**母题意象**"
+                            "（出现在 ≥3 首歌里的特征词 + 每首歌的原句证据），"
+                            "AI 只负责把证据讲成跨专辑的叙事弧线——"
+                            "每条引句都可点击跳回原歌原句。"
+                        )
+                        arch_btn = gr.Button(
+                            "🏺 生成考古报告（已有缓存则秒开）",
+                            variant="primary")
+                        arch_html = gr.HTML(
+                            '<div class="chat-empty">选好歌手后点上面的'
+                            '按钮。报告按歌手缓存，生成一次处处可用。</div>')
+
                     with gr.Tab("💌 隔空回信"):
                         gr.Markdown("选一对呼应的歌，让前一首的叙事者给"
                                     "后一首写信——信里会原样嵌入两首歌"
@@ -1400,6 +1416,55 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         uni_artist.change(on_uni_artist, [uni_artist], [letter_pair])
         uni_btn.click(on_universe, [uni_artist, user_llm], [uni_html])
+
+        _REPORTS_DIR = Path(settings.songs_dir).parent / "reports"
+
+        def on_archaeology(artist: str, user_cfg):
+            if not artist or artist.startswith("🌐"):
+                yield ('<div class="chat-empty">请先在上方选择一位'
+                       '具体的歌手。</div>')
+                return
+            index = _echo_index()
+            if index is None:
+                yield ('<div class="chat-empty">语料库索引不可用，'
+                       '请先在设置页重建索引。</div>')
+                return
+            _, corpus = index
+            yield '<div class="chat-empty">⛏️ 正在全库挖掘母题证据……</div>'
+            motifs = mine_motifs(corpus, artist)
+            if not motifs:
+                yield render_report(artist, [], {}, None, None)
+                return
+            req_settings = _request_settings(user_cfg)
+            narrative = load_report(_REPORTS_DIR, artist,
+                                    req_settings.model_name)
+            if narrative is None:
+                if public and not req_settings.api_key:
+                    # evidence still renders without the narrative pass
+                    yield render_report(artist, motifs,
+                                        {"overview": _PUBLIC_KEY_HINT},
+                                        _quote_verifier(), _label_of())
+                    return
+                yield ('<div class="chat-empty">⛏️ 证据挖掘完成，'
+                       '✍️ AI 正在撰写叙事弧线（约 10-20 秒）……</div>')
+                from .llm import LLMClient
+                system, user = report_messages(artist, motifs)
+                try:
+                    resp = LLMClient(req_settings).generate(
+                        system_prompt=system, user_message=user)
+                    narrative = parse_report(resp.reply_text) or {}
+                    if narrative.get("arcs"):
+                        save_report(_REPORTS_DIR, artist,
+                                    req_settings.model_name, narrative)
+                except Exception as exc:
+                    logger.exception("Archaeology narrative failed")
+                    narrative = {"overview":
+                                 f"⚠️ AI 叙事生成失败（{str(exc)[:80]}），"
+                                 "以下为机器挖掘的原始证据。"}
+            yield render_report(artist, motifs, narrative,
+                                _quote_verifier(), _label_of())
+
+        arch_btn.click(on_archaeology, [uni_artist, user_llm], [arch_html])
         letter_card_btn.click(on_letter_card, [letter_state],
                               [letter_card_img, letter_card_status])
         letter_btn.click(on_letter, [uni_artist, letter_pair, user_llm],

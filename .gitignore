@@ -35,3 +35,4 @@ data/songs/*/
 data/favorites.json
 data/wordbook.json
 data/dict/ai_cache.json
+data/reports/

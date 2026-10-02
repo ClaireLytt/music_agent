@@ -42,7 +42,8 @@ def _load() -> None:
                            encoding="utf-8") as f:
                 for row in csv.DictReader(f):
                     d[row["word"].lower()] = (
-                        row["word"], row["phonetic"], row["translation"])
+                        row["word"], row["phonetic"], row["translation"],
+                        int(row.get("frq") or 0))
             with gzip.open(_DICT_DIR / "lemma.en.txt.gz", "rt",
                            encoding="utf-8") as f:
                 for line in f:
@@ -86,6 +87,19 @@ def lookup(word: str) -> dict | None:
         if hit:
             return {"word": hit[0], "phonetic": hit[1], "translation": hit[2]}
     return None
+
+
+def rank(word: str) -> int:
+    """Corpus-frequency rank of a word (ECDICT frq/BNC; smaller = more
+    common). Inflections resolve through the lemma map; 0 = unranked
+    (rare or unknown)."""
+    _load()
+    assert _dict is not None
+    ranks = [hit[3] for key in _candidates(word or "")
+             for hit in [_dict.get(key)]
+             if hit and len(hit) > 3 and hit[3] > 0]
+    # min across inflection candidates: "dancing" is as common as "dance"
+    return min(ranks) if ranks else 0
 
 
 # ── wordbook (collected words) ──────────────────────────────
