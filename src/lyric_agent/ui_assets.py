@@ -879,12 +879,13 @@ footer, .gradio-container footer { display: none !important; }
   paint-order: stroke; stroke: var(--bg-primary); stroke-width: 3px;
 }
 
-/* side-panel icon dock: tab nav flipped to the bottom, icon-only */
-.ll-icon-dock { display: flex; flex-direction: column-reverse; }
+/* side-panel icon dock: icon-only tab nav on TOP, content expands below */
+.ll-icon-dock { display: flex; flex-direction: column; }
 .ll-icon-dock > .tab-nav, .ll-icon-dock > div[role="tablist"] {
   justify-content: center; gap: 6px;
-  border-bottom: none !important; border-top: 1px solid var(--border);
-  padding: 8px 0 2px; margin: 10px 0 0;
+  border-top: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  padding: 2px 0 8px; margin: 0 0 10px;
   position: relative; z-index: 3; background: var(--bg-primary);
 }
 .ll-icon-dock > .tabitem, .ll-icon-dock > div[role="tabpanel"] {
