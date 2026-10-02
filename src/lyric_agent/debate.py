@@ -127,7 +127,9 @@ def speak(
     def worker() -> None:
         try:
             resp = client.generate(
-                system_prompt=PERSONAS[persona]["system"],
+                # persona_system fills {artist_scope}/{fan_scope} with the
+                # session's artist — the raw template must never go out
+                system_prompt=persona_system(persona, session.artist),
                 user_message=f"{context}\n\n{instruction}",
                 on_text_delta=q.put,
             )

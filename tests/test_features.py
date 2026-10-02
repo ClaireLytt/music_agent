@@ -216,3 +216,33 @@ def test_title_puzzle_no_mixed_script_garbage():
             # never containing spaces/parens/punctuation
             assert piece.strip() == piece
             assert not any(c in piece for c in " ()（）.-"), (title, piece)
+
+
+def test_debate_speak_fills_persona_placeholders(monkeypatch):
+    """speak() must send persona_system() output, never the raw template
+    (the {fan_scope}/{artist_scope} placeholders)."""
+    from lyric_agent import debate
+    from lyric_agent.config import Settings
+
+    sent = {}
+
+    class FakeResp:
+        reply_text = "ok"
+
+    class FakeClient:
+        def __init__(self, settings):
+            pass
+
+        def generate(self, system_prompt, user_message, on_text_delta):
+            sent["system"] = system_prompt
+            on_text_delta("ok")
+            return FakeResp()
+
+    import lyric_agent.llm as llm
+    monkeypatch.setattr(llm, "LLMClient", FakeClient)
+    session = debate.DebateSession(
+        lyric_line="line", song_title="song", artist="Taylor Swift")
+    settings = Settings(api_key="test-key")
+    list(debate.speak(settings, session, "fan"))
+    assert "{fan_scope}" not in sent["system"]
+    assert "Taylor Swift" in sent["system"]
