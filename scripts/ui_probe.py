@@ -329,6 +329,43 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     "dblclick word -> dict popover -> wordbook roundtrip",
                     c_dict_popover)
 
+        def c_cite_jump():
+            # evidence-card citation jump: a [data-cite-label] click must
+            # switch to that song and flash the cited line (zero-LLM: the
+            # card is injected, exercising the delegate + channel + watcher)
+            probe.tab("🎧 播放解读")
+            target = pg.evaluate("""() => {
+              const radios = document.querySelectorAll('#ll-songs input[type=radio]');
+              const cur = document.querySelector('#ll-songs input[type=radio]:checked');
+              for (const r of radios) {
+                if (r !== cur) {
+                  const el = document.createElement('div');
+                  el.id = 'probe-cite';
+                  el.dataset.citeLabel = r.value;
+                  el.dataset.citeLine = '2';
+                  el.textContent = 'probe cite';
+                  document.body.appendChild(el);
+                  return r.value;
+                }
+              }
+              return null;
+            }""")
+            must(target, "library too small for a cite jump")
+            pg.locator("#probe-cite").click()
+            probe.wait_until(
+                lambda: pg.evaluate(
+                    """() => { const c = document.querySelector(
+                        '#ll-songs input[type=radio]:checked');
+                      return c ? c.value : ''; }""") == target,
+                msg="cite jump did not switch the song")
+            probe.wait_until(
+                lambda: count(".lyric-line.cite-flash") >= 1,
+                msg="cited line did not flash after the jump")
+            pg.evaluate("() => document.getElementById('probe-cite').remove()")
+        probe.check("cite_jump",
+                    "evidence citation click -> song switch + line flash",
+                    c_cite_jump)
+
         def c_song_filter():
             # the filter narrows the radio by title/artist and restores on
             # clear — this path previously broke (dead .input event)

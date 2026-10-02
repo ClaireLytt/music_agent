@@ -276,3 +276,75 @@ def test_render_wordbook_escapes():
     assert "a&lt;b" in html and "x&amp;y" in html and "&lt;script&gt;" in html
     assert "data-wb=" in html
     assert "还没有收藏的单词" in render_wordbook([])
+
+
+def _evidence_fixture(tmp_path):
+    songs = []
+    for name, lines in (
+        ("all_too_well", ["I walked through the door with you",
+                          "And I, left my scarf there at your sister's house"]),
+        ("red", ["Losing him was blue like I'd never known"]),
+    ):
+        d = tmp_path / name
+        d.mkdir()
+        lrc = "\n".join(f"[00:0{i+1}.00] {t}" for i, t in enumerate(lines))
+        (d / "lyrics.lrc").write_text(lrc, encoding="utf-8")
+        songs.append({"title": name.replace("_", " ").title(),
+                      "dir": str(d)})
+    return songs
+
+
+def test_evidence_verify_quote(tmp_path):
+    from lyric_agent.evidence import QuoteIndex
+    idx = QuoteIndex(_evidence_fixture(tmp_path))
+    # exact (normalized: case/punctuation-insensitive)
+    hit = idx.verify("left my scarf there at your sister's house",
+                     song_hint="All Too Well")
+    assert hit and hit["song_title"] == "All Too Well"
+    assert hit["line_index"] == 1
+    # containment fallback (>=15 normalized chars)
+    assert idx.verify("losing him was blue like") is not None
+    # hallucinated quote -> None
+    assert idx.verify("the moon is made of synthwave") is None
+    assert idx.verify("") is None
+
+
+def test_evidence_parse_claims():
+    from lyric_agent.evidence import parse_claims
+    raw = """```json
+{"conclusion": "围巾是信物", "quotes": [{"text": "left my scarf", "song": "ATW"},
+ "bare string quote"], "facts": ["Red 2012"], "speculation": ["指向某前任"]}
+```"""
+    c = parse_claims(raw)
+    assert c["conclusion"] == "围巾是信物"
+    assert len(c["quotes"]) == 2 and c["quotes"][1]["song"] == ""
+    assert c["facts"] == ["Red 2012"] and c["speculation"] == ["指向某前任"]
+    assert parse_claims("not json at all") is None
+    assert parse_claims("") is None
+
+
+def test_evidence_card_layers_and_interception(tmp_path):
+    from lyric_agent.evidence import QuoteIndex, render_evidence_card
+    idx = QuoteIndex(_evidence_fixture(tmp_path))
+    claims = {
+        "conclusion": "结论<script>",
+        "quotes": [
+            {"text": "left my scarf there at your sister's house",
+             "song": "All Too Well"},
+            {"text": "a fabricated quote that never existed", "song": "Red"},
+        ],
+        "facts": ["Red 发行于 2012"],
+        "speculation": ["<img onerror=x> 推测内容"],
+    }
+    html = render_evidence_card(claims, idx,
+                                {"All Too Well": "All Too Well"})
+    # verified quote: ✅ + clickable jump with the line index
+    assert "✅" in html and 'data-cite-label="All Too Well"' in html
+    assert 'data-cite-line="1"' in html
+    # hallucinated quote intercepted: ⚠️, no jump attrs on it
+    assert "⚠️" in html and "未在曲库中找到" in html
+    assert html.count("data-cite-label") == 1
+    # layers + confidence (1 verified -> 中)
+    assert "💭 推测" in html and "📅" in html and "置信度：中" in html
+    # hostile input never reaches HTML unescaped
+    assert "<script>" not in html and "<img" not in html
