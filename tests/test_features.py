@@ -388,3 +388,34 @@ def test_archaeology_parse_and_render():
     assert "<b>" not in html and "X&lt;y&gt;" in html
     assert "弧线" in html
     assert "语料不足" in render_report("X", [], {}, None, None)
+
+
+def test_debate_context_carries_line_dossier(monkeypatch):
+    """The per-line dossier (echoes + motifs) must reach every persona."""
+    from lyric_agent import debate
+    from lyric_agent.config import Settings
+
+    sent = {}
+
+    class FakeResp:
+        reply_text = "ok"
+
+    class FakeClient:
+        def __init__(self, settings):
+            pass
+
+        def generate(self, system_prompt, user_message, on_text_delta):
+            sent["user"] = user_message
+            on_text_delta("ok")
+            return FakeResp()
+
+    import lyric_agent.llm as llm
+    monkeypatch.setattr(llm, "LLMClient", FakeClient)
+    session = debate.DebateSession(
+        lyric_line="left my scarf there", song_title="All Too Well",
+        artist="Taylor Swift",
+        annotation_context="围巾是信物　修辞：转喻",
+        echo_context="- 《ATW10》：“you keep my old scarf”（相似度 0.7）")
+    list(debate.speak(Settings(api_key="k"), session, "assistant"))
+    assert "you keep my old scarf" in sent["user"]
+    assert "围巾是信物" in sent["user"] and "转喻" in sent["user"]

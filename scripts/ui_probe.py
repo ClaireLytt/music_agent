@@ -393,6 +393,21 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     "archaeology report refuses the cross-artist entry",
                     c_archaeology_guard)
 
+        def c_tour_toggle():
+            # 🎧 导览 toggle ships with the player tools — audio songs only
+            # (reading-mode songs have no player toolbar at all)
+            probe.tab("🎧 播放解读")
+            pg.get_by_role("radio", name=AUDIO_SONG, exact=True).check()
+            probe.wait_until(lambda: count("#ll-tour-toggle") == 1,
+                             msg="tour toggle missing on an audio song")
+            pg.locator("#ll-tour-toggle").check()
+            pg.wait_for_timeout(300)
+            must(pg.locator("#ll-tour-toggle").is_checked(),
+                 "tour toggle did not check")
+            pg.locator("#ll-tour-toggle").uncheck()
+        probe.check("tour_toggle", "🎧 tour toggle present + togglable",
+                    c_tour_toggle)
+
         def c_song_filter():
             # the filter narrows the radio by title/artist and restores on
             # clear — this path previously broke (dead .input event)
