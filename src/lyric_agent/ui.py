@@ -53,6 +53,11 @@ from .ui_assets import _CSS, _HEAD_JS
 from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _CATALOG_PATH,
     _CHAT_HINT,
+    _OVERVIEW_CSS,
+    _load_favorites,
+    _render_favorites,
+    _save_favorites,
+    render_artist_overview,
     _CHAT_TOPIC_DEFAULT,
     _ECHO_HINT,
     _ECHO_NO_INDEX,
@@ -90,7 +95,8 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
 def launch_kwargs() -> dict:
     """Style/head kwargs for app.launch() (Gradio 6 moved them off Blocks)."""
     return {
-        "css": _CSS + EVOLUTION_CSS + ECHO_MAP_CSS + UNIVERSE_CSS + MV_CSS,
+        "css": (_CSS + EVOLUTION_CSS + ECHO_MAP_CSS + UNIVERSE_CSS + MV_CSS
+                + _OVERVIEW_CSS),
         "head": _HEAD_JS,
         "theme": gr.themes.Base(primary_hue="blue", neutral_hue="slate"),
     }
@@ -101,6 +107,7 @@ def create_app(settings: Settings) -> gr.Blocks:
     public = settings.public_mode
 
     def refresh_library() -> None:
+        ctx.pop("overview_html", None)  # library changed -> stale overviews
         # hackathon-playlist material is licensed for offline demo only —
         # never expose it on a public deployment
         songs = _discover_songs(
@@ -326,6 +333,16 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     file_types=[".mp3", ".wav", ".flac",
                                                 ".ogg", ".m4a"])
                                 audio_up_status = gr.Markdown("")
+                            # delete rides the per-song ⋯ menu (JS):
+                            # the menu confirms, then writes the label here
+                            del_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-del-song",
+                                elem_classes=["ll-hidden"],
+                                show_label=False, container=False)
+                            manage_refresh_btn = gr.Button(
+                                "🔄 刷新曲库（手动增删过歌曲目录后同步）",
+                                size="sm", elem_id="ll-refresh-btn")
                         sort_mode = gr.Radio(
                             choices=[
                                 ("添加顺序（最早在前）", "added_asc"),
@@ -365,7 +382,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # side panel: one flat content per icon, the
                         # icon dock sits at the BOTTOM (CSS column-reverse
                         # on #ll-side-dock)
-                        with gr.Tabs(elem_id="ll-side-dock"):
+                        with gr.Tabs(elem_id="ll-side-dock",
+                                     elem_classes=["ll-icon-dock"]):
                             with gr.Tab("🥚"):
                                 with gr.Column(elem_id="ll-echo"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -397,14 +415,16 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     if not public:
                                         intro_btn = gr.Button(
                                             "🪄 生成 30 秒导读", size="sm")
-                            with gr.Tab("🎬"):
-                                with gr.Column(elem_id="ll-mv"):
-                                    gr.HTML('<div class="side-panel-title">'
-                                            '🎬 MV 彩蛋</div>')
-                                    mv_html = gr.HTML(MV_EMPTY)
-                                    if not public:
-                                        mv_btn = gr.Button(
-                                            "🎬 生成 MV 彩蛋", size="sm")
+                            if not public:
+                                with gr.Tab("⭐"):
+                                    with gr.Column(elem_id="ll-favs"):
+                                        gr.HTML('<div class="side-panel-title">'
+                                                '⭐ 歌词收藏夹</div>')
+                                        fav_add_btn = gr.Button(
+                                            "⭐ 收藏当前选中的歌词", size="sm")
+                                        fav_status = gr.Markdown("")
+                                        favs_html = gr.HTML(
+                                            _render_favorites(_load_favorites()))
                             with gr.Tab("🖼️"):
                                 with gr.Column(elem_id="ll-card"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -455,6 +475,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                             value="0", visible=True, elem_id="ll-cur-time",
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
+                        # JS -> backend: favorite entry clicks
+                        # ("jump:<i>" / "del:<i>")
+                        fav_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-fav-act",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
                         # JS -> backend: delete-note clicks (note index)
                         note_del_box = gr.Textbox(
                             value="", visible=True, elem_id="ll-note-del",
@@ -463,7 +489,23 @@ def create_app(settings: Settings) -> gr.Blocks:
 
             # ══ 页签 2: 艺术家图谱 ══
             with gr.Tab("🗺️ 艺术家图谱"):
-                evolution_html = gr.HTML("")
+                gr.Markdown("选一位歌手，看 TA 的专辑概览"
+                            "（歌曲按专辑归类）。")
+                overview_artist = gr.Dropdown(
+                    choices=[], value=None, label="选择歌手",
+                    allow_custom_value=True, elem_id="ll-overview-artist")
+                overview_html = gr.HTML("")
+                # JS -> backend: clicked song chip in the overview. Its own
+                # channel, in THIS tab — the insights-tab emo-pick box is
+                # lazy-rendered and absent when viewing the overview.
+                overview_pick_box = gr.Textbox(
+                    value="", visible=True, elem_id="ll-ov-pick",
+                    elem_classes=["ll-hidden"], show_label=False,
+                    container=False)
+                with gr.Accordion(
+                        "📊 Taylor Swift 时代演变（详细图，仅 Taylor 有数据）",
+                        open=False):
+                    evolution_html = gr.HTML("")
 
             # ══ 页签 3: 彩蛋地图 ══
             with gr.Tab("🥚 彩蛋地图"):
@@ -517,6 +559,40 @@ def create_app(settings: Settings) -> gr.Blocks:
                             imagery_btn = gr.Button("追踪", scale=1,
                                                     variant="primary")
                         imagery_html = gr.HTML("")
+                    with gr.Tab("🎬 MV 彩蛋") as mv_tab:
+                        gr.Markdown("选一首歌，AI 整理它官方 MV 的导演、"
+                                    "隐藏细节与歌词呼应（结果按歌缓存）。")
+                        mv_song_dd = gr.Dropdown(
+                            choices=song_choices(), value=None,
+                            label="选择歌曲", allow_custom_value=True,
+                            elem_id="ll-mv-song")
+                        with gr.Column(elem_id="ll-mv"):
+                            mv_html = gr.HTML(MV_EMPTY)
+                        if not public:
+                            mv_btn = gr.Button("🎬 生成 MV 彩蛋", size="sm")
+                        # library may grow while the app runs — refresh the
+                        # song picker whenever this sub-tab is opened
+                        mv_tab.select(
+                            lambda: gr.Dropdown(choices=song_choices()),
+                            None, [mv_song_dd])
+
+                        def _on_mv_song(choice: str, user_cfg):
+                            from .mv_eggs import (load_mv, parse_mv,
+                                                  render_mv_html)
+                            if not choice:
+                                return MV_EMPTY
+                            info = find_song(choice)
+                            model = _request_settings(user_cfg).model_name
+                            cached = load_mv(info["dir"], model)
+                            if cached is None:
+                                return (MV_EMPTY if not public else
+                                        '<div class="chat-empty">该歌曲还没有'
+                                        'MV 彩蛋（公开版不提供现场生成）。</div>')
+                            return render_mv_html(parse_mv(cached),
+                                                  info.get("title", ""),
+                                                  info.get("artist", ""))
+                        mv_song_dd.change(_on_mv_song, [mv_song_dd, user_llm],
+                                          [mv_html])
 
             # ══ 页签 3.5: 歌词宇宙侦探 ══
             with gr.Tab("🕵️ 歌词宇宙"):
@@ -611,21 +687,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                                                      variant="primary", scale=1)
                             quiz_submit_btn = gr.Button("提交答案", scale=1)
                         quiz_result = gr.Markdown("")
-                    with gr.Tab("🕳️ 歌名挖空"):
-                        gr.Markdown("这句歌词唱到了歌名本身——歌名被挖掉了，"
-                                    "猜猜被挖掉的是哪首歌的名字。")
+                    with gr.Tab("🧩 歌名拼图"):
+                        gr.Markdown("歌名被挖掉了一块——从选项里把它"
+                                    "拼回完整。")
                         blank_state = gr.State(
                             {"score": 0, "total": 0, "answer": "", "reveal": ""})
                         blank_html = gr.HTML(
-                            '<div class="chat-empty">点「来一题」抽一句'
-                            '挖掉歌名的歌词。</div>')
+                            '<div class="chat-empty">点「来一题」抽一个'
+                            '缺了一块的歌名。</div>')
                         blank_options = gr.Radio(choices=[],
-                                                 label="被挖掉的歌名是？",
+                                                 label="被挖掉的是哪一块？",
                                                  visible=False)
                         with gr.Row():
-                            blank_new_btn = gr.Button("🕳️ 来一题",
+                            blank_new_btn = gr.Button("🧩 来一题",
                                                       variant="primary", scale=1)
-                            blank_submit_btn = gr.Button("🕳️ 选好了", scale=1)
+                            blank_submit_btn = gr.Button("🧩 拼好了", scale=1)
                         blank_result = gr.Markdown("")
                     with gr.Tab("🥚 彩蛋猜猜乐"):
                         gr.Markdown("抽一句有回声的歌词，猜它在同一歌手的"
@@ -650,7 +726,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                     with gr.Tab("🎙️ 听歌识曲"):
                         gr.Markdown("用麦克风录一段（或上传一段音频片段），"
                                     "在你的本地曲库中识别是哪首歌、"
-                                    "唱到了哪里。")
+                                    "唱到了哪里。\n\n"
+                                    "> 🎤 麦克风用不了？浏览器只在 "
+                                    "**localhost / 127.0.0.1 或 HTTPS** 下"
+                                    "放行录音。用局域网 IP（如 192.168.x.x）"
+                                    "访问会被禁麦——改用 127.0.0.1，或直接"
+                                    "**上传**一段音频片段。")
                         fp_audio = gr.Audio(sources=["microphone", "upload"],
                                             type="numpy",
                                             label="录一段或上传片段")
@@ -663,9 +744,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                     catalog = _load_catalog()
                     cat_labels = [f"{c['title']} — {c['artist']}" for c in catalog]
                     gr.Markdown(
-                        f"### 从曲库添加（推荐）\n"
-                        f"内置 {len(catalog)} 首中外热门歌曲（带时间戳歌词），"
-                        "搜索后勾选一首或多首，一键添加到你的列表。"
+                        f"### 添加歌曲\n"
+                        f"搜索会同时覆盖**内置曲库（{len(catalog)} 首）"
+                        "**和**你已添加的歌**；已在列表里的会标注"
+                        "「✓ 已在列表」且不可重复勾选。勾选一首或多首后"
+                        "一键添加。"
                     )
                     cat_search = gr.Textbox(
                         label="搜索曲库（歌名 / 歌手 / 专辑）", elem_id="ll-cat-search")
@@ -688,12 +771,17 @@ def create_app(settings: Settings) -> gr.Blocks:
                             "获取失败则先创建占位歌词，之后可随时编辑歌曲目录下的 `lyrics.lrc`。"
                         )
                         with gr.Row():
-                            add_title = gr.Textbox(label="歌曲标题（必填）")
-                            add_artist = gr.Textbox(label="歌手（选填）")
+                            add_title = gr.Textbox(label="歌曲标题（必填）",
+                                                   elem_id="ll-add-title")
+                            add_artist = gr.Dropdown(
+                                choices=[], value=None,
+                                label="歌手（选填 — 可从已有歌手里选，也可直接输入）",
+                                allow_custom_value=True,
+                                elem_id="ll-add-artist")
                             add_album = gr.Textbox(label="专辑（选填）")
                         add_lrc = gr.Textbox(
                             label="LRC 歌词（选填 — 格式如 [00:12.34] 歌词内容，留空将自动从 LRCLIB 获取）",
-                            lines=8)
+                            lines=8, elem_id="ll-add-lrc")
                         with gr.Row():
                             add_lrc_file = gr.File(
                                 label="或上传 .lrc 文件（可选，优先于文本框）",
@@ -703,91 +791,86 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 file_types=[".mp3", ".wav", ".m4a", ".ogg", ".flac"])
                         add_btn = gr.Button("💾 保存歌曲", variant="primary")
 
-                    with gr.Accordion("🗂️ 管理歌曲列表", open=False):
-                        gr.Markdown(
-                            "从列表中**永久删除**一首歌（连同其歌词/批注/音频目录）。"
-                            "如果你在磁盘上手动增删过歌曲目录，点「刷新曲库」让列表同步。"
-                        )
-                        manage_song = gr.Dropdown(
-                            choices=choices, value=None, label="选择要删除的歌曲",
-                            # newly added songs land via the add handlers'
-                            # updates; custom values keep raw API calls working
-                            allow_custom_value=True)
-                        manage_confirm = gr.Checkbox(
-                            label="我确认要删除这首歌（不可恢复）", value=False)
-                        with gr.Row():
-                            manage_del_btn = gr.Button("🗑️ 删除所选歌曲", scale=1)
-                            manage_refresh_btn = gr.Button("🔄 刷新曲库", scale=1)
-                        manage_status = gr.Markdown("")
-
-            # ══ 页签 7: 设置 ══
+            # ══ 页签 7: 设置（三块功能 = 三个底部图标） ══
             with gr.Tab("⚙️ 设置"):
-                if public:
-                    gr.Markdown(
-                        "### API 设置（公开体验版）\n"
-                        "请填入**你自己的**大模型 API Key。"
-                        "Key 只会保存在你当前浏览器的本地存储（localStorage）中，"
-                        "**不会上传或写入服务器**，其他访客也看不到。"
-                    )
-                else:
-                    gr.Markdown(
-                        "### API 设置\n"
-                        "在这里填入你自己的大模型 API Key，点保存后**立即生效**，"
-                        "无需改任何文件、无需重启。"
-                    )
-                set_provider = gr.Radio(
-                    choices=[
-                        ("OpenAI 兼容接口（DeepSeek / 通义 / Kimi 等）", "openai"),
-                        ("Anthropic（Claude）", "anthropic"),
-                    ],
-                    value="openai" if public else settings.llm_provider,
-                    label="接口类型")
-                set_key = gr.Textbox(
-                    label="API Key（必填）", type="password",
-                    value="" if public else settings.api_key)
-                set_base = gr.Textbox(
-                    label="接口地址（选填 — OpenAI 兼容接口才需要，例如 https://api.deepseek.com）",
-                    value="" if public else settings.llm_base_url)
-                set_model = gr.Textbox(
-                    label="模型名称（选填 — 留空自动使用默认模型）",
-                    value="" if public else settings.model_name)
-                set_btn = gr.Button("💾 保存设置", variant="primary")
-                set_status = gr.Markdown("")
+                with gr.Tabs(elem_classes=["ll-icon-dock"]):
+                    with gr.Tab("🔑"):
+                        if public:
+                            gr.Markdown(
+                                "### 🔑 API 设置（公开体验版）\n"
+                                "请填入**你自己的**大模型 API Key。"
+                                "Key 只会保存在你当前浏览器的本地存储"
+                                "（localStorage）中，**不会上传或写入服务器**，"
+                                "其他访客也看不到。"
+                            )
+                        else:
+                            gr.Markdown(
+                                "### 🔑 API 设置\n"
+                                "在这里填入你自己的大模型 API Key，点保存后"
+                                "**立即生效**，无需改任何文件、无需重启。"
+                            )
+                        set_provider = gr.Radio(
+                            choices=[
+                                ("OpenAI 兼容接口（DeepSeek / 通义 / Kimi 等）",
+                                 "openai"),
+                                ("Anthropic（Claude）", "anthropic"),
+                            ],
+                            value="openai" if public else settings.llm_provider,
+                            label="接口类型")
+                        set_key = gr.Textbox(
+                            label="API Key（必填）", type="password",
+                            value="" if public else settings.api_key)
+                        set_base = gr.Textbox(
+                            label="接口地址（选填 — OpenAI 兼容接口才需要，"
+                                  "例如 https://api.deepseek.com）",
+                            value="" if public else settings.llm_base_url)
+                        set_model = gr.Textbox(
+                            label="模型名称（选填 — 留空自动使用默认模型）",
+                            value="" if public else settings.model_name)
+                        set_btn = gr.Button("💾 保存设置", variant="primary")
+                        set_status = gr.Markdown("")
 
-                if not public:
-                    gr.Markdown(
-                        "---\n### 语料库与 Embedding 模型\n"
-                        "彩蛋/互文/语义搜索使用本地 embedding 模型。默认英文模型对"
-                        "中文歌词区分度差；曲库以中文为主时，建议切换到多语模型后"
-                        "**重建索引**（首次会下载模型，重建需 1-3 分钟）。"
-                    )
-                    emb_model_dd = gr.Dropdown(
-                        choices=[
-                            ("英文为主（默认）：all-MiniLM-L6-v2",
-                             "all-MiniLM-L6-v2"),
-                            ("多语（中英均可）：paraphrase-multilingual-MiniLM-L12-v2",
-                             "paraphrase-multilingual-MiniLM-L12-v2"),
-                        ],
-                        value=settings.embedding_model
-                        if settings.embedding_model in (
-                            "all-MiniLM-L6-v2",
-                            "paraphrase-multilingual-MiniLM-L12-v2")
-                        else None,
-                        allow_custom_value=True,
-                        label="Embedding 模型（可输入任意 sentence-transformers 模型名）")
-                    rebuild_btn = gr.Button("🔨 重建语料库索引（含新添加的歌曲）")
-                    rebuild_status = gr.Markdown("")
-
-                    gr.Markdown(
-                        "---\n### 🧪 UI 自检（开发者）\n"
-                        "启动一个**独立的**巡检服务器实例，用真实浏览器逐页签走查 "
-                        "22+ 项交互（含 JS 报错与服务端异常收集），约 2-3 分钟。"
-                        "发现问题后可在终端运行 `python scripts/ui_agent.py` "
-                        "进入自动修复闭环（改代码需重启，故修复环节不在网页内进行）。"
-                    )
-                    probe_btn = gr.Button("🧪 运行 UI 巡检")
-                    probe_out = gr.Markdown("")
-                    probe_table = gr.HTML("")
+                    if not public:
+                        with gr.Tab("🧠"):
+                            gr.Markdown(
+                                "### 🧠 语料库与 Embedding 模型\n"
+                                "彩蛋/互文/语义搜索使用本地 embedding 模型。"
+                                "默认英文模型对中文歌词区分度差；曲库以中文为主时，"
+                                "建议切换到多语模型后**重建索引**"
+                                "（首次会下载模型，重建需 1-3 分钟）。"
+                            )
+                            emb_model_dd = gr.Dropdown(
+                                choices=[
+                                    ("英文为主（默认）：all-MiniLM-L6-v2",
+                                     "all-MiniLM-L6-v2"),
+                                    ("多语（中英均可）："
+                                     "paraphrase-multilingual-MiniLM-L12-v2",
+                                     "paraphrase-multilingual-MiniLM-L12-v2"),
+                                ],
+                                value=settings.embedding_model
+                                if settings.embedding_model in (
+                                    "all-MiniLM-L6-v2",
+                                    "paraphrase-multilingual-MiniLM-L12-v2")
+                                else None,
+                                allow_custom_value=True,
+                                label="Embedding 模型"
+                                      "（可输入任意 sentence-transformers 模型名）")
+                            rebuild_btn = gr.Button(
+                                "🔨 重建语料库索引（含新添加的歌曲）")
+                            rebuild_status = gr.Markdown("")
+                        with gr.Tab("🧪"):
+                            gr.Markdown(
+                                "### 🧪 UI 自检（开发者）\n"
+                                "启动一个**独立的**巡检服务器实例，"
+                                "用真实浏览器逐页签走查 22+ 项交互"
+                                "（含 JS 报错与服务端异常收集），约 2-3 分钟。"
+                                "发现问题后可在终端运行 "
+                                "`python scripts/ui_agent.py` 进入自动修复闭环"
+                                "（改代码需重启，故修复环节不在网页内进行）。"
+                            )
+                            probe_btn = gr.Button("🧪 运行 UI 巡检")
+                            probe_out = gr.Markdown("")
+                            probe_table = gr.HTML("")
 
         # ── Handlers ──
 
@@ -837,6 +920,33 @@ def create_app(settings: Settings) -> gr.Blocks:
                 if key:
                     names.setdefault(key, line.artist)
             return sorted(names.values(), key=str.lower)
+
+        def _overview_html(artist: str) -> str:
+            cache = ctx.setdefault("overview_html", {})
+            if artist not in cache:
+                cache[artist] = render_artist_overview(ctx["songs"], artist)
+            return cache[artist]
+
+        def on_overview_artist(artist: str):
+            return _overview_html(artist)
+
+        def on_overview_pick(payload: str, cur_artist: str):
+            from .intertextuality.search import artist_matches
+            title = (payload or "").split("\t")[0].strip()
+            # the overview is per-artist: match title AND the viewed artist
+            # so a cross-artist same-title cover opens the right song
+            label = next(
+                (song_choice_label(s) for s in ctx["songs"]
+                 if s["title"] == title
+                 and (not cur_artist
+                      or artist_matches(cur_artist, s.get("artist", "")))),
+                None)
+            if label is None:
+                label = next((song_choice_label(s) for s in ctx["songs"]
+                              if s["title"] == title), None)
+            if label is None:
+                return gr.skip(), gr.skip()
+            return gr.Radio(value=label), gr.Tabs(selected="play")
 
         # dropdown sentinel for the cross-artist (references between artists) mode
         _CROSS_ARTIST_CHOICE = "🌐 跨歌手引用（全部歌手）"
@@ -1406,15 +1516,18 @@ def create_app(settings: Settings) -> gr.Blocks:
         # ── 歌名挖空 ──
 
         def on_blank_new(state: dict):
-            from .quiz import make_blank_question
-            q = make_blank_question(_quiz_pool())
+            from .quiz import make_title_puzzle
+            pool = [(s["title"], s["artist"]) for s in ctx["songs"]]
+            q = make_title_puzzle(pool)
             if q is None:
                 return (dict(state or {}, answer="", reveal=""),
-                        '<div class="chat-empty">曲库里还没有「歌词唱到歌名」'
-                        '的歌（且至少需要 2 首歌）。</div>',
+                        '<div class="chat-empty">曲库里可拼的歌名不足'
+                        '（至少需要 2 首可挖的歌名）。</div>',
                         gr.Radio(choices=[], visible=False), "")
-            state = dict(state or {}, answer=q.answer, reveal=q.original)
-            html_q = (f'<div class="quiz-line blank-line">“{_esc(q.line)}”</div>'
+            state = dict(state or {}, answer=q.answer,
+                         reveal=f"《{q.title}》 · {q.artist}")
+            html_q = (f'<div class="quiz-line blank-line">'
+                      f'《{_esc(q.masked)}》</div>'
                       f'<div class="quiz-meta">歌手：{_esc(q.artist)}</div>')
             return (state, html_q,
                     gr.Radio(choices=q.options, value=None, visible=True), "")
@@ -1429,12 +1542,12 @@ def create_app(settings: Settings) -> gr.Blocks:
             state["total"] = state.get("total", 0) + 1
             if choice == answer:
                 state["score"] = state.get("score", 0) + 1
-                verdict = f"✅ 答对了！挖掉的正是《{answer}》。"
+                verdict = "✅ 拼对了！"
             else:
-                verdict = f"❌ 不对，挖掉的是《{answer}》。"
+                verdict = f"❌ 不对，缺的是「{answer}」。"
             reveal = state.get("reveal", "")
             state["answer"] = ""  # one submission per question
-            return (state, f"{verdict}\n\n> {reveal}\n\n当前战绩 "
+            return (state, f"{verdict}　完整歌名：{reveal}　当前战绩 "
                     f"**{state.get('score', 0)} / {state['total']}**")
 
         blank_new_btn.click(on_blank_new, [blank_state],
@@ -1453,7 +1566,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                         gr.Radio(choices=[], visible=False), "")
             graph, _net = _map_graph(artist)
             from .egg_quiz import make_echo_question
-            q = make_echo_question(graph)
+            q = make_echo_question(graph, n_options=3)  # 3 options = easier
             if q is None:
                 return (state,
                         '<div class="chat-empty">该范围的彩蛋呼应不足以'
@@ -1463,9 +1576,14 @@ def create_app(settings: Settings) -> gr.Blocks:
                       f"《{q.answer}》回应：“{q.echo_line}”\n\n"
                       f"这两首歌之间共有 {q.count} 处呼应。")
             state.update(answer=q.answer, reveal=reveal)
+            # hint: first few chars of the echoing line turn pure guessing
+            # into recognition — the main reason players found it too hard
+            echo_hint = _esc(q.echo_line.strip()[:6])
             html_q = (f'<div class="quiz-line">“{_esc(q.line)}”</div>'
                       f'<div class="quiz-meta">出自《{_esc(q.source_song)}》'
-                      '——这句歌词的回声藏在哪首歌里？</div>')
+                      '——它的回声藏在哪首歌里？</div>'
+                      f'<div class="quiz-meta">💡 回声开头：'
+                      f'「{echo_hint}…」</div>')
             return (state, html_q,
                     gr.Radio(choices=q.options, value=None, visible=True),
                     "")
@@ -1568,30 +1686,34 @@ def create_app(settings: Settings) -> gr.Blocks:
             audio_file_up.upload(on_audio_upload, [audio_file_up, song_radio],
                                  [audio_up_status, audio_file_up, lyrics_html])
 
-        def on_song_filter(q: str, sort: str):
-            q = (q or "").strip().casefold()
+        def _filtered_labels(sort: str, q: str) -> list[str]:
             labels = song_choices(sort)
+            q = (q or "").strip().casefold()
             if q:
                 labels = [
                     l for l in labels
                     if q in l.casefold()
                     or q in find_song(l).get("artist", "").casefold()
                 ]
+            return labels
+
+        def on_song_filter(q: str, sort: str):
             # choices-only update: the current selection (and playback)
             # stays untouched even while filtered out of view
-            return gr.Radio(choices=labels)
+            return gr.Radio(choices=_filtered_labels(sort, q))
 
         # .change, not .input: mirrors cat_search — .input never reached
         # the backend for this textbox (zero API calls observed)
         song_filter.change(on_song_filter, [song_filter, sort_mode],
                            [song_radio])
 
-        def on_sort(sort: str, choice: str):
-            labels = song_choices(sort)
+        def on_sort(sort: str, choice: str, q: str):
+            labels = _filtered_labels(sort, q)
             value = choice if choice in labels else (labels[0] if labels else None)
             return gr.Radio(choices=labels, value=value)
 
-        sort_mode.change(on_sort, [sort_mode, song_radio], [song_radio])
+        sort_mode.change(on_sort, [sort_mode, song_radio, song_filter],
+                         [song_radio])
 
         def on_search_clear():
             return "", ""
@@ -1784,6 +1906,9 @@ def create_app(settings: Settings) -> gr.Blocks:
             if not ctx["songs"]:
                 yield MV_EMPTY
                 return
+            if not choice:
+                yield '<div class="chat-empty">⚠️ 请先选择一首歌。</div>'
+                return
             info = find_song(choice)
             title = info.get("title", "")
             artist = info.get("artist", "")
@@ -1811,9 +1936,71 @@ def create_app(settings: Settings) -> gr.Blocks:
             save_mv(info["dir"], data, req_settings.model_name)
             yield render_mv_html(parse_mv(data), title, artist)
 
+        # ── 歌词收藏夹 ──
+
+        def on_fav_add(idx_str: str, choice: str):
+            idx_str = (idx_str or "").strip().split("\t")[0]
+            if not idx_str.isdigit() or not ctx["songs"]:
+                return "⚠️ 先在歌词区点选一句歌词再收藏。", gr.skip()
+            info = find_song(choice)
+            data = _load_song_data(info["dir"])
+            line = next((ln for ln in data["timed_lines"]
+                         if ln.line_index == int(idx_str)), None)
+            if line is None:
+                return "⚠️ 未找到选中的歌词行。", gr.skip()
+            from .ui_helpers import _fav_id
+            favs = _load_favorites()
+            title = info.get("title", "")
+            if any(f.get("line") == line.text and f.get("title") == title
+                   for f in favs):
+                return "ℹ️ 这句已经在收藏夹里了。", gr.skip()
+            favs.append({"id": _fav_id(line.text, title), "line": line.text,
+                         "title": title, "artist": info.get("artist", ""),
+                         "label": song_choice_label(info)})
+            _save_favorites(favs)
+            return f"✅ 已收藏（共 {len(favs)} 句）。", _render_favorites(favs)
+
+        def on_fav_act(payload: str, sort: str):
+            # payload is 'del:<id>' or 'jump:<id>' — id is stable, so neither
+            # drifts with list position (multi-tab / stale render safe)
+            act = (payload or "").split("\t")[0].strip()
+            favs = _load_favorites()
+            if act.startswith("del:"):
+                fid = act[4:]
+                kept = [f for f in favs if f.get("id") != fid]
+                if len(kept) != len(favs):
+                    _save_favorites(kept)
+                return _render_favorites(kept), gr.skip(), gr.skip()
+            if act.startswith("jump:"):
+                fid = act[5:]
+                from .intertextuality.search import artist_matches
+                fav = next((f for f in favs if f.get("id") == fid), None)
+                if fav:
+                    # re-resolve by title(+artist): the stored label can go
+                    # stale (a same-title cover added later), so recompute
+                    want_t, want_a = fav.get("title"), fav.get("artist", "")
+                    song = next(
+                        (s for s in ctx["songs"]
+                         if s["title"] == want_t
+                         and (not want_a
+                              or artist_matches(want_a, s.get("artist", "")))),
+                        None)
+                    if song and song_choice_label(song) in song_choices(sort):
+                        return (gr.skip(), gr.Radio(value=song_choice_label(song)),
+                                "")
+                    return (gr.skip(), gr.skip(),
+                            "⚠️ 这首歌已不在列表中（可能已删除）。")
+            return gr.skip(), gr.skip(), gr.skip()
+
+        if not public:
+            fav_add_btn.click(on_fav_add, [line_pick, song_radio],
+                              [fav_status, favs_html])
+            fav_box.change(on_fav_act, [fav_box, sort_mode],
+                           [favs_html, song_radio, fav_status])
+
         if not public:
             intro_btn.click(on_gen_intro, [song_radio, user_llm], [intro_html])
-            mv_btn.click(on_gen_mv, [song_radio, user_llm], [mv_html])
+            mv_btn.click(on_gen_mv, [mv_song_dd, user_llm], [mv_html])
 
         # ── 彩蛋对照卡 ──
 
@@ -2000,7 +2187,7 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         def on_add_song(title, artist, album, lrc_text, lrc_file, audio_file, sort):
             def fail(msg):
-                return msg, gr.skip(), "", gr.skip()
+                return msg, gr.skip(), ""
 
             title = (title or "").strip()
             if not title:
@@ -2057,46 +2244,92 @@ def create_app(settings: Settings) -> gr.Blocks:
                 shutil.copy(audio_file, d / f"audio{ext}")
 
             refresh_library()
-            new_choices = song_choices(sort)
             new_song = next((s for s in ctx["songs"] if s["name"] == slug), None)
             new_label = song_choice_label(new_song) if new_song else None
             status = (
                 f"✅ 已添加《{title}》（{lrc_note}）到 `data/songs/{slug}/`。\n\n"
-                "已切换到该歌曲。目前还没有 AI 批注 —— 点击下方按钮生成，"
+                "已切到「最新在前」排序，它就在左侧歌曲列表**最上方**并已打开。"
+                "目前还没有 AI 批注 —— 点击下方按钮生成，"
                 f"或在终端运行 `lyric-agent generate data/songs/{slug}`。"
             )
-            return (status, gr.Radio(choices=new_choices, value=new_label), slug,
-                    gr.Dropdown(choices=song_choices(), value=None))
+            return (status,
+                    gr.Radio(choices=song_choices("added_desc"),
+                             value=new_label), slug)
 
         if not public:
             add_btn.click(
                 on_add_song,
                 [add_title, add_artist, add_album,
                  add_lrc, add_lrc_file, add_audio_file, sort_mode],
-                [add_status, song_radio, add_state, manage_song],
-            )
+                [add_status, song_radio, add_state],
+            ).then(
+                # choices come pre-sorted newest-first so the new song is at
+                # the TOP; rebuilding choices doesn't fire song_radio.change,
+                # so load it explicitly here. song_filter is intentionally
+                # NOT an output: clearing it cascades through on_song_filter
+                # and re-sorts the list, undoing the newest-first order
+                on_song_select, [song_radio], song_outputs,
+            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
 
         # ── 曲库 ──
 
-        def _cat_filter(q: str) -> list[str]:
+        def _cat_matches(q: str) -> list[dict]:
             q = (q or "").strip().lower()
-            items = catalog if not q else [
+            return catalog if not q else [
                 c for c in catalog
                 if q in c["title"].lower() or q in c["album"].lower()
                 or q in c["artist"].lower()
             ]
-            return [f"{c['title']} — {c['artist']}" for c in items]
+
+        def _have_labels() -> set[str]:
+            # a catalog entry counts as "already in the list" when a library
+            # song shares its title+artist (slug/casing-proof)
+            return {(s["title"], s["artist"]) for s in ctx["songs"]}
+
+        def _cat_choices(q: str) -> list[tuple[str, str]]:
+            """(display, value) pairs covering BOTH the built-in catalog and
+            the user's own songs. In-library rows (catalog or manually
+            added) are badged 已在列表 with a value gradio can't re-add
+            (prefixed). Addable catalog rows use the plain 'title — artist'
+            value that on_cat_add resolves."""
+            have = _have_labels()
+            ql = (q or "").strip().lower()
+            out = []
+            cat_keys = set()
+            for c in _cat_matches(q):
+                val = f"{c['title']} — {c['artist']}"
+                cat_keys.add((c["title"], c["artist"]))
+                if (c["title"], c["artist"]) in have:
+                    out.append((f"{val}　✓ 已在列表", "__have__" + val))
+                else:
+                    out.append((val, val))
+            # library songs NOT in the catalog (e.g. manual adds) — so a
+            # song you added by hand is findable here, not a dead end
+            for s in ctx["songs"]:
+                key = (s.get("title", ""), s.get("artist", ""))
+                if key in cat_keys:
+                    continue
+                val = f"{key[0]} — {key[1]}"
+                if ql and ql not in val.lower():
+                    continue
+                out.append((f"{val}　✓ 已在列表", "__have__" + val))
+            return out
+
+        def _cat_label(choices: list) -> str:
+            n_add = sum(1 for _d, v in choices if not v.startswith("__have__"))
+            return f"搜索结果（{len(choices)} 首，其中 {n_add} 首可添加）"
 
         def on_cat_search(q: str):
-            labels = _cat_filter(q)
-            return gr.CheckboxGroup(choices=labels, value=[],
-                                    label=f"曲库歌曲（{len(labels)} 首）")
+            ch = _cat_choices(q)
+            return gr.CheckboxGroup(choices=ch, value=[],
+                                    label=_cat_label(ch))
 
         def on_cat_all(q: str):
-            # select-all applies to the CURRENT search filter
-            labels = _cat_filter(q)
-            return gr.CheckboxGroup(choices=labels, value=labels,
-                                    label=f"曲库歌曲（{len(labels)} 首）")
+            # select-all = every ADDABLE row in the current search
+            ch = _cat_choices(q)
+            addable = [v for _d, v in ch if not v.startswith("__have__")]
+            return gr.CheckboxGroup(choices=ch, value=addable,
+                                    label=_cat_label(ch))
 
         def on_cat_none():
             return gr.CheckboxGroup(value=[])
@@ -2109,10 +2342,13 @@ def create_app(settings: Settings) -> gr.Blocks:
         def on_cat_add(labels, sort: str):
             if isinstance(labels, str):  # defensive: single-select payloads
                 labels = [labels]
-            labels = [l for l in (labels or []) if l]
+            # drop already-in-library rows (their values are prefixed)
+            labels = [l for l in (labels or [])
+                      if l and not l.startswith("__have__")]
             if not labels:
-                return ("⚠️ 请先在曲库中勾选至少一首歌。",
-                        gr.skip(), gr.skip(), gr.skip())
+                return ("⚠️ 请先勾选至少一首可添加的歌"
+                        "（标「✓ 已在列表」的无法重复添加）。",
+                        gr.skip(), gr.skip())
             added: list[str] = []
             existed: list[str] = []
             missing: list[str] = []
@@ -2171,20 +2407,25 @@ def create_app(settings: Settings) -> gr.Blocks:
             if missing:
                 parts.append(f"⚠️ {len(missing)} 首未找到")
             if not added:
-                return "　".join(parts), gr.skip(), gr.skip(), gr.skip()
+                return ("　".join(parts), gr.skip(), gr.skip())
             refresh_library()
-            new_choices = song_choices(sort)
             new_song = next(
                 (s for s in ctx["songs"] if s["name"] == last_slug), None)
-            new_label = song_choice_label(new_song) if new_song else None
-            parts.append("已切换到最后新增的一首；🪄 批注按钮只作用于它。")
+            last_label = song_choice_label(new_song) if new_song else None
+            parts.append("已切到「最新在前」排序，新增的歌就在列表"
+                         "**最上方**。🪄 批注按钮作用于最后新增的一首。")
             return ("　".join(parts),
-                    gr.Radio(choices=new_choices, value=new_label), last_slug,
-                    gr.Dropdown(choices=song_choices(), value=None))
+                    gr.Radio(choices=song_choices("added_desc"),
+                             value=last_label),
+                    last_slug)
 
         if not public:
             cat_add_btn.click(on_cat_add, [cat_radio, sort_mode],
-                              [add_status, song_radio, add_state, manage_song])
+                              [add_status, song_radio, add_state]).then(
+                # newest-first choices + explicit load; song_filter left out
+                # on purpose (see on_add_song wiring)
+                on_song_select, [song_radio], song_outputs,
+            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
 
         def on_generate_ann(slug: str):
             if not slug:
@@ -2212,50 +2453,59 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         # ── 管理歌曲列表 ──
 
-        def _library_updates(keep_choice: str | None = None):
-            """Fresh Radio + manage-Dropdown updates after a library change."""
-            labels = song_choices()
+        def _library_updates(keep_choice: str | None, sort: str, q: str):
+            """Fresh Radio update after a library change, honoring the
+            user's current sort mode and filter text."""
+            labels = _filtered_labels(sort, q)
             value = keep_choice if keep_choice in labels else \
                 (labels[0] if labels else None)
-            return (gr.Radio(choices=labels, value=value),
-                    gr.Dropdown(choices=labels, value=None))
+            return gr.Radio(choices=labels, value=value)
 
-        def on_manage_refresh(choice: str):
+        def on_manage_refresh(choice: str, sort: str, q: str):
             refresh_library()
             _SONG_DATA_CACHE.clear()
             ctx.pop("echo_maps", None)
-            radio, dd = _library_updates(choice)
-            return f"🔄 已刷新，共 {len(ctx['songs'])} 首歌。", radio, dd
+            gr.Info(f"🔄 已刷新，共 {len(ctx['songs'])} 首歌。")
+            return _library_updates(choice, sort, q)
 
-        def on_manage_delete(label: str, confirm: bool, choice: str):
+        def on_del_song(payload: str, sort: str, q: str):
+            # payload: '<label>\t<ts>' from the ⋯ menu, already confirmed
+            # by a native dialog in the browser
+            label = (payload or "").split("\t")[0].strip()
             if not label:
-                return "⚠️ 请先选择要删除的歌曲。", gr.skip(), gr.skip()
-            if not confirm:
-                return "⚠️ 请勾选确认框后再删除。", gr.skip(), gr.skip()
+                return gr.skip()
             info = next(
                 (s for s in ctx["songs"] if song_choice_label(s) == label), None)
             if not info:
-                return "⚠️ 未找到该歌曲，请先刷新曲库。", gr.skip(), gr.skip()
+                gr.Warning("未找到该歌曲，点「刷新曲库」让列表同步。")
+                return gr.skip()
             try:
                 shutil.rmtree(info["dir"])
             except Exception as exc:
                 logger.exception("Delete song failed")
-                return (f"⚠️ 删除失败（文件可能被占用）：{str(exc)[:120]}",
-                        gr.skip(), gr.skip())
+                gr.Warning(f"删除失败（文件可能被占用）：{str(exc)[:120]}")
+                return gr.skip()
             _SONG_DATA_CACHE.pop(info["dir"], None)
             ctx.setdefault("echo_maps", {}).pop(info["dir"], None)
             refresh_library()
-            radio, dd = _library_updates(
-                choice if choice != label else None)
-            return f"🗑️ 已删除《{label}》。", radio, dd
+            gr.Info(f"🗑️ 已删除《{label}》。")
+            return _library_updates(None, sort, q)
 
         if not public:
+            # rebuilding Radio choices never fires .change, so chain the
+            # full select pipeline (incl. echo map) explicitly — otherwise
+            # deleting the selected song leaves the previous song's 🥚
+            # markers/overview on screen
             manage_refresh_btn.click(
-                on_manage_refresh, [song_radio],
-                [manage_status, song_radio, manage_song])
-            manage_del_btn.click(
-                on_manage_delete, [manage_song, manage_confirm, song_radio],
-                [manage_status, song_radio, manage_song])
+                on_manage_refresh, [song_radio, sort_mode, song_filter],
+                [song_radio],
+            ).then(on_song_select, [song_radio], song_outputs
+            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            del_box.change(
+                on_del_song, [del_box, sort_mode, song_filter],
+                [song_radio],
+            ).then(on_song_select, [song_radio], song_outputs
+            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
 
         # ── 语料库索引重建 ──
 
@@ -2408,6 +2658,27 @@ def create_app(settings: Settings) -> gr.Blocks:
             app.load(lambda: render_evolution_html(ctx["evolution"], lang="zh"),
                      None, [evolution_html])
 
+        overview_artist.change(on_overview_artist, [overview_artist],
+                               [overview_html])
+        overview_pick_box.change(on_overview_pick,
+                                 [overview_pick_box, overview_artist],
+                                 [song_radio, tabs])
+
+        def _init_overview():
+            artists = _corpus_artists()
+            if not artists:
+                return gr.Dropdown(choices=[]), ""
+            first = artists[0]
+            return (gr.Dropdown(choices=artists, value=first),
+                    _overview_html(first))
+
+        app.load(_init_overview, None, [overview_artist, overview_html])
+
+        if not public:
+            # suggest existing artists in the manual-add artist field
+            app.load(lambda: gr.Dropdown(choices=_corpus_artists()),
+                     None, [add_artist])
+
         # role gating (unconditional — the first version of this sat inside
         # the empty-library else-branch above and never ran with songs
         # present): viewers don't see management tabs. With login disabled
@@ -2419,5 +2690,10 @@ def create_app(settings: Settings) -> gr.Blocks:
             return role_of(getattr(request, "username", None))
 
         app.load(_apply_role, None, [role_box])
+        if not public:
+            # favs_html was frozen at Blocks-construction time; refresh it
+            # for each new session/reload from the current file
+            app.load(lambda: _render_favorites(_load_favorites()),
+                     None, [favs_html])
 
     return app

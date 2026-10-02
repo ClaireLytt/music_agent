@@ -133,33 +133,36 @@ def test_fingerprint_roundtrip(tmp_path):
     assert match_sample(index, sr, noise) is None
 
 
-def test_blank_quiz_question():
-    from lyric_agent.quiz import make_blank_question
-    pool = {
-        "cardigan": ("Taylor Swift",
-                     ["and when I felt like I was an old cardigan",
-                      "under someone's bed"]),
-        "betty": ("Taylor Swift", ["betty, I won't make assumptions"]),
-        "exile": ("Taylor Swift", ["I think I've seen this film before"]),
-    }
-    q = make_blank_question(pool, random.Random(3))
+def test_title_puzzle():
+    from lyric_agent.quiz import make_title_puzzle
+    pool = [("Love Story", "Taylor Swift"), ("Blank Space", "Taylor Swift"),
+            ("Paper Rings", "Taylor Swift"), ("Shape of You", "Ed Sheeran")]
+    q = make_title_puzzle(pool, random.Random(7))
     assert q is not None
-    assert q.answer in q.options
-    assert len(q.options) <= 4
-    assert "＿" in q.line
-    assert q.answer.lower() not in q.line.lower()
-    assert q.answer.lower() in q.original.lower()
+    assert "____" in q.masked
+    assert q.answer in q.options and len(q.options) <= 4
+    assert q.masked.replace("____", q.answer, 1) == q.title
 
 
-def test_blank_quiz_guards():
-    from lyric_agent.quiz import make_blank_question
-    # no line sings its own title -> no question
-    pool = {"a1": ("X", ["no title in here at all"]),
-            "b2": ("X", ["nothing matching either"])}
-    assert make_blank_question(pool, random.Random(1)) is None
-    # a single song is not enough for options
-    only = {"cardigan": ("X", ["I was an old cardigan at your door"])}
-    assert make_blank_question(only, random.Random(1)) is None
+def test_title_puzzle_cjk_and_guards():
+    from lyric_agent.quiz import make_title_puzzle
+    pool = [("晴天", "周杰伦"), ("告白气球", "周杰伦"), ("夜曲", "周杰伦")]
+    q = make_title_puzzle(pool, random.Random(5))
+    assert q is not None and "____" in q.masked
+    assert q.masked.replace("____", q.answer, 1) == q.title
+    # one maskable title is not a game
+    assert make_title_puzzle([("Hi", "X")], random.Random(1)) is None
+
+
+def test_render_favorites():
+    from lyric_agent.ui_helpers import _render_favorites
+    html = _render_favorites([{"line": "a <b> line", "title": "s&1",
+                               "label": "s&1"}])
+    assert "a &lt;b&gt; line" in html and "s&amp;1" in html
+    # id-based (stable) actions, not positional indices
+    assert 'data-fav="jump:' in html and 'data-fav="del:' in html
+    assert 'jump:0"' not in html  # no longer index-based
+    assert "还没有收藏" in _render_favorites([])
 
 
 def test_letter_card_renders(tmp_path):
@@ -175,3 +178,41 @@ def test_letter_card_renders(tmp_path):
                            out_dir=str(tmp_path))
     f = Path(p)
     assert f.exists() and f.suffix == ".png" and f.stat().st_size > 10000
+
+
+def test_artist_overview_enriched(tmp_path):
+    """Overview shows stat tiles + imagery words + per-album line counts."""
+    from lyric_agent.ui_helpers import render_artist_overview
+
+    # two songs, one album, with real timed lyrics so stats compute
+    lrc = "[00:01.00] love is a losing game\n[00:03.00] love and heartbreak\n"
+    for name in ("s1", "s2"):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "lyrics.lrc").write_text(lrc, encoding="utf-8")
+    songs = [{"dir": str(tmp_path / n), "name": n, "title": n.upper(),
+              "artist": "A", "album": "AL", "themes": []}
+             for n in ("s1", "s2")]
+    html = render_artist_overview(songs, "A")
+    assert 'ov-tile-num">2' in html       # 2 songs
+    assert 'ov-tile-num">1' in html       # 1 album
+    assert 'ov-tile-num">4' in html       # 4 lyric lines total
+    assert "高频意象" in html and "love" in html  # imagery from lyrics
+    assert "行歌词" in html                # per-album line count
+    assert render_artist_overview(songs, "nobody").count("chat-empty") == 1
+
+
+def test_title_puzzle_no_mixed_script_garbage():
+    """Mixed-script titles must not produce garbage pieces like ' (' or 'e)'."""
+    import random
+
+    from lyric_agent.quiz import _title_piece
+    for seed in range(40):
+        for title in ("晴天 (Live)", "告白气球 (Remix)", "七里香feat.X"):
+            piece = _title_piece(title, random.Random(seed))
+            if piece is None:
+                continue
+            # a valid piece is a clean latin word OR a pure-CJK run,
+            # never containing spaces/parens/punctuation
+            assert piece.strip() == piece
+            assert not any(c in piece for c in " ()（）.-"), (title, piece)

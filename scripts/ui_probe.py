@@ -17,7 +17,8 @@ Exit code: number of failed checks (0 = all green).
 Design notes:
 - Checks never abort the run; every failure is recorded and probing continues.
 - LLM-priced actions are exercised only through their free guard paths.
-- Destructive actions (delete song, rebuild index) are NOT clicked.
+- Destructive actions (rebuild index) are NOT clicked; the delete flow
+  is exercised only against a throwaway song the probe adds itself.
 - Known-benign console noise (CDN offline for the optional waveform, favicon)
   is whitelisted; everything else that hits the JS console as an error, any
   pageerror, and any server-side traceback fails the corresponding check.
@@ -29,6 +30,7 @@ import argparse
 import io
 import json
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -235,20 +237,76 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("ab_loop", "A-B loop set + clear", c_ab_loop)
 
         def c_notes():
+            # scrub probe notes a previous aborted run left on disk —
+            # a stale same-text note breaks the delete-to-zero assertion
+            nf = ROOT / "data" / "songs" / AUDIO_SONG / "notes.json"
+            if nf.exists():
+                stale = json.loads(nf.read_text(encoding="utf-8"))
+                keep = [n for n in stale
+                        if "ui-probe" not in n.get("text", "")]
+                if len(keep) != len(stale):
+                    nf.write_text(json.dumps(keep, ensure_ascii=False),
+                                  encoding="utf-8")
             probe.tab("📝")
             box = pg.get_by_placeholder("在当前播放位置记一句感想…")
             box.fill("ui-probe 自检笔记")
             pg.get_by_role("button", name="添加").click()
-            pg.wait_for_timeout(1500)
-            must(count(".note-item") >= 1, "note not added")
+            probe.wait_until(
+                lambda: count(".note-item >> text=ui-probe 自检笔记") >= 1,
+                msg="note not added")
             # delete exactly the probe note
             item = pg.locator(".note-item",
                               has_text="ui-probe 自检笔记").first
             item.locator(".note-del").click()
-            pg.wait_for_timeout(1500)
-            must(count(".note-item >> text=ui-probe 自检笔记") == 0,
-                 "probe note not deleted")
+            probe.wait_until(
+                lambda: count(".note-item >> text=ui-probe 自检笔记") == 0,
+                msg="probe note not deleted")
         probe.check("notes", "listening note add + delete roundtrip", c_notes)
+
+        def c_favorites():
+            # NON-DESTRUCTIVE: favorites.json is the real user file, so this
+            # records the starting count, adds one, then deletes the one it
+            # added (the LAST item — favorites append), returning to the
+            # starting state. It never touches pre-existing favorites.
+            probe.tab("🎧 播放解读")
+            pg.locator(".lyric-line").nth(2).click()
+            pg.wait_for_timeout(1500)
+            probe.tab("⭐")
+            n0 = count(".fav-item")
+            pg.get_by_role("button", name="⭐ 收藏当前选中的歌词").click()
+            # either it was added (n0+1) or the line was already a favorite
+            probe.wait_until(
+                lambda: count(".fav-item") in (n0, n0 + 1),
+                msg="favorite add produced no stable state")
+            if count(".fav-item") == n0 + 1:
+                pg.locator(".fav-item .fav-del").last.click()  # the one we added
+                probe.wait_until(lambda: count(".fav-item") == n0,
+                                 msg="favorite not deleted back to start")
+        probe.check("favorites", "favorite a lyric line: add + delete",
+                    c_favorites)
+
+        def c_song_filter():
+            # the filter narrows the radio by title/artist and restores on
+            # clear — this path previously broke (dead .input event)
+            probe.tab("🎧 播放解读")
+            box = pg.locator("#ll-song-filter input, #ll-song-filter textarea")
+            n_all = count("#ll-songs input[type=radio]")
+            must(n_all >= 2, f"song list too small to filter: {n_all}")
+            # derive a query from an actual choice value (library-
+            # independent; label TEXT would include the ⋯ menu glyph)
+            first_label = (pg.locator("#ll-songs input[type=radio]").first
+                           .get_attribute("value") or "").strip()
+            needle = first_label[:3] or first_label
+            box.fill(needle)
+            probe.wait_until(
+                lambda: 0 < count("#ll-songs input[type=radio]") <= n_all,
+                msg="song filter did not narrow the list")
+            box.fill("")
+            probe.wait_until(
+                lambda: count("#ll-songs input[type=radio]") == n_all,
+                msg="clearing the filter did not restore the full list")
+        probe.check("song_filter", "song list filter narrows + restores",
+                    c_song_filter)
 
 
         def c_search_kw():
@@ -406,9 +464,24 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         # ── evolution tab ──
         def c_evolution():
             probe.tab("🗺️ 艺术家图谱")
-            must(count(".evo-timeline") >= 1 or count(".evo-svg") >= 1,
-                 "evolution map empty")
-        probe.check("evolution", "artist evolution tab renders", c_evolution)
+            # the tab now leads with an artist-agnostic album overview; the
+            # Taylor-only era chart lives in a collapsed accordion below
+            probe.wait_until(lambda: count(".ov-album") >= 1,
+                             msg="artist overview rendered no album cards")
+            must(pg.locator("#ll-overview-artist").count() == 1,
+                 "artist picker missing")
+            # a song chip jumps to the play tab with that song opened
+            chip = pg.locator(".ov-song").first
+            title = chip.inner_text().strip()
+            chip.click()
+            probe.wait_until(
+                lambda: pg.get_by_role("tab", name="🎧 播放解读", exact=True)
+                .get_attribute("aria-selected") == "true"
+                and pg.locator(".song-title-display").inner_text().strip()
+                == title,
+                msg="overview chip did not open the song on the play tab")
+        probe.check("evolution", "artist overview renders + chip jumps",
+                    c_evolution)
 
         # ── echo map tab ──
         def c_map_focus():
@@ -592,32 +665,76 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("quiz_answer", "quiz answer submit -> verdict + score",
                     c_quiz_answer)
 
-        def c_blank_quiz():
-            probe.tab("🕳️ 歌名挖空")
-            pg.get_by_role("button", name="🕳️ 来一题").click()
+        def c_title_puzzle():
+            probe.tab("🧩 歌名拼图")
+            pg.get_by_role("button", name="🧩 来一题").click()
             pg.wait_for_timeout(2500)
             body = pg.locator("body").inner_text()
-            must(count(".blank-line") == 1 or "至少需要 2 首歌" in body
-                 or "歌词唱到歌名" in body,
-                 "blank quiz: neither question nor guard rendered")
+            must(count(".blank-line") == 1 or "可拼的歌名不足" in body,
+                 "title puzzle: neither question nor guard rendered")
             if count(".blank-line") == 1:
-                must("＿" in pg.locator(".blank-line").inner_text(),
-                     "blank quiz line is not blanked")
+                must("____" in pg.locator(".blank-line").inner_text(),
+                     "puzzle title is not masked")
                 pg.locator("input[type=radio]:visible").last.check()
-                pg.get_by_role("button", name="🕳️ 选好了").click()
+                pg.get_by_role("button", name="🧩 拼好了").click()
+                probe.wait_until(
+                    lambda: "拼对" in pg.locator("body").inner_text()
+                    or "不对" in pg.locator("body").inner_text(),
+                    msg="title puzzle verdict missing")
+        probe.check("title_puzzle", "title puzzle question + submit",
+                    c_title_puzzle)
+
+        def c_egg_quiz():
+            probe.tab("🥚 彩蛋猜猜乐")
+            pg.get_by_role("button", name="🥚 抽一题").click()
+            pg.wait_for_timeout(2500)
+            body = pg.locator("body").inner_text()
+            # either a question (radio options appear) or the no-echo guard
+            opts = count("input[type=radio]:visible")
+            must(opts >= 2 or "没有" in body or "至少" in body
+                 or "回声" in body,
+                 "egg quiz: neither question nor guard rendered")
+            # submit-before-draw guard is free; only exercise a real answer
+            # when a question actually drew
+            if opts >= 2:
+                pg.locator("input[type=radio]:visible").last.check()
+                pg.get_by_role("button", name="🥚 交卷").click()
                 probe.wait_until(
                     lambda: "答对" in pg.locator("body").inner_text()
                     or "不对" in pg.locator("body").inner_text(),
-                    msg="blank quiz verdict missing")
-        probe.check("blank_quiz", "title-blank quiz question + submit",
-                    c_blank_quiz)
+                    msg="egg quiz verdict missing")
+        probe.check("egg_quiz", "echo-guessing quiz question + submit",
+                    c_egg_quiz)
+
+        def c_universe_present():
+            # universe/letter are LLM-priced AND the pair dropdown is
+            # pre-filled on load (clicking 写信 would actually spend), so
+            # assert the controls are present WITHOUT clicking them
+            probe.tab("🕵️ 歌词宇宙")
+            probe.tab("🕵️ 开始破案")
+            must(pg.get_by_role(
+                "button",
+                name="🕵️ 开始破案（AI 推理，约 10-30 秒）").count() == 1,
+                "detective button missing")
+            probe.tab("💌 隔空回信")
+            must(pg.locator("#ll-letter-pair").count() == 1,
+                 "letter pair picker missing")
+            must(pg.get_by_role("button", name="💌 写信",
+                                exact=True).count() == 1,
+                 "letter button missing")
+        probe.check("universe_present",
+                    "universe/letter controls present (LLM, not clicked)",
+                    c_universe_present)
 
         def c_mv_eggs_present():
-            probe.tab("🎧 播放解读")
-            probe.tab("🎬")
-            pg.wait_for_timeout(400)
-            must("MV 彩蛋" in pg.locator("#ll-mv").inner_text(),
-                 "MV eggs accordion missing")
+            probe.tab("🥚 彩蛋地图")
+            probe.tab("🎬 MV 彩蛋")
+            pg.wait_for_timeout(600)
+            must(pg.locator("#ll-mv-song").count() == 1,
+                 "MV song picker missing")
+            must("MV 彩蛋" in pg.locator("#ll-mv").inner_text()
+                 or "生成 MV 彩蛋" in pg.locator("body").inner_text(),
+                 "MV eggs panel missing")
             # LLM-priced button is asserted present but NOT clicked
             must(pg.get_by_role("button", name="🎬 生成 MV 彩蛋").count() == 1,
                  "MV eggs generate button missing")
@@ -646,11 +763,17 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             pg.wait_for_timeout(1500)
             n_after = count("#ll-catalog input[type=checkbox]")
             must(0 < n_after < n_before, "catalog search did not filter")
-            # select-all applies to the filtered list; deselect clears it
+            # unified search lists library songs too, badged "✓ 已在列表";
+            # select-all checks exactly the ADDABLE rows (those without the
+            # badge). Count addable from the labels so the assertion holds
+            # whether or not the library already contains the matches.
+            addable = pg.evaluate(
+                """() => [...document.querySelectorAll('#ll-catalog label')]
+                    .filter(l => !l.textContent.includes('已在列表')).length""")
             pg.get_by_role("button", name="☑️ 全选").click()
             pg.wait_for_timeout(800)
-            must(count("#ll-catalog input[type=checkbox]:checked") == n_after,
-                 "select-all did not check all filtered songs")
+            must(count("#ll-catalog input[type=checkbox]:checked") == addable,
+                 f"select-all checked != addable rows ({addable})")
             pg.get_by_role("button", name="⬜ 取消全选").click()
             pg.wait_for_timeout(800)
             must(count("#ll-catalog input[type=checkbox]:checked") == 0,
@@ -659,26 +782,125 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
 
         def c_manage_guards():
-            pg.get_by_text("🗂️ 管理歌曲列表").click()
-            pg.wait_for_timeout(500)
-            pg.get_by_role("button", name="🗑️ 删除所选歌曲").click()
-            probe.wait_until(
-                lambda: "请先选择要删除的歌曲"
-                in pg.locator("body").inner_text(),
-                msg="delete without selection guard missing")
-            pg.get_by_role("button", name="🔄 刷新曲库").click()
+            # the selected row carries a ⋯ menu; refresh sits under the list
+            probe.tab("🎧 播放解读")
+            probe.wait_until(lambda: count(".ll-dots") == 1,
+                             msg="⋯ menu missing on the selected song")
+            # opening it must land the menu in-viewport next to the ⋯
+            # button (regression: a transformed ancestor hijacked the
+            # fixed positioning and the list overflow clipped the menu)
+            pg.locator(".ll-dots").click()
+            geo = pg.evaluate(
+                """() => {
+                    const m = document.querySelector('.ll-dots-menu');
+                    const b = document.querySelector('.ll-dots');
+                    if (!m || !b) return null;
+                    const mr = m.getBoundingClientRect();
+                    const br = b.getBoundingClientRect();
+                    return {inView: mr.top >= 0 && mr.left >= 0
+                                && mr.bottom <= window.innerHeight
+                                && mr.right <= window.innerWidth,
+                            gap: Math.abs(mr.top - br.bottom)};
+                }""")
+            must(geo is not None, "⋯ menu did not open on click")
+            must(geo["inView"] and geo["gap"] < 40,
+                 f"⋯ menu misplaced/off-screen: {geo}")
+            pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),
-                msg="refresh library status missing")
-        probe.check("manage_guards", "manage: delete guard + refresh works",
+                msg="refresh library toast missing")
+        probe.check("manage_guards", "⋯ on selected row + refresh works",
                     c_manage_guards)
+
+        def c_add_delete_roundtrip():
+            # REAL add -> lands at the TOP of the song list -> delete via
+            # manage (confirm-guard first, then confirmed) -> gone again and
+            # the confirm checkbox resets. Net-zero: only ever touches the
+            # throwaway song it creates itself.
+            shutil.rmtree(ROOT / "data" / "songs" / "zzz_probe_roundtrip",
+                          ignore_errors=True)
+            probe.tab("➕ 添加歌曲")
+            # the manual-add form lives in a collapsed accordion
+            pg.get_by_text("✍️ 手动添加曲库以外的歌曲").click()
+            pg.wait_for_timeout(500)
+            pg.locator("#ll-add-title input, #ll-add-title textarea") \
+                .fill("Zzz Probe Roundtrip")
+            pg.locator("#ll-add-artist input").fill("UI Probe")
+            pg.locator("#ll-add-lrc textarea") \
+                .fill("[00:01.00] probe alpha\n[00:05.00] probe beta")
+            pg.get_by_role("button", name="💾 保存歌曲").click()
+            probe.wait_until(
+                lambda: "已添加《Zzz Probe Roundtrip》"
+                in pg.locator("body").inner_text(),
+                msg="add-song success status missing")
+            first = pg.locator("#ll-songs label").first.inner_text()
+            must("Zzz Probe Roundtrip" in first,
+                 f"new song not at top of list: {first[:60]!r}")
+            # delete via the ⋯ menu on the selected (new) row: cancel the
+            # native confirm first (song must survive), then accept it
+            probe.tab("🎧 播放解读")
+            probe.wait_until(lambda: count(".ll-dots") == 1,
+                             msg="⋯ menu missing on the new song")
+
+            def _menu_delete():
+                pg.locator(".ll-dots").click()
+                pg.get_by_role("button", name="🗑️ 删除这首歌").click()
+
+            pg.once("dialog", lambda d: d.dismiss())
+            _menu_delete()
+            pg.wait_for_timeout(1200)
+            must("Zzz Probe Roundtrip" in pg.locator("#ll-songs").inner_text(),
+                 "cancelled confirm still deleted the song")
+            pg.once("dialog", lambda d: d.accept())
+            _menu_delete()
+            probe.wait_until(
+                lambda: "Zzz Probe Roundtrip"
+                not in pg.locator("#ll-songs").inner_text(),
+                msg="deleted song still in the list")
+            must(not (ROOT / "data" / "songs"
+                      / "zzz_probe_roundtrip").exists(),
+                 "song directory still on disk after delete")
+        probe.check("add_delete_roundtrip",
+                    "add a song -> top of list -> ⋯ delete -> gone",
+                    c_add_delete_roundtrip)
+
+        def c_refresh_keeps_filter():
+            # refreshing the library must not blow away the active filter
+            probe.tab("🎧 播放解读")
+            n_all = count("#ll-songs input[type=radio]")
+            must(n_all >= 2, f"library too small: {n_all}")
+            needle = (pg.locator("#ll-songs input[type=radio]").first
+                      .get_attribute("value") or "").strip()
+            box = pg.locator("#ll-song-filter input, #ll-song-filter textarea")
+            box.fill(needle)
+            probe.wait_until(
+                lambda: 0 < count("#ll-songs input[type=radio]") < n_all,
+                msg="filter did not narrow the list")
+            n1 = count("#ll-songs input[type=radio]")
+            pg.locator("#ll-refresh-btn").click()
+            probe.wait_until(
+                lambda: "已刷新" in pg.locator("body").inner_text(),
+                msg="refresh status missing")
+            pg.wait_for_timeout(800)
+            must(count("#ll-songs input[type=radio]") == n1,
+                 "refresh reverted the active filter")
+            probe.tab("🎧 播放解读")
+            box.fill("")
+            probe.wait_until(
+                lambda: count("#ll-songs input[type=radio]") == n_all,
+                msg="clearing the filter did not restore the full list")
+        probe.check("refresh_keeps_filter",
+                    "refresh honors the active song filter",
+                    c_refresh_keeps_filter)
 
         # ── settings tab ──
         def c_settings():
             probe.tab("⚙️ 设置")
             must(count("input[type=password]") >= 1, "api key field missing")
-            must("重建语料库索引" in pg.locator("body").inner_text(),
-                 "rebuild section missing")
+            probe.tab("🧠")  # sections live behind bottom icons now
+            probe.wait_until(
+                lambda: "重建语料库索引" in pg.locator("body").inner_text(),
+                msg="rebuild section missing")
         probe.check("settings", "settings tab fields present", c_settings)
 
         # ── global sweeps ──
