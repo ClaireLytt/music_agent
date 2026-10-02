@@ -333,6 +333,27 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     file_types=[".mp3", ".wav", ".flac",
                                                 ".ogg", ".m4a"])
                                 audio_up_status = gr.Markdown("")
+                            with gr.Accordion("🗑️ 删除 / 刷新歌曲", open=False,
+                                              elem_id="ll-manage-acc"):
+                                gr.Markdown(
+                                    "**永久删除**一首歌（连同其歌词/批注/音频"
+                                    "目录）。手动增删过歌曲目录后，点「刷新曲库」"
+                                    "让列表同步。")
+                                manage_song = gr.Dropdown(
+                                    choices=choices, value=None,
+                                    label="选择要删除的歌曲",
+                                    elem_id="ll-manage-song",
+                                    # newly added songs land via the add
+                                    # handlers' updates; custom values keep
+                                    # raw API calls working
+                                    allow_custom_value=True)
+                                manage_confirm = gr.Checkbox(
+                                    label="我确认要删除这首歌（不可恢复）",
+                                    value=False,
+                                    elem_id="ll-manage-confirm")
+                                manage_del_btn = gr.Button("🗑️ 删除所选歌曲")
+                                manage_refresh_btn = gr.Button("🔄 刷新曲库")
+                                manage_status = gr.Markdown("")
                         sort_mode = gr.Radio(
                             choices=[
                                 ("添加顺序（最早在前）", "added_asc"),
@@ -780,25 +801,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 label="音频文件（可选）",
                                 file_types=[".mp3", ".wav", ".m4a", ".ogg", ".flac"])
                         add_btn = gr.Button("💾 保存歌曲", variant="primary")
-
-                    with gr.Accordion("🗂️ 管理歌曲列表（删除歌曲）", open=True):
-                        gr.Markdown(
-                            "从列表中**永久删除**一首歌（连同其歌词/批注/音频目录）。"
-                            "如果你在磁盘上手动增删过歌曲目录，点「刷新曲库」让列表同步。"
-                        )
-                        manage_song = gr.Dropdown(
-                            choices=choices, value=None, label="选择要删除的歌曲",
-                            elem_id="ll-manage-song",
-                            # newly added songs land via the add handlers'
-                            # updates; custom values keep raw API calls working
-                            allow_custom_value=True)
-                        manage_confirm = gr.Checkbox(
-                            label="我确认要删除这首歌（不可恢复）", value=False,
-                            elem_id="ll-manage-confirm")
-                        with gr.Row():
-                            manage_del_btn = gr.Button("🗑️ 删除所选歌曲", scale=1)
-                            manage_refresh_btn = gr.Button("🔄 刷新曲库", scale=1)
-                        manage_status = gr.Markdown("")
 
             # ══ 页签 7: 设置（三块功能 = 三个底部图标） ══
             with gr.Tab("⚙️ 设置"):

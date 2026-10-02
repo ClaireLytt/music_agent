@@ -769,10 +769,16 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("catalog", "catalog renders + search filters", c_catalog)
 
 
+        def _open_manage():
+            # delete/refresh live in a collapsed accordion under the song
+            # list in the play tab; expand it only when it is closed
+            probe.tab("🎧 播放解读")
+            if not pg.locator("#ll-manage-song").is_visible():
+                pg.get_by_text("🗑️ 删除 / 刷新歌曲").click()
+                pg.wait_for_timeout(500)
+
         def c_manage_guards():
-            # the manage section is open by default now (delete was hard to
-            # find) — no expand click; just use the delete button directly
-            pg.wait_for_timeout(500)
+            _open_manage()
             pg.get_by_role("button", name="🗑️ 删除所选歌曲").click()
             probe.wait_until(
                 lambda: "请先选择要删除的歌曲"
@@ -810,6 +816,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             must("Zzz Probe Roundtrip" in first,
                  f"new song not at top of list: {first[:60]!r}")
             # guard: delete without ticking confirm must be refused
+            _open_manage()
             pg.locator("#ll-manage-song input").click()
             pg.wait_for_timeout(400)
             pg.get_by_role("option",
@@ -849,7 +856,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 lambda: 0 < count("#ll-songs input[type=radio]") < n_all,
                 msg="filter did not narrow the list")
             n1 = count("#ll-songs input[type=radio]")
-            probe.tab("➕ 添加歌曲")
+            _open_manage()
             pg.get_by_role("button", name="🔄 刷新曲库").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),

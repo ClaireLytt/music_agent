@@ -46,6 +46,9 @@ _HEAD_JS = """
       if (t.includes('添加歌曲') || t.includes('⚙️ 设置'))
         btn.style.display = 'none';
     });
+    // the delete/refresh block sits in the play tab now — hide it too
+    const acc = document.querySelector('#ll-manage-acc');
+    if (acc) acc.style.display = 'none';
   }
   setInterval(applyRole, 1500);
 })();
