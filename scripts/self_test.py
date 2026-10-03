@@ -110,11 +110,10 @@ def main() -> None:
     for label in songs:
         try:
             out = call("on_song_select", [label])
-            # outputs: lyrics, chat_state, topic, chat, evolution, echo_state,
+            # outputs: lyrics, chat_state, topic, chat, echo_state,
             # echo_html, echo_out, card_status, card_img — assert on the head
-            lyrics, _state, topic, _chat, evo = out[:5]
-            ok = ("lyrics-scroll" in lyrics and bool(str(evo).strip())
-                  and "尚未选择" in str(topic))
+            lyrics, _state, topic, _chat = out[:4]
+            ok = ("lyrics-scroll" in lyrics and "尚未选择" in str(topic))
             check(f"song_select: {label}", ok)
         except Exception as e:
             check(f"song_select: {label}", False, repr(e))

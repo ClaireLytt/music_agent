@@ -40,8 +40,6 @@ from .archaeology import (load_report, mine_motifs, parse_report,
                            render_report, report_messages, save_report)
 from .evidence import QuoteIndex, parse_claims, render_evidence_card
 from .ui_helpers import render_wordbook
-from .evolution.engine import load_or_build
-from .evolution.ui import EVOLUTION_CSS, render_evolution_html
 from .lrc_parser import parse_lrc
 from .search import LyricsSearcher
 
@@ -101,7 +99,7 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
 def launch_kwargs() -> dict:
     """Style/head kwargs for app.launch() (Gradio 6 moved them off Blocks)."""
     return {
-        "css": (_CSS + EVOLUTION_CSS + ECHO_MAP_CSS + UNIVERSE_CSS + MV_CSS
+        "css": (_CSS + ECHO_MAP_CSS + UNIVERSE_CSS + MV_CSS
                 + _OVERVIEW_CSS),
         "head": _HEAD_JS,
         "theme": gr.themes.Base(primary_hue="blue", neutral_hue="slate"),
@@ -127,8 +125,6 @@ def create_app(settings: Settings) -> gr.Blocks:
             # pre-load the embedding model so the first semantic search doesn't
             # block on a ~90MB download / cold model init
             threading.Thread(target=searcher.warm_up, daemon=True).start()
-        ctx["evolution"] = load_or_build(
-            settings.songs_dir, Path(settings.evolution_path))
         # library changes invalidate the in-library highlights on echo graphs,
         # the audio fingerprint index, and (when no corpus is built, so the
         # word cloud falls back to library lyrics) the insights caches
@@ -593,10 +589,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                     value="", visible=True, elem_id="ll-ov-pick",
                     elem_classes=["ll-hidden"], show_label=False,
                     container=False)
-                with gr.Accordion(
-                        "📊 Taylor Swift 时代演变（详细图，仅 Taylor 有数据）",
-                        open=False):
-                    evolution_html = gr.HTML("")
 
             # ══ 页签 3: 彩蛋地图 ══
             with gr.Tab("🥚 彩蛋地图"):
@@ -991,7 +983,6 @@ def create_app(settings: Settings) -> gr.Blocks:
         def on_song_select(choice: str):
             if not ctx["songs"]:
                 return ("", None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
-                        render_evolution_html(ctx["evolution"], lang="zh"),
                         None, _ECHO_HINT, "", "", gr.Image(visible=False),
                         _INTRO_EMPTY, "", gr.Image(visible=False),
                         _render_notes([])) + _collections_for("")
@@ -1000,16 +991,13 @@ def create_app(settings: Settings) -> gr.Blocks:
             info["audio_type"], info["audio_src"] = audio.type, audio.path_or_url or ""
             data = _load_song_data(info["dir"])
             lyrics = _render_lyrics_html(data, info)
-            evo = render_evolution_html(
-                ctx["evolution"], current_song_title=info["title"],
-                current_era=info["era"], lang="zh")
             intro = _render_intro(_load_intro(info["dir"]))
-            return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT, evo,
+            return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
                     None, _ECHO_HINT, "", "", gr.Image(visible=False),
                     intro, "", gr.Image(visible=False), _notes_for(info)
                     ) + _collections_for(info["title"])
 
-        song_outputs = [lyrics_html, chat_state, chat_topic, chat_html, evolution_html,
+        song_outputs = [lyrics_html, chat_state, chat_topic, chat_html,
                         echo_state, echo_html, echo_out, card_status, card_img,
                         intro_html, echo_card_status, echo_card_img, notes_html]
         if not public:
@@ -3037,9 +3025,6 @@ def create_app(settings: Settings) -> gr.Blocks:
         if ctx["songs"]:
             app.load(on_song_select, [song_radio], song_outputs).then(
                 on_echo_map, [song_radio], [echo_map_box, echo_overview])
-        else:
-            app.load(lambda: render_evolution_html(ctx["evolution"], lang="zh"),
-                     None, [evolution_html])
 
         overview_artist.change(on_overview_artist, [overview_artist],
                                [overview_html])

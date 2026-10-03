@@ -587,8 +587,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         # ── evolution tab ──
         def c_evolution():
             probe.tab("🗺️ 艺术家图谱")
-            # the tab now leads with an artist-agnostic album overview; the
-            # Taylor-only era chart lives in a collapsed accordion below
+            # the tab is an artist-agnostic album overview
             probe.wait_until(lambda: count(".ov-album") >= 1,
                              msg="artist overview rendered no album cards")
             must(pg.locator("#ll-overview-artist").count() == 1,
