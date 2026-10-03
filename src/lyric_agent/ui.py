@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 
 from .artist_profile import (ARTIST_PROFILE_CSS, render_album_timeline,
                              render_echo_heat, render_motif_section)
+from .mcp_channel import MCP_COMMAND_PATH
 from .mv_eggs import MV_CSS, MV_EMPTY
 from .ui_assets import _CSS, _HEAD_JS
 
@@ -552,6 +553,14 @@ def create_app(settings: Settings) -> gr.Blocks:
                             value="", visible=True, elem_id="ll-cite-jump",
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
+                        if not public:
+                            # backend -> JS: MCP play-command relay
+                            # (`lyric-agent mcp` writes a command file; a
+                            # timer polls it and JS starts playback)
+                            mcp_play_box = gr.Textbox(
+                                value="", visible=True, elem_id="ll-mcp-play",
+                                elem_classes=["ll-hidden"], show_label=False,
+                                container=False)
                         # JS -> backend: double-clicked word ("word\tline\tsong\tts")
                         dict_pick_box = gr.Textbox(
                             value="", visible=True, elem_id="ll-dict-pick",
@@ -2554,6 +2563,39 @@ def create_app(settings: Settings) -> gr.Blocks:
             on_cite_jump, [cite_box, sort_mode, song_filter], [song_radio],
         ).then(on_song_select, [song_radio], song_outputs
         ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+
+        if not public:
+            # ── MCP 播放命令通道（lyric-agent mcp 写命令文件，这里轮询）──
+            mcp_seen = gr.State(0.0)
+            mcp_timer = gr.Timer(1.0)
+
+            def on_mcp_tick(seen: float):
+                from .mcp_channel import read_mcp_command
+                mtime, cmd = read_mcp_command(seen)
+                if cmd is None:
+                    return ((mtime if mtime != seen else gr.skip()),
+                            gr.skip(), gr.skip())
+                payload = json.dumps(
+                    {"cmd": cmd.get("cmd"), "title": cmd.get("title", ""),
+                     "line": cmd.get("line_index"), "ts": cmd.get("ts")},
+                    ensure_ascii=False)
+                label = _label_of().get(cmd.get("title", ""))
+                if cmd.get("cmd") == "play" and label:
+                    return mtime, gr.Radio(value=label), payload
+                return mtime, gr.skip(), payload
+
+            # programmatic Radio updates fire song_radio.change in this
+            # build (the overview-chip jump relies on the same mechanism),
+            # so no explicit re-render chain here — and none is wanted:
+            # a .then would re-render on every tick, not just on commands
+            mcp_timer.tick(on_mcp_tick, [mcp_seen],
+                           [mcp_seen, song_radio, mcp_play_box])
+
+            # a page opened later must not replay an old command
+            app.load(
+                lambda: (MCP_COMMAND_PATH.stat().st_mtime
+                         if MCP_COMMAND_PATH.exists() else 0.0),
+                None, [mcp_seen])
 
         def on_share_card(session, choice: str):
             if session is None or not getattr(session, "lyric_line", ""):

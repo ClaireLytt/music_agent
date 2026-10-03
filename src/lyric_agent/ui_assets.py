@@ -475,6 +475,37 @@ _HEAD_JS = """
     });
   }, 600);
 
+  // MCP play-command relay: the backend timer mirrors the command file into
+  // #ll-mcp-play; when its value changes, switch happens server-side (radio
+  // update) — here we wait for the target song to render, then play (+seek).
+  let lastMcp = null;
+  setInterval(() => {
+    const box = document.querySelector('#ll-mcp-play textarea, #ll-mcp-play input');
+    if (!box || !box.value || box.value === lastMcp) return;
+    const first = lastMcp === null;
+    lastMcp = box.value;
+    if (first) return;  // page-load leftover — never replay
+    let data;
+    try { data = JSON.parse(box.value); } catch (e) { return; }
+    if (data.cmd !== 'play') return;
+    if (data.line != null) window.__llPendingLine = data.line;
+    let tries = 0;
+    const t = setInterval(() => {
+      const title = document.querySelector('.song-title-display');
+      const a = getAudio();
+      if (a && title && title.textContent.trim() === data.title) {
+        clearInterval(t);
+        if (data.line != null) {
+          const el = document.querySelector(
+            '#lyrics-scroll .lyric-line[data-index="' + data.line + '"]');
+          if (el && el.dataset.ts)
+            a.currentTime = Math.max(0, (parseFloat(el.dataset.ts) - getOffset(a)) / 1000);
+        }
+        a.play().catch(() => {});  // autoplay policy may block — harmless
+      } else if (++tries > 30) clearInterval(t);
+    }, 300);
+  }, 700);
+
   // new-song watcher: the audio block is re-rendered per song, so restore
   // toggle states, rebuild the waveform, reset the A-B loop, and (in radio
   // mode) play the spoken intro before the song itself

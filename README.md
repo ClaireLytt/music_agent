@@ -128,6 +128,7 @@ lyric-agent embed                  # 生成语料库 embeddings
 lyric-agent users-add <名字> [--role admin|viewer]  # 建登录账号（建号后 serve 要求登录）
 lyric-agent users-list             # 列账号；无账号 = 不要求登录
 lyric-agent doctor                 # 曲库/语料库健康检查（重复收录、过期索引等）
+lyric-agent mcp [--root DIR]       # MCP 服务器（stdio），接入 Claude Code / Claude Desktop
 lyric-agent search <query> [-s]    # 命令行歌词搜索（-s 语义模式）
 lyric-agent review <song_dir>      # 交互式人工复核批注
 lyric-agent build-evolution        # 聚合艺术家演化数据
@@ -142,6 +143,33 @@ lyric-agent build-evolution        # 聚合艺术家演化数据
 默认无需登录。`lyric-agent users-add` 创建首个账号后，`serve` 自动要求登录
 （密码 PBKDF2 加盐哈希存 `data/users.json`，已 gitignore）。
 `admin` 见全部页签；`viewer` 隐藏「➕ 添加歌曲 / ⚙️ 设置」。
+
+## MCP 集成（让 AI agent 驱动播放器）
+
+歌词透镜内置 MCP 服务器（stdio）：在 Claude 里说「放一首周杰伦关于雨的歌」，
+浏览器里的播放器就会真实切歌播放。
+
+```bash
+pip install -e ".[mcp]"
+# Claude Code：
+claude mcp add lyric-lens -- lyric-agent mcp --root D:\ospp\lyric_agent
+```
+
+Claude Desktop（`claude_desktop_config.json`）：
+
+```json
+{"mcpServers": {"lyric-lens": {
+    "command": "lyric-agent",
+    "args": ["mcp", "--root", "D:/ospp/lyric_agent"]}}}
+```
+
+工具：`list_songs` · `get_lyrics` · `get_annotation` · `search_lyrics`
+（semantic=true 走语义检索）· `find_echoes`（彩蛋呼应）· `artist_motifs`
+（母题挖掘）· `daily_quote` · `play_song`（切歌 + 可定位到行）。
+
+播放控制的前提：`lyric-agent serve` 正在运行、页面已在浏览器打开且点击过
+一次（浏览器自动播放策略）；公开部署（PUBLIC_MODE）下播放控制自动禁用，
+数据工具同样排除比赛歌单素材。
 
 ## Pipeline Scripts
 

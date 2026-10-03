@@ -584,6 +584,28 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("seek_click", "lyric click seeks audio position",
                     c_seek_click)
 
+        def c_mcp_channel():
+            # `lyric-agent mcp` play_song writes a command file; the UI's
+            # 1s timer must pick it up and switch the song. (Playback itself
+            # is not asserted — headless Chromium blocks autoplay.)
+            from lyric_agent.mcp_channel import write_mcp_command
+            pg.get_by_role("radio", name=PLAIN_SONG).check()
+            probe.wait_until(
+                lambda: pg.locator(".song-title-display").inner_text().strip()
+                == PLAIN_SONG, msg="could not open the starting song")
+            write_mcp_command("play", title=AUDIO_SONG,
+                              path=ROOT / "data" / "cache" / "mcp_command.json")
+            probe.wait_until(
+                lambda: pg.locator(".song-title-display").inner_text().strip()
+                == AUDIO_SONG,
+                timeout_s=15, msg="MCP play command did not switch the song")
+            must(pg.evaluate(
+                "(document.querySelector('#ll-mcp-play textarea, "
+                "#ll-mcp-play input') || {value: ''}).value") != "",
+                "ll-mcp-play relay box stayed empty")
+        probe.check("mcp_channel", "MCP command file switches the song",
+                    c_mcp_channel)
+
         # ── evolution tab ──
         def c_evolution():
             probe.tab("🗺️ 艺术家图谱")

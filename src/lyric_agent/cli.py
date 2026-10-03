@@ -132,6 +132,21 @@ def search(query: str, semantic: bool, limit: int) -> None:
         click.echo(f"  {h.song_title} [{mm:02d}:{ss:02d}] {h.text}")
 
 
+@cli.command()
+@click.option("--root", type=click.Path(exists=True, file_okay=False),
+              default=".",
+              help="Project root containing data/ (Claude Desktop spawns "
+                   "the process with an arbitrary cwd)")
+def mcp(root: str) -> None:
+    """Run the MCP server (stdio) for Claude Code / Claude Desktop."""
+    # stdout is the MCP protocol — no click.echo/print on this path
+    import os
+
+    os.chdir(root)  # Settings paths (data/songs, data/corpus) are cwd-relative
+    from .mcp_server import create_server
+    create_server().run("stdio")
+
+
 def _fetch_lrc_for(song_dir) -> int:
     """Fetch synced lyrics from LRCLIB into song_dir/lyrics.lrc. Returns line count."""
     import json
