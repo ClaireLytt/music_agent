@@ -386,6 +386,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     file_types=[".mp3", ".wav", ".flac",
                                                 ".ogg", ".m4a"])
                                 audio_up_status = gr.Markdown("")
+                            with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
+                                              open=False):
+                                bvid_input = gr.Textbox(
+                                    placeholder="粘贴 BV 号或视频链接；"
+                                                "留空保存 = 解绑",
+                                    show_label=False, container=False)
+                                bvid_save_btn = gr.Button("保存", size="sm")
+                                bvid_status = gr.Markdown("")
+                            # JS -> backend: 视频搜索/候选绑定
+                            # ("search\t<ts>" / "pick\t<bvid>\t<ts>")
+                            bvid_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-bvid-act",
+                                elem_classes=["ll-hidden"], show_label=False,
+                                container=False)
                             # delete rides the per-song ⋯ menu (JS):
                             # the menu confirms, then writes the label here
                             del_box = gr.Textbox(
@@ -1039,7 +1054,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             audio = resolve_audio(info["dir"])
             info["audio_type"], info["audio_src"] = audio.type, audio.path_or_url or ""
             data = _load_song_data(info["dir"])
-            lyrics = _render_lyrics_html(data, info)
+            lyrics = _render_lyrics_html(data, info, public=public)
             intro = _render_intro(_load_intro(info["dir"]))
             return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
                     None, _ECHO_HINT, "", "", gr.Image(visible=False),
@@ -2010,11 +2025,77 @@ def create_app(settings: Settings) -> gr.Blocks:
             info = find_song(choice)
             data = _load_song_data(info["dir"])
             return (f"✅ 已为《{info['title']}》添加音频，现在可以播放了。",
-                    None, _render_lyrics_html(data, info))
+                    None, _render_lyrics_html(data, info, public=public))
 
         if not public:
             audio_file_up.upload(on_audio_upload, [audio_file_up, song_radio],
                                  [audio_up_status, audio_file_up, lyrics_html])
+
+        # ── 📺 B 站视频绑定（官方嵌入播放器；搜索为便捷辅助）──
+        if not public:
+            def _save_bvid(info: dict, bvid: str) -> None:
+                """Persist (or clear) the bound video — on_audio_upload's
+                read-modify-write metadata pattern."""
+                meta_path = Path(info["dir"]) / "metadata.json"
+                meta = (json.loads(meta_path.read_text(encoding="utf-8"))
+                        if meta_path.exists() else {})
+                if bvid:
+                    meta["bvid"] = bvid
+                else:
+                    meta.pop("bvid", None)
+                meta_path.write_text(
+                    json.dumps(meta, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                refresh_library()
+
+            def _bvid_rerender(choice: str):
+                info = find_song(choice)
+                data = _load_song_data(info["dir"])
+                return _render_lyrics_html(data, info, public=public)
+
+            def on_bvid_act(payload: str, choice: str):
+                parts = (payload or "").split("\t")
+                act = parts[0].strip() if parts else ""
+                info = find_song(choice)
+                if not act or not info.get("dir"):
+                    return gr.skip()
+                if act == "search":
+                    from .bilibili import search_mv
+                    cands = search_mv(info["title"], info.get("artist", ""))
+                    if not cands:
+                        gr.Warning("B 站搜索暂不可用——可在「📺 关联 B 站视频」"
+                                   "手风琴里手动粘 BV 号或链接。")
+                        return gr.skip()
+                    data = _load_song_data(info["dir"])
+                    return _render_lyrics_html(
+                        data, dict(info, bvid_cands=cands), public=public)
+                if act == "pick" and len(parts) >= 2:
+                    from .bilibili import extract_bvid
+                    bvid = extract_bvid(parts[1])
+                    if not bvid:
+                        return gr.skip()
+                    _save_bvid(info, bvid)
+                    gr.Info(f"📺 已为《{info['title']}》绑定 {bvid}")
+                    return _bvid_rerender(choice)
+                return gr.skip()
+
+            def on_bvid_save(text: str, choice: str):
+                from .bilibili import extract_bvid
+                info = find_song(choice)
+                if not info.get("dir"):
+                    return "⚠️ 请先在列表中选择一首歌。", gr.skip()
+                bvid = extract_bvid(text)
+                if (text or "").strip() and not bvid:
+                    return ("⚠️ 没找到 BV 号——请粘贴形如 BV1xx411c7mD 的 ID "
+                            "或完整视频链接。"), gr.skip()
+                _save_bvid(info, bvid)
+                msg = f"✅ 已绑定 {bvid}" if bvid else "✅ 已解绑视频。"
+                return msg, _bvid_rerender(choice)
+
+            bvid_box.change(on_bvid_act, [bvid_box, song_radio],
+                            [lyrics_html])
+            bvid_save_btn.click(on_bvid_save, [bvid_input, song_radio],
+                                [bvid_status, lyrics_html])
 
         def _filtered_labels(sort: str, q: str) -> list[str]:
             labels = song_choices(sort)
@@ -2596,7 +2677,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                 audio.type, audio.path_or_url or ""
             return ("✅ 串场语音已生成。勾选播放器下方「📻 电台模式」，"
                     "自动切到这首歌时会先播报再进歌。",
-                    _render_lyrics_html(data, info))
+                    _render_lyrics_html(data, info, public=public))
 
         if not public:
             radio_gen_btn.click(on_gen_radio_intro, [song_radio],

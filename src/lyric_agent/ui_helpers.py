@@ -59,6 +59,8 @@ def _discover_songs(songs_dir: str,
             "audio_type": audio.type, "audio_src": audio.path_or_url or "",
             # preview clips start mid-song; shift lyric sync by this many ms
             "audio_offset_ms": int(meta.get("audio_offset_ms", 0) or 0),
+            # bound bilibili video for the 📺 video playback mode
+            "bvid": meta.get("bvid", ""),
             # Windows: st_ctime is directory creation time = when the song was added
             "added_ts": d.stat().st_ctime,
         })
@@ -427,13 +429,58 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
     )
 
 
-def _render_audio_html(song_info: dict, chorus_ts: int | None = None) -> str:
+_BV_NOTE = ('<div class="bv-note">📺 视频模式：歌词同步/卡拉OK不可用，'
+            '点句阅读与 AI 提问照常。</div>')
+
+
+def _render_video_html(song_info: dict, has_audio: bool,
+                       public: bool) -> str:
+    """📺 B 站视频区：官方嵌入播放器 + 绑定/候选 UI（非公开）。"""
+    from .bilibili import embed_url
+    bvid = song_info.get("bvid", "")
+    parts = []
+    if bvid:
+        if has_audio:
+            # lazy iframe: src assigned by JS on first toggle, so song
+            # switches never hit bilibili (and probes stay offline)
+            parts.append(
+                '<button class="ptool" data-video-toggle="1">📺 视频</button>'
+                f'<div class="bv-frame" style="display:none" '
+                f'data-embed="{_esc(embed_url(bvid))}">'
+                '<iframe allowfullscreen scrolling="no" '
+                'frameborder="0"></iframe></div>')
+        else:
+            parts.append(
+                f'<div class="bv-frame"><iframe allowfullscreen '
+                f'scrolling="no" frameborder="0" '
+                f'src="{_esc(embed_url(bvid))}"></iframe></div>' + _BV_NOTE)
+    elif not public:
+        parts.append(
+            '<div class="bv-bind"><button class="ptool" '
+            'data-bvid-search="1">🔍 搜索 B 站 MV</button>'
+            '<span class="bv-bind-hint">或在下方「📺 关联 B 站视频」'
+            '手风琴里粘 BV 号</span></div>')
+        for c in song_info.get("bvid_cands", []):
+            parts.append(
+                f'<div class="bv-cand" data-bvid-pick="{_esc(c["bvid"])}">'
+                f'<b>{_esc(c["title"])}</b>'
+                f'<span class="bv-cand-meta">UP主 {_esc(c["author"])} · '
+                f'{_esc(c["duration"])} · {_esc(c["bvid"])}'
+                '（点击绑定）</span></div>')
+    return "".join(parts)
+
+
+def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
+                       public: bool = False) -> str:
     a_type, src = song_info["audio_type"], song_info["audio_src"]
     offset = song_info.get("audio_offset_ms", 0)
     hint = ('<div class="preview-hint">🎧 官方试听片段 · 歌词已自动对齐</div>'
             if offset else "")
     if a_type not in ("local", "url"):
-        return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>'
+        video = _render_video_html(song_info, has_audio=False, public=public)
+        if song_info.get("bvid"):
+            return video  # bound video replaces the no-audio banner
+        return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>' + video
     url = _file_url(src) if a_type == "local" else src
     # cached radio intro (电台串场语音), if generated for this song
     from .radio import intro_audio_path
@@ -448,6 +495,7 @@ def _render_audio_html(song_info: dict, chorus_ts: int | None = None) -> str:
         f'data-offset="{offset}"{intro} '
         f'src="{_esc(url)}" style="width:100%"></audio>'
         + _player_tools(song_info, chorus_ts) + hint
+        + _render_video_html(song_info, has_audio=True, public=public)
     )
 
 
@@ -557,7 +605,8 @@ def _render_echo_html(results: list[dict], artist: str) -> str:
     return '<div class="echo-list">' + "".join(cards) + "</div>"
 
 
-def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
+def _render_lyrics_html(song_data: dict, song_info: dict,
+                        public: bool = False) -> str:
     lines = song_data["timed_lines"]
 
     artist = song_info["artist"]
@@ -587,7 +636,8 @@ def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
 
     return (
         header_html
-        + _render_audio_html(song_info, song_data.get("chorus_ts"))
+        + _render_audio_html(song_info, song_data.get("chorus_ts"),
+                             public=public)
         + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
           '🖱️ <b>双击英文单词</b>查词义/收藏生词 · '
           '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'

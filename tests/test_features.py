@@ -613,3 +613,103 @@ def test_render_practice_card_escapes():
     # 无发音时不渲染重播按钮
     silent = render_practice_card({"word": "w"}, mp3_url="", nonce="n2")
     assert "data-ll-say" not in silent
+
+
+def test_bilibili_extract_and_embed():
+    from lyric_agent.bilibili import embed_url, extract_bvid
+
+    assert extract_bvid("BV1xx411c7mD") == "BV1xx411c7mD"
+    assert extract_bvid(
+        "https://www.bilibili.com/video/BV1xx411c7mD/?p=1") == "BV1xx411c7mD"
+    assert extract_bvid("杰伦 晴天") == ""
+    assert extract_bvid("") == ""
+    url = embed_url("BV1xx411c7mD")
+    assert url.startswith("https://player.bilibili.com/player.html?bvid=BV1")
+    assert "autoplay=0" in url and "danmaku=0" in url
+
+
+def test_bilibili_mixin_and_strip():
+    from lyric_agent.bilibili import _mixin_key, _strip_em
+
+    # deterministic reorder: same inputs -> same 32-char key
+    k = _mixin_key("a" * 32, "b" * 32)
+    assert len(k) == 32 and k == _mixin_key("a" * 32, "b" * 32)
+    assert set(k) <= {"a", "b"} and "b" in k
+    assert _strip_em('<em class="keyword">晴天</em>&amp;周杰伦') == "晴天&周杰伦"
+
+
+def test_bilibili_search_offline(monkeypatch):
+    from lyric_agent import bilibili as b
+
+    def boom(*a, **k):
+        raise OSError("no network")
+
+    monkeypatch.setattr(b, "_get_json", boom)
+    assert b.search_mv("晴天", "周杰伦") == []
+
+
+def test_bilibili_search_parses_and_ladders(monkeypatch):
+    from lyric_agent import bilibili as b
+
+    calls = []
+
+    def fake_get(url, headers):
+        calls.append(url)
+        if len(calls) == 1:          # bare attempt rejected
+            return {"code": -412}
+        if "nav" in url:
+            return {"data": {"wbi_img": {
+                "img_url": "https://i/x/abc.png",
+                "sub_url": "https://i/x/def.png"}}}
+        if "spi" in url:
+            return {"data": {"b_3": "fakebuvid"}}
+        return {"code": 0, "data": {"result": [
+            {"type": "video", "bvid": "BV1xx411c7mD",
+             "title": '<em class="keyword">晴天</em> MV', "author": "up主",
+             "duration": "4:29"},
+            {"type": "ketang", "bvid": "BV1zz411c7zZ", "title": "课堂"},
+        ]}}
+
+    monkeypatch.setattr(b, "_get_json", fake_get)
+    b._cache.clear()
+    out = b.search_mv("晴天", "周杰伦", limit=3)
+    assert out == [{"bvid": "BV1xx411c7mD", "title": "晴天 MV",
+                    "author": "up主", "duration": "4:29"}]
+    assert any("w_rid=" in u for u in calls)   # signed retry happened
+
+
+def test_render_audio_html_video_branches():
+    from lyric_agent.ui_helpers import _render_audio_html
+
+    base = {"audio_type": "none", "audio_src": "", "dir": "", "title": "t",
+            "artist": "a", "album": "", "name": "t"}
+    # 无 bvid + 非公开 -> 横幅 + 搜索按钮，无 iframe
+    html = _render_audio_html(dict(base), public=False)
+    assert "no-audio-hint" in html and "data-bvid-search" in html
+    assert "bv-frame" not in html
+    # 无 bvid + 公开 -> 只有横幅，无绑定入口
+    pub = _render_audio_html(dict(base), public=True)
+    assert "data-bvid-search" not in pub and "bv-frame" not in pub
+    # 有 bvid + 无音频 -> 直接 iframe + 降级说明，横幅消失
+    bound = _render_audio_html(dict(base, bvid="BV1xx411c7mD"), public=True)
+    assert "bv-frame" in bound and "player.bilibili.com" in bound
+    assert "no-audio-hint" not in bound and "视频模式" in bound
+    # 候选卡渲染 + 转义
+    cands = [{"bvid": "BV1xx411c7mD", "title": "<晴天> MV",
+              "author": "up&主", "duration": "4:29"}]
+    with_c = _render_audio_html(dict(base, bvid_cands=cands), public=False)
+    assert 'data-bvid-pick="BV1xx411c7mD"' in with_c
+    assert "&lt;晴天&gt;" in with_c and "up&amp;主" in with_c
+
+
+def test_render_audio_html_video_toggle_with_audio(tmp_path):
+    from lyric_agent.ui_helpers import _render_audio_html
+
+    info = {"audio_type": "local", "audio_src": str(tmp_path / "a.mp3"),
+            "dir": str(tmp_path), "title": "t", "artist": "a", "album": "",
+            "name": "t", "bvid": "BV1xx411c7mD"}
+    html = _render_audio_html(info, public=False)
+    # 音频照常 + 懒加载 iframe（无 src，embed 存 data 属性）
+    assert 'id="ll-audio"' in html and "data-video-toggle" in html
+    assert 'data-embed="https://player.bilibili.com' in html
+    assert "<iframe allowfullscreen" in html and 'src="https://player' not in html

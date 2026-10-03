@@ -698,6 +698,32 @@ _HEAD_JS = """
       writeChannel('ll-ov-pick', ov.dataset.ovPick + '\\t' + Date.now());
       return;
     }
+    // 📺 B 站视频模式: toggle shows the frame and lazily sets the iframe
+    // src on first use, so song switches never hit bilibili by themselves
+    const vt = e.target.closest('[data-video-toggle]');
+    if (vt) {
+      const frame = document.querySelector('.bv-frame');
+      if (frame) {
+        const ifr = frame.querySelector('iframe');
+        if (ifr && !ifr.src) ifr.src = frame.dataset.embed;
+        const show = frame.style.display === 'none';
+        frame.style.display = show ? '' : 'none';
+        const a = getAudio();
+        if (a && show) a.pause();
+      }
+      return;
+    }
+    const bvs = e.target.closest('[data-bvid-search]');
+    if (bvs) {
+      writeChannel('ll-bvid-act', 'search\\t' + Date.now());
+      return;
+    }
+    const bvp = e.target.closest('[data-bvid-pick]');
+    if (bvp) {
+      writeChannel('ll-bvid-act',
+                   'pick\\t' + bvp.dataset.bvidPick + '\\t' + Date.now());
+      return;
+    }
     const fav = e.target.closest('[data-fav]');
     if (fav) {
       writeChannel('ll-fav-act', fav.dataset.fav + '\\t' + Date.now());
@@ -1344,6 +1370,21 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
   padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
   line-height: 1.5; }
+/* 📺 B 站视频模式 */
+.bv-frame { position: relative; width: 100%; padding-top: 56.25%;
+  margin-top: 10px; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border); background: var(--bg-card); }
+.bv-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bv-note { font-size: .85em; color: var(--text-secondary); margin-top: 6px; }
+.bv-bind { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+.bv-bind-hint { font-size: .8em; color: var(--text-secondary); }
+.bv-cand { padding: 10px 14px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-card); margin-top: 6px;
+  cursor: pointer; }
+.bv-cand:hover { border-color: var(--accent); }
+.bv-cand b { font-size: 14px; color: var(--text-primary); }
+.bv-cand-meta { display: block; font-size: 12px;
+  color: var(--text-secondary); margin-top: 2px; }
 /* ⌨️ 单词练习 */
 .ll-type-card { padding: 18px 20px; border: 1px solid var(--border);
   border-radius: 14px; background: var(--bg-card); cursor: text; }

@@ -929,6 +929,22 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("word_export", "qwerty dictionary export responds",
                     c_word_export)
 
+        def c_video_bind_ui():
+            # cardigan has no audio and no bvid: the bind entry points must
+            # render, and no bilibili iframe may load (probe stays offline —
+            # the search button is deliberately NOT clicked)
+            probe.tab("🎧 播放解读")
+            pg.get_by_role("radio", name=PLAIN_SONG).check()
+            probe.wait_until(
+                lambda: count("[data-bvid-search]") >= 1,
+                msg="B站 MV search button missing on a no-audio song")
+            must(count(".bv-frame") == 0,
+                 "iframe rendered without a bound bvid")
+            must(pg.get_by_text("📺 关联 B 站视频").count() >= 1,
+                 "manual bvid accordion missing")
+        probe.check("video_bind_ui", "bilibili bind entry points render",
+                    c_video_bind_ui)
+
         def c_universe_present():
             # universe/letter are LLM-priced AND the pair dropdown is
             # pre-filled on load (clicking 写信 would actually spend), so
