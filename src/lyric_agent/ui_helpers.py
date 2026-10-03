@@ -626,13 +626,16 @@ def render_wordbook(entries: list[dict],
             src_html = f'<div class="wb-src">「{_esc(src)}」</div>'
         else:
             src_html = ""
+        ai = (e.get("ai", "") or "").strip()
+        ai_html = (f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(
+            "\n", "<br>") if ai else "")
         items.append(
             f'<div class="wb-item">'
             f'<span class="wb-del" data-wb="del:{_esc(word)}" '
             f'title="移出单词本">✕</span>'
             f'<div class="wb-word">{_esc(word)} {phon_html}</div>'
             f'<div class="wb-meaning">{_esc(meaning)}</div>'
-            f'{src_html}</div>'
+            f'{src_html}{ai_html}</div>'
         )
     return f'<div class="wb-list">{"".join(items)}</div>'
 

@@ -265,6 +265,11 @@ def test_wordbook_roundtrip(tmp_path, monkeypatch):
     book = d.add_word("scarf", line="left my scarf there", song="All Too Well")
     assert len(book) == 1 and book[0]["word"] == "scarf"
     assert d.add_word("Scarf") == book  # idempotent, case-insensitive
+    # re-collecting backfills a missing AI explanation (and only that)
+    book = d.add_word("Scarf", ai="①语境义：围巾")
+    assert book[0]["ai"] == "①语境义：围巾"
+    book = d.add_word("Scarf", ai="另一个解释不覆盖")
+    assert book[0]["ai"] == "①语境义：围巾"
     assert d.remove_word("SCARF") == []
 
 
@@ -272,9 +277,13 @@ def test_render_wordbook_escapes():
     from lyric_agent.ui_helpers import render_wordbook
     html = render_wordbook([{"word": "a<b", "phonetic": "x&y",
                              "translation": "n. 释义\n第二行",
-                             "line": "<script>", "song": "s"}])
+                             "line": "<script>", "song": "s",
+                             "ai": "①语境义：<x>\n②整句：好"}])
     assert "a&lt;b" in html and "x&amp;y" in html and "&lt;script&gt;" in html
     assert "data-wb=" in html
+    assert "wb-ai" in html and "&lt;x&gt;" in html   # AI 解释展示且转义
+    assert "①语境义：&lt;x&gt;<br>②整句：好" in html  # 换行渲染
+    assert "wb-ai" not in render_wordbook([{"word": "w", "song": "s"}])
     assert "还没有收藏的单词" in render_wordbook([])
 
 

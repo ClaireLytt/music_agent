@@ -2288,6 +2288,17 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         _AI_CACHE_PATH = Path(settings.songs_dir).parent / "dict" / "ai_cache.json"
 
+        def _cached_dict_ai(word: str, line: str) -> str:
+            """The popup's AI explanation for word+line, if one was generated
+            (same cache key derivation as on_dict_ai)."""
+            import hashlib
+            key = hashlib.md5(f"v2:{word}\x00{line}".encode()).hexdigest()
+            try:
+                cache = json.loads(_AI_CACHE_PATH.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                return ""
+            return cache.get(key, "")
+
         def on_dict_ai(payload: str, user_cfg):
             parts = (payload or "").split("\t")
             if len(parts) < 3 or not parts[0].strip():
@@ -2357,7 +2368,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                         word, line=line, song=song,
                         label=(_label_of().get(hit["song_title"], "")
                                if hit else ""),
-                        line_index=hit["line_index"] if hit else -1)
+                        line_index=hit["line_index"] if hit else -1,
+                        ai=_cached_dict_ai(word, line))
                     gr.Info(f"📒 已收藏单词 {word}。")
                     return render_wordbook(book, song_title=cur)
                 if head.startswith("del:"):

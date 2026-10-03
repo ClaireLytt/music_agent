@@ -1262,6 +1262,9 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-phon { color: var(--text-secondary); font-weight: 400; font-size: .9em; }
 .wb-item .wb-meaning { font-size: .9em; color: var(--text-primary); }
 .wb-item .wb-src { font-size: .85em; color: var(--text-secondary); margin-top: 2px; }
+.wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
+  padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
+  line-height: 1.5; }
 .wb-item .wb-jump { cursor: pointer; }
 .wb-item .wb-jump:hover { color: var(--accent); text-decoration: underline; }
 .fav-item[data-cite-label] { cursor: pointer; }
