@@ -52,8 +52,13 @@ from .universe import UNIVERSE_CSS, UNIVERSE_EMPTY
 
 logger = logging.getLogger(__name__)
 
+from .artist_profile import (ARTIST_PROFILE_CSS, render_album_timeline,
+                             render_echo_heat, render_motif_section)
 from .mv_eggs import MV_CSS, MV_EMPTY
 from .ui_assets import _CSS, _HEAD_JS
+
+_PROFILE_ECHO_HINT = ('<div class="chat-empty">展开后开始统计该歌手的专辑互文'
+                      '热度（首次约 10-20 秒，之后秒开）。</div>')
 from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _CATALOG_PATH,
     _CHAT_HINT,
@@ -99,7 +104,7 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
 def launch_kwargs() -> dict:
     """Style/head kwargs for app.launch() (Gradio 6 moved them off Blocks)."""
     return {
-        "css": (_CSS + ECHO_MAP_CSS + UNIVERSE_CSS + MV_CSS
+        "css": (_CSS + ECHO_MAP_CSS + UNIVERSE_CSS + MV_CSS + ARTIST_PROFILE_CSS
                 + _OVERVIEW_CSS),
         "head": _HEAD_JS,
         "theme": gr.themes.Base(primary_hue="blue", neutral_hue="slate"),
@@ -576,12 +581,20 @@ def create_app(settings: Settings) -> gr.Blocks:
 
             # ══ 页签 2: 艺术家图谱 ══
             with gr.Tab("🗺️ 艺术家图谱"):
-                gr.Markdown("选一位歌手，看 TA 的专辑概览"
-                            "（歌曲按专辑归类）。")
+                gr.Markdown("选一位歌手，看 TA 的专辑概览、母题指纹、"
+                            "互文热度与专辑时间轴。")
                 overview_artist = gr.Dropdown(
                     choices=[], value=None, label="选择歌手",
                     allow_custom_value=True, elem_id="ll-overview-artist")
-                overview_html = gr.HTML("")
+                with gr.Accordion("💿 专辑概览", open=True):
+                    overview_html = gr.HTML("")
+                with gr.Accordion("🏺 母题指纹", open=True):
+                    motif_html = gr.HTML("")
+                with gr.Accordion("🥚 专辑互文热度",
+                                  open=False) as echo_heat_acc:
+                    echo_heat_html = gr.HTML(_PROFILE_ECHO_HINT)
+                with gr.Accordion("📅 专辑时间轴", open=False):
+                    timeline_html = gr.HTML("")
                 # JS -> backend: clicked song chip in the overview. Its own
                 # channel, in THIS tab — the insights-tab emo-pick box is
                 # lazy-rendered and absent when viewing the overview.
@@ -1027,14 +1040,36 @@ def create_app(settings: Settings) -> gr.Blocks:
                     names.setdefault(key, line.artist)
             return sorted(names.values(), key=str.lower)
 
-        def _overview_html(artist: str) -> str:
+        def _profile_sections(artist: str) -> tuple[str, str, str]:
+            """(overview, motifs, timeline) — memoized under the historical
+            ctx key "overview_html" so refresh_library()'s pop (and the
+            on_rebuild → refresh_library chain) keeps invalidating it."""
             cache = ctx.setdefault("overview_html", {})
             if artist not in cache:
-                cache[artist] = render_artist_overview(ctx["songs"], artist)
+                index = _echo_index()
+                motifs = mine_motifs(index[1], artist) if index else []
+                cache[artist] = (
+                    render_artist_overview(ctx["songs"], artist),
+                    render_motif_section(motifs, _label_of()),
+                    render_album_timeline(ctx["songs"], artist),
+                )
             return cache[artist]
 
         def on_overview_artist(artist: str):
-            return _overview_html(artist)
+            overview, motifs, timeline = _profile_sections(artist)
+            # artist switch: drop the stale echo heat and collapse its
+            # accordion so the next expand rebuilds for the new artist
+            return (overview, motifs, timeline,
+                    _PROFILE_ECHO_HINT, gr.Accordion(open=False))
+
+        def on_echo_heat(artist: str):
+            if not artist:
+                yield gr.skip()
+                return
+            yield ('<div class="chat-empty">🥚 正在两两比对该歌手的全部歌曲'
+                   '……（首次约 10-20 秒）</div>')
+            graph, _net = _map_graph(artist)
+            yield render_echo_heat(graph)
 
         def on_overview_pick(payload: str, cur_artist: str):
             from .intertextuality.search import artist_matches
@@ -3026,8 +3061,14 @@ def create_app(settings: Settings) -> gr.Blocks:
             app.load(on_song_select, [song_radio], song_outputs).then(
                 on_echo_map, [song_radio], [echo_map_box, echo_overview])
 
-        overview_artist.change(on_overview_artist, [overview_artist],
-                               [overview_html])
+        overview_artist.change(
+            on_overview_artist, [overview_artist],
+            [overview_html, motif_html, timeline_html,
+             echo_heat_html, echo_heat_acc])
+        # lazy: the echo graph costs 10-20s cold, so it only builds when the
+        # accordion opens; shares the echo-map serial lane (no racing repaints)
+        echo_heat_acc.expand(on_echo_heat, [overview_artist],
+                             [echo_heat_html], concurrency_id="echo-map")
         overview_pick_box.change(on_overview_pick,
                                  [overview_pick_box, overview_artist],
                                  [song_radio, tabs])
@@ -3035,12 +3076,16 @@ def create_app(settings: Settings) -> gr.Blocks:
         def _init_overview():
             artists = _corpus_artists()
             if not artists:
-                return gr.Dropdown(choices=[]), ""
+                return gr.Dropdown(choices=[]), "", "", ""
             first = artists[0]
+            overview, motifs, timeline = _profile_sections(first)
+            # echo_heat_acc deliberately not an output here: the load path
+            # must not fight a user's expand click
             return (gr.Dropdown(choices=artists, value=first),
-                    _overview_html(first))
+                    overview, motifs, timeline)
 
-        app.load(_init_overview, None, [overview_artist, overview_html])
+        app.load(_init_overview, None,
+                 [overview_artist, overview_html, motif_html, timeline_html])
 
         if not public:
             # suggest existing artists in the manual-add artist field

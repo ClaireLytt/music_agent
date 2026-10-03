@@ -465,3 +465,60 @@ def test_generate_annotations_resume(tmp_path, monkeypatch):
     # third run: everything good -> zero LLM calls
     engine.generate_annotations(settings, d, chunk_size=10)
     assert calls["n"] == n_after_success
+
+
+def test_motif_section_renders():
+    """Motif chips: spread counts, cite jumps only for library songs, escaping."""
+    from lyric_agent.artist_profile import render_motif_section
+
+    motifs = [{"word": "雨", "n_songs": 4, "total": 9, "hits": [
+        {"song": "晴天", "album": "叶惠美", "line_index": 3,
+         "text": "雨下整夜 <my love>"},
+        {"song": "库外歌", "album": "", "line_index": 0, "text": "大雨落下"},
+    ]}]
+    html = render_motif_section(motifs, {"晴天": "晴天"})
+    assert "「雨」" in html and "出现于 4 首歌" in html and "共 9 次" in html
+    assert 'data-cite-label="晴天"' in html and 'data-cite-line="3"' in html
+    assert html.count("data-cite-label") == 1      # 库外歌 has no jump
+    assert "&lt;my love&gt;" in html and "<my love>" not in html
+    assert "chat-empty" in render_motif_section([], {})
+
+
+def test_echo_heat_aggregates():
+    """Per-album totals from node echo_count; at most 3 pair cards."""
+    from lyric_agent.artist_profile import render_echo_heat
+    from lyric_agent.intertextuality.echo_map import (
+        EchoEdge, EchoGraph, EchoNode, EchoPair,
+    )
+
+    pair = EchoPair(line_a="a", line_b="b", similarity=0.8)
+    graph = EchoGraph(
+        artist="A", threshold=0.75, song_total=3,
+        nodes=[EchoNode("s1", "AL1", 3), EchoNode("s2", "AL1", 2),
+               EchoNode("s3", "AL2", 1)],
+        edges=[EchoEdge("s1", "s2", 2, pair), EchoEdge("s1", "s3", 1, pair),
+               EchoEdge("s2", "s3", 1, pair), EchoEdge("s3", "s1", 1, pair)],
+    )
+    html = render_echo_heat(graph)
+    assert "AL1" in html and "AL2" in html
+    assert '<span class="aph-n">5</span>' in html   # AL1 = 3 + 2
+    assert html.count("aph-pair-head") == 3          # top-3 cap
+    assert "chat-empty" in render_echo_heat(None)
+    empty = EchoGraph(artist="A", threshold=0.75, song_total=0)
+    assert "chat-empty" in render_echo_heat(empty)
+
+
+def test_album_timeline_order():
+    """Known years ascending, registry fallback, unknowns clustered last."""
+    from lyric_agent.artist_profile import render_album_timeline
+
+    songs = [
+        {"title": "t1", "artist": "A", "album": "新碟", "year": 2010},
+        {"title": "t2", "artist": "A", "album": "Red", "year": 0},     # registry: 2012
+        {"title": "t3", "artist": "A", "album": "谜之专辑", "year": 0},  # unknown
+    ]
+    html = render_album_timeline(songs, "A")
+    assert html.index("新碟") < html.index("Red") < html.index("谜之专辑")
+    assert "2010" in html and "2012" in html and "年份未知" in html
+    assert "ovt-divider" in html
+    assert "chat-empty" in render_album_timeline(songs, "nobody")

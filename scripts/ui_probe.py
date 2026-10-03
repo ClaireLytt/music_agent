@@ -587,11 +587,16 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         # ── evolution tab ──
         def c_evolution():
             probe.tab("🗺️ 艺术家图谱")
-            # the tab is an artist-agnostic album overview
+            # artist profile page: overview + motif sections open by default
             probe.wait_until(lambda: count(".ov-album") >= 1,
                              msg="artist overview rendered no album cards")
             must(pg.locator("#ll-overview-artist").count() == 1,
                  "artist picker missing")
+            # motif section renders content or its explicit empty state
+            # (the alphabetically-first artist may have too few songs)
+            probe.wait_until(
+                lambda: count(".apm-motif") >= 1 or count(".chat-empty") >= 1,
+                msg="motif section rendered neither motifs nor empty state")
             # a song chip jumps to the play tab with that song opened
             chip = pg.locator(".ov-song").first
             title = chip.inner_text().strip()
@@ -604,6 +609,47 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 msg="overview chip did not open the song on the play tab")
         probe.check("evolution", "artist overview renders + chip jumps",
                     c_evolution)
+
+        def c_profile_cite():
+            # motif hit on a library song switches the selected song
+            # (the cite-jump channel changes the radio without leaving
+            # the current tab — same contract as archaeology citations)
+            probe.tab("🗺️ 艺术家图谱")
+            pg.locator("#ll-overview-artist input").click()
+            pg.wait_for_timeout(400)
+            pg.get_by_role("option", name="Taylor Swift", exact=True).click()
+            probe.wait_until(
+                lambda: count(".apm-hit[data-cite-label]") >= 1,
+                msg="no clickable motif hits for Taylor Swift")
+            hit = pg.locator(".apm-hit[data-cite-label]").first
+            label = hit.get_attribute("data-cite-label")
+            hit.click()
+            probe.wait_until(
+                lambda: pg.locator(
+                    "#ll-songs input[type=radio]:checked"
+                ).get_attribute("value") == label,
+                msg="motif hit did not switch the selected song")
+        probe.check("profile_cite", "motif hit switches the selected song",
+                    c_profile_cite)
+
+        def c_profile_echo():
+            # lazy echo-heat accordion builds on expand (cold graph ok)
+            probe.tab("🗺️ 艺术家图谱")
+            pg.get_by_text("🥚 专辑互文热度").click()
+            probe.wait_until(lambda: count(".aph-row") >= 1, timeout_s=40,
+                             msg="echo heat rendered no album rows")
+        probe.check("profile_echo", "echo heat builds on accordion expand",
+                    c_profile_echo)
+
+        def c_profile_timeline():
+            probe.tab("🗺️ 艺术家图谱")
+            pg.get_by_text("📅 专辑时间轴").click()
+            probe.wait_until(
+                lambda: pg.locator(".ovt-album").first.is_visible()
+                and pg.locator(".ovt-year").first.inner_text().strip() != "",
+                msg="album timeline missing or yearless after expand")
+        probe.check("profile_timeline", "album timeline renders on expand",
+                    c_profile_timeline)
 
         # ── echo map tab ──
         def c_map_focus():
