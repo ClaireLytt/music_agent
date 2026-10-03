@@ -6,7 +6,11 @@ import json
 
 import pytest
 
-from lyric_agent.mcp_channel import read_mcp_command, write_mcp_command
+# the whole file exercises the MCP feature — skip gracefully in minimal
+# environments installed without the `mcp` extra
+pytest.importorskip("mcp")
+
+from lyric_agent.mcp_channel import read_mcp_command, write_mcp_command  # noqa: E402
 
 
 def test_command_roundtrip_and_dedupe(tmp_path):
