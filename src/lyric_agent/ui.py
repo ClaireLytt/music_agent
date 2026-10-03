@@ -4,7 +4,7 @@
 页签 2  🗺️ 艺术家图谱 — 艺术家演化地图
 页签 3  🥚 彩蛋地图 — 同歌手全曲库歌词互文网络图（含意象追踪）
 页签 4  📊 曲库洞察 — 每日一句 / 词云 / 情绪地图 / 歌单故事线
-页签 5  🎮 互动   — 歌词竞猜 / 曲库内听歌识曲
+页签 5  🎮 互动   — 歌词竞猜 / 歌名拼图 / 单词练习
 页签 6  ➕ 添加歌曲 — 用户自行添加歌曲（LRC + 元数据 + 可选音频）
 
 All JavaScript lives in gr.Blocks(head=...) because Gradio 6 injects
@@ -133,11 +133,10 @@ def create_app(settings: Settings) -> gr.Blocks:
             # pre-load the embedding model so the first semantic search doesn't
             # block on a ~90MB download / cold model init
             threading.Thread(target=searcher.warm_up, daemon=True).start()
-        # library changes invalidate the in-library highlights on echo graphs,
-        # the audio fingerprint index, and (when no corpus is built, so the
-        # word cloud falls back to library lyrics) the insights caches
+        # library changes invalidate the in-library highlights on echo
+        # graphs and (when no corpus is built, so the word cloud falls back
+        # to library lyrics) the insights caches
         ctx.pop("echo_graphs", None)
-        ctx.pop("fp_index", None)
         ctx.pop("corpus_lines", None)
         ctx.pop("clouds", None)
         # new songs may need a bilibili MV auto-bound (thread set up below;
@@ -876,7 +875,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                         story_out = gr.Markdown(
                             "", elem_classes=["echo-explain"])
 
-            # ══ 页签 5: 互动（竞猜 + 听歌识曲） ══
+            # ══ 页签 5: 互动（竞猜 / 拼图 / 单词练习） ══
             with gr.Tab("🎮 互动"):
                 with gr.Tabs():
                     with gr.Tab("🎯 歌词竞猜"):
@@ -911,26 +910,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                                       variant="primary", scale=1)
                             blank_submit_btn = gr.Button("🧩 拼好了", scale=1)
                         blank_result = gr.Markdown("")
-                    with gr.Tab("🥚 彩蛋猜猜乐"):
-                        gr.Markdown("抽一句有回声的歌词，猜它在同一歌手的"
-                                    "哪首歌里被呼应——答完揭晓两句歌词如何"
-                                    "互相呼应。")
-                        egg_quiz_artist = gr.Dropdown(
-                            choices=[], value=None, label="选择歌手",
-                            allow_custom_value=True, elem_id="ll-eggq-artist")
-                        egg_quiz_state = gr.State(
-                            {"score": 0, "total": 0, "answer": "", "reveal": ""})
-                        egg_quiz_html = gr.HTML(
-                            '<div class="chat-empty">点「抽一题」抽一句'
-                            '有回声的歌词。</div>')
-                        egg_quiz_options = gr.Radio(
-                            choices=[], label="它的回声在哪首歌里？",
-                            visible=False)
-                        with gr.Row():
-                            egg_quiz_new_btn = gr.Button(
-                                "🥚 抽一题", variant="primary", scale=1)
-                            egg_quiz_submit_btn = gr.Button("🥚 交卷", scale=1)
-                        egg_quiz_result = gr.Markdown("")
                     if not public:
                         with gr.Tab("⌨️ 单词练习"):
                             gr.Markdown(
@@ -961,21 +940,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 elem_id="ll-review-done",
                                 elem_classes=["ll-hidden"], show_label=False,
                                 container=False)
-                    with gr.Tab("🎙️ 听歌识曲"):
-                        gr.Markdown("用麦克风录一段（或上传一段音频片段），"
-                                    "在你的本地曲库中识别是哪首歌、"
-                                    "唱到了哪里。\n\n"
-                                    "> 🎤 麦克风用不了？浏览器只在 "
-                                    "**localhost / 127.0.0.1 或 HTTPS** 下"
-                                    "放行录音。用局域网 IP（如 192.168.x.x）"
-                                    "访问会被禁麦——改用 127.0.0.1，或直接"
-                                    "**上传**一段音频片段。")
-                        fp_audio = gr.Audio(sources=["microphone", "upload"],
-                                            type="numpy",
-                                            label="录一段或上传片段")
-                        fp_btn = gr.Button("🔍 识别", variant="primary")
-                        fp_result = gr.Markdown("")
-
             # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
             if not public:
                 with gr.Tab("➕ 添加歌曲"):
@@ -1323,7 +1287,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                 return (gr.Dropdown(choices=[], value=None),
                         gr.Dropdown(choices=[], value=None), _ECHO_NO_INDEX,
                         gr.Dropdown(choices=[], value=None),
-                        gr.Dropdown(choices=[], value=None),
                         gr.Dropdown(choices=[], value=None))
             from .intertextuality.search import artist_matches
             info = find_song(choice) if ctx["songs"] else {}
@@ -1339,8 +1302,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                     dd, _render_map(value, "focus", focus),
                     gr.Dropdown(choices=all_choices, value=value),
                     gr.Dropdown(choices=pairs,
-                                value=pairs[0] if pairs else None),
-                    gr.Dropdown(choices=all_choices, value=value))
+                                value=pairs[0] if pairs else None))
 
         def on_focus_pick(payload: str, artist: str):
             """Map-node click: refocus on that song (and switch to focus view)."""
@@ -1382,7 +1344,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                               concurrency_id="echo-map")
         app.load(init_echo_map, [song_radio],
                  [map_artist, map_focus, echo_map_html,
-                  uni_artist, letter_pair, egg_quiz_artist])
+                  uni_artist, letter_pair])
 
         def on_map_explain(artist: str, user_cfg):
             """LLM interpretation of the strongest pairs on the current map."""
@@ -1825,7 +1787,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                         '才能出题。</div>',
                         gr.Radio(choices=[], visible=False), "")
             state = dict(state or {}, answer=q.answer)
-            html_q = (f'<div class="quiz-line">“{_esc(q.line)}”</div>'
+            passage = _esc(q.line).replace("\n", "<br>")
+            html_q = (f'<div class="quiz-line">“{passage}”</div>'
                       f'<div class="quiz-meta">歌手：{_esc(q.artist)}</div>')
             return (state, html_q,
                     gr.Radio(choices=q.options, value=None, visible=True), "")
@@ -1896,62 +1859,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                [blank_state, blank_result])
 
         # ── 彩蛋猜猜乐 ──
-
-        def on_egg_quiz_new(artist: str, state: dict):
-            state = dict(state or {}, answer="", reveal="")
-            if not artist:
-                return (state,
-                        '<div class="chat-empty">请先选择歌手。</div>',
-                        gr.Radio(choices=[], visible=False), "")
-            graph, _net = _map_graph(artist)
-            from .egg_quiz import make_echo_question
-            q = make_echo_question(graph, n_options=3)  # 3 options = easier
-            if q is None:
-                return (state,
-                        '<div class="chat-empty">该范围的彩蛋呼应不足以'
-                        '出题，换一位歌手试试。</div>',
-                        gr.Radio(choices=[], visible=False), "")
-            reveal = (f"《{q.source_song}》唱道：“{q.line}”\n\n"
-                      f"《{q.answer}》回应：“{q.echo_line}”\n\n"
-                      f"这两首歌之间共有 {q.count} 处呼应。")
-            state.update(answer=q.answer, reveal=reveal)
-            # hint: first few chars of the echoing line turn pure guessing
-            # into recognition — the main reason players found it too hard
-            echo_hint = _esc(q.echo_line.strip()[:6])
-            html_q = (f'<div class="quiz-line">“{_esc(q.line)}”</div>'
-                      f'<div class="quiz-meta">出自《{_esc(q.source_song)}》'
-                      '——它的回声藏在哪首歌里？</div>'
-                      f'<div class="quiz-meta">💡 回声开头：'
-                      f'「{echo_hint}…」</div>')
-            return (state, html_q,
-                    gr.Radio(choices=q.options, value=None, visible=True),
-                    "")
-
-        def on_egg_quiz_submit(state: dict, choice: str):
-            state = dict(state or {})
-            answer = state.get("answer", "")
-            if not answer:
-                return state, "⚠️ 先点「抽一题」抽题。"
-            if not choice:
-                return state, "⚠️ 请先选择一个选项。"
-            state["total"] = state.get("total", 0) + 1
-            if choice == answer:
-                state["score"] = state.get("score", 0) + 1
-                verdict = f"✅ 答对了！回声就在《{answer}》。"
-            else:
-                verdict = f"❌ 不对，回声在《{answer}》。"
-            reveal = state.get("reveal", "")
-            state["answer"] = ""
-            return (state, f"{verdict}\n\n{reveal}\n\n当前战绩 "
-                    f"**{state.get('score', 0)} / {state['total']}**")
-
-        egg_quiz_new_btn.click(
-            on_egg_quiz_new, [egg_quiz_artist, egg_quiz_state],
-            [egg_quiz_state, egg_quiz_html, egg_quiz_options,
-             egg_quiz_result])
-        egg_quiz_submit_btn.click(
-            on_egg_quiz_submit, [egg_quiz_state, egg_quiz_options],
-            [egg_quiz_state, egg_quiz_result])
 
         # ── ⌨️ 单词练习 ──
         if not public:
@@ -2052,41 +1959,6 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         # ── 听歌识曲 ──
 
-        def on_identify(sample):
-            if sample is None:
-                yield "⚠️ 请先录一段或上传一段音频。"
-                return
-            from .fingerprint import build_index, match_sample
-            if "fp_index" not in ctx:
-                yield "⏳ 首次识别：正在为曲库音频建立声纹索引……"
-                ctx["fp_index"] = build_index(ctx["songs"])
-            index = ctx["fp_index"]
-            skipped = ""
-            if index.skipped:
-                skipped = ("\n\n⚠️ 以下歌曲的音频无法解码、未入索引："
-                           + "、".join(f"《{t}》" for t in index.skipped)
-                           + "（mp3 解码需要安装 ffmpeg 并加入 PATH）")
-            n_url = sum(1 for s in ctx["songs"]
-                        if s.get("audio_type") == "url")
-            if n_url:
-                skipped += (f"\n\nℹ️ 另有 {n_url} 首歌只有在线试听片段，"
-                            "不参与声纹索引。")
-            if not index.indexed:
-                yield ("⚠️ 曲库中没有可解码的音频，无法识别。" + skipped)
-                return
-            yield "🔎 正在比对声纹……"
-            sr, data = sample
-            result = match_sample(index, sr, data)
-            if result is None:
-                yield ("🤷 没有找到匹配（片段太短、噪声太大，或不在曲库中）。"
-                       f"当前已索引 {len(index.indexed)} 首。" + skipped)
-                return
-            title, offset_s, conf = result
-            mm, ss = divmod(int(offset_s), 60)
-            yield (f"🎯 识别结果：**《{title}》**，片段大约在 "
-                   f"**{mm:02d}:{ss:02d}** 处（置信度 {conf:.0%}）。" + skipped)
-
-        fp_btn.click(on_identify, [fp_audio], [fp_result])
 
         def on_audio_upload(fpath, choice: str):
             if not fpath:

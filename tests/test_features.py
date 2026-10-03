@@ -69,8 +69,11 @@ def test_quiz_question():
     q = make_question(pool, random.Random(7))
     assert q is not None
     assert q.answer in q.options and len(set(q.options)) == len(q.options)
-    # the line must actually belong to the answer song
-    assert q.line in pool[q.answer][1]
+    # the passage's lines must all belong to the answer song, in order
+    passage = q.line.split("\n")
+    assert all(ln in pool[q.answer][1] for ln in passage)
+    idxs = [pool[q.answer][1].index(ln) for ln in passage]
+    assert idxs == sorted(idxs)
     assert make_question({"only": ("X", ["one line only here"])}) is None
 
 
@@ -823,3 +826,27 @@ def test_auto_bind_missing(tmp_path, monkeypatch):
               songs[1], songs[2]]
     assert b.auto_bind_missing(songs2, lambda: True) == 0
     assert calls == []   # songA 已绑、songB 手动、FailSong 在 24h 冷却中
+
+
+def test_quiz_passage_context():
+    """长歌里锚点应带上邻句成段，且去掉泄露歌名的邻句。"""
+    pool = {
+        "Target": ("X", ["intro line long enough here",
+                         "(No more baby, oooh)",
+                         "the memorable anchor lyric line",
+                         "Target appears in this neighbour line",
+                         "closing line long enough too"]),
+        "Other": ("Y", ["a completely different lyric line"]),
+    }
+    import random as _r
+    for seed in range(12):
+        q = make_question(pool, _r.Random(seed))
+        if q.answer != "Target":
+            continue
+        passage = q.line.split("\n")
+        assert 1 <= len(passage) <= 3
+        assert all("target" not in ln.lower() for ln in passage)
+        if len(passage) > 1:   # 邻句确实被带上了
+            break
+    else:
+        raise AssertionError("passage never grew beyond one line")

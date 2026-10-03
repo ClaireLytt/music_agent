@@ -1451,7 +1451,8 @@ footer, .gradio-container footer { display: none !important; }
   color: var(--text-secondary); margin-top: 2px; }
 /* ⌨️ 单词练习 */
 .ll-type-card { padding: 18px 20px; border: 1px solid var(--border);
-  border-radius: 14px; background: var(--bg-card); cursor: text; }
+  border-radius: 14px; background: var(--bg-card); cursor: text;
+  max-width: 720px; margin: 0 auto; text-align: center; }
 .ll-type-card .tp-word { font-size: 34px; font-weight: 800;
   letter-spacing: 3px; color: var(--karaoke-rest); margin-bottom: 10px; }
 .ll-type-card .tp-ch.ok { color: var(--accent); }

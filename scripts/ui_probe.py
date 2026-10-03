@@ -877,28 +877,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("title_puzzle", "title puzzle question + submit",
                     c_title_puzzle)
 
-        def c_egg_quiz():
-            probe.tab("🥚 彩蛋猜猜乐")
-            pg.get_by_role("button", name="🥚 抽一题").click()
-            pg.wait_for_timeout(2500)
-            body = pg.locator("body").inner_text()
-            # either a question (radio options appear) or the no-echo guard
-            opts = count("input[type=radio]:visible")
-            must(opts >= 2 or "没有" in body or "至少" in body
-                 or "回声" in body,
-                 "egg quiz: neither question nor guard rendered")
-            # submit-before-draw guard is free; only exercise a real answer
-            # when a question actually drew
-            if opts >= 2:
-                pg.locator("input[type=radio]:visible").last.check()
-                pg.get_by_role("button", name="🥚 交卷").click()
-                probe.wait_until(
-                    lambda: "答对" in pg.locator("body").inner_text()
-                    or "不对" in pg.locator("body").inner_text(),
-                    msg="egg quiz verdict missing")
-        probe.check("egg_quiz", "echo-guessing quiz question + submit",
-                    c_egg_quiz)
-
         def c_word_practice():
             # typing drill renders a card (or the empty-book hint — the
             # wordbook is gitignored and may be empty on a fresh machine)
@@ -1000,16 +978,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("mv_eggs_present", "MV eggs accordion present",
                     c_mv_eggs_present)
 
-        def c_identify_guard():
-            probe.tab("🎮 互动")
-            probe.tab("🎙️ 听歌识曲")
-            pg.get_by_role("button", name="🔍 识别").click()
-            pg.wait_for_timeout(2500)
-            body = pg.locator("body").inner_text()
-            must("请先录" in body or "无法识别" in body or "声纹" in body,
-                 "identify guard/result missing")
-        probe.check("identify_guard", "identify without recording -> guard",
-                    c_identify_guard)
 
         # ── add-song tab ──
         def c_catalog():

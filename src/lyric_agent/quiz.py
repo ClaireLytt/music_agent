@@ -102,17 +102,27 @@ def make_question(
     Needs at least 2 songs; prefers distractors by the same artist.
     """
     rng = rng or random.Random()
+    # anchors keep their position in the ORIGINAL line list so the question
+    # can show a passage (anchor ± neighbours) instead of one bare line —
+    # a lone "(No more baby, oooh)" is unguessable
     pool = {
-        t: (a, [l for l in lines
-                if len(l) >= _MIN_LINE_LEN and _norm(t) not in _norm(l)])
+        t: (a, lines,
+            [i for i, l in enumerate(lines)
+             if len(l) >= _MIN_LINE_LEN and _norm(t) not in _norm(l)])
         for t, (a, lines) in song_lines.items()
     }
-    pool = {t: v for t, v in pool.items() if v[1]}
+    pool = {t: v for t, v in pool.items() if v[2]}
     if len(pool) < 2:
         return None
     answer = rng.choice(list(pool))
-    artist, lines = pool[answer]
-    line = rng.choice(lines)
+    artist, all_lines, anchors = pool[answer]
+    i = rng.choice(anchors)
+    passage = [
+        l for j in range(max(0, i - 1), min(len(all_lines), i + 2))
+        # neighbours that would leak the title are dropped, not the anchor
+        if (l := all_lines[j]) and (j == i or _norm(answer) not in _norm(l))
+    ]
+    line = "\n".join(dict.fromkeys(passage))  # dedupe repeated chorus lines
     others = [t for t in pool if t != answer]
     same_artist = [t for t in others if pool[t][0] == artist]
     rng.shuffle(same_artist)
