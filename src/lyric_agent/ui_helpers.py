@@ -5,6 +5,7 @@ every function stays unit-testable in isolation."""
 from __future__ import annotations
 
 import html
+import re
 import json
 import logging
 from pathlib import Path
@@ -61,6 +62,7 @@ def _discover_songs(songs_dir: str,
             "audio_offset_ms": int(meta.get("audio_offset_ms", 0) or 0),
             # bound bilibili video for the 📺 video playback mode
             "bvid": meta.get("bvid", ""),
+            "bvid_no_auto": bool(meta.get("bvid_no_auto")),
             # Windows: st_ctime is directory creation time = when the song was added
             "added_ts": d.stat().st_ctime,
         })
@@ -438,6 +440,9 @@ def _render_video_html(song_info: dict, has_audio: bool,
     """📺 B 站视频区：官方嵌入播放器 + 绑定/候选 UI（非公开）。"""
     from .bilibili import embed_url
     bvid = song_info.get("bvid", "")
+    unbind = ('<button class="ptool" data-bvid-unbind="1" '
+              'title="删除绑定并重新选择视频">🗑 换一个视频</button>'
+              if not public else "")
     parts = []
     if bvid:
         if has_audio:
@@ -445,7 +450,7 @@ def _render_video_html(song_info: dict, has_audio: bool,
             # the 📺 button only collapses/expands it
             parts.append(
                 '<button class="ptool" data-video-toggle="1">'
-                '📺 收起/展开 MV</button>'
+                '📺 收起/展开 MV</button>' + unbind +
                 f'<div class="bv-frame" '
                 f'data-embed="{_esc(embed_url(bvid))}">'
                 f'<iframe allowfullscreen scrolling="no" frameborder="0" '
@@ -454,7 +459,8 @@ def _render_video_html(song_info: dict, has_audio: bool,
             parts.append(
                 f'<div class="bv-frame" data-embed="{_esc(embed_url(bvid))}">'
                 f'<iframe allowfullscreen scrolling="no" frameborder="0" '
-                f'src="{_esc(embed_url(bvid))}"></iframe></div>' + _BV_NOTE)
+                f'src="{_esc(embed_url(bvid))}"></iframe></div>'
+                + _BV_NOTE + unbind)
     elif not public:
         parts.append(
             '<div class="bv-bind"><button class="ptool" '
@@ -607,9 +613,22 @@ def _render_echo_html(results: list[dict], artist: str) -> str:
     return '<div class="echo-list">' + "".join(cards) + "</div>"
 
 
+def load_translation(song_dir: str) -> dict[int, str]:
+    """data/songs/<歌>/translation.json → {line_index: 中文}；无则 {}。"""
+    p = Path(song_dir) / "translation.json"
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        return {int(k): v for k, v in raw.get("lines", {}).items() if v}
+    except (OSError, ValueError):
+        return {}
+
+
 def _render_lyrics_html(song_data: dict, song_info: dict,
-                        public: bool = False) -> str:
+                        public: bool = False,
+                        show_trans: bool = False) -> str:
     lines = song_data["timed_lines"]
+    trans = (load_translation(song_info["dir"])
+             if show_trans and song_info.get("dir") else {})
 
     artist = song_info["artist"]
     album = song_info["album"]
@@ -630,10 +649,13 @@ def _render_lyrics_html(song_data: dict, song_info: dict,
             color = _RHYME_COLORS[group % len(_RHYME_COLORS)]
             mark = (f'<span class="rhyme-mark" style="background:{color}" '
                     f'title="韵脚组 {group + 1}"></span>')
+        zh = trans.get(ln.line_index, "")
+        zh_html = (f'<div class="lyric-trans">{_esc(zh)}</div>' if zh else "")
         parts.append(
             f'<div class="lyric-line" data-index="{ln.line_index}" '
             f'data-ts="{ln.timestamp_ms}">'
-            f'<span class="lyric-text">{_esc(ln.text)}</span>{mark}</div>'
+            f'<span class="lyric-text">{_esc(ln.text)}</span>{mark}'
+            f'{zh_html}</div>'
         )
 
     return (
@@ -746,12 +768,19 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
     phon_html = f'<span class="wb-phon">/{_esc(phon)}/</span>' if phon else ""
     say = ('<button class="ptool" data-ll-say="1" title="重播发音">🔊</button>'
            if mp3_url else "")
+    eye = ('<button class="ptool" data-tp-eye="1" '
+           'title="切换 显示单词 / 盲打模式">👁</button>')
     meaning = (entry.get("translation", "") or "").replace("\\n", "；")
     rows = []
     if meaning:
         rows.append(f'<div class="wb-meaning">{_esc(meaning)}</div>')
     if entry.get("line"):
-        rows.append(f'<div class="wb-src">「{_esc(entry["line"])}」'
+        # 目标单词嵌在原句里高亮；盲打模式下由 CSS 遮住
+        src = re.sub(re.escape(_esc(word)),
+                     lambda m: f'<span class="tp-wline-word">{m.group(0)}'
+                               '</span>',
+                     _esc(entry["line"]), count=1, flags=re.IGNORECASE)
+        rows.append(f'<div class="wb-src">「{src}」'
                     f'·《{_esc(entry.get("song", ""))}》</div>')
     ai = (entry.get("ai", "") or "").strip()
     if ai:
@@ -760,7 +789,7 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
     return (
         f'<div class="ll-type-card" data-word="{_esc(word.lower())}" '
         f'data-mp3="{_esc(mp3_url)}" data-nonce="{_esc(nonce)}">'
-        f'<div class="tp-word">{chars} {phon_html} {say}</div>'
+        f'<div class="tp-word">{chars} {phon_html} {say} {eye}</div>'
         f'<input class="ll-type-input" autocomplete="off" '
         f'autocapitalize="off" spellcheck="false">'
         f'<div class="tp-ime-hint">请切换到英文输入法</div>'

@@ -40,8 +40,9 @@ Your task: analyze song lyrics line by line and produce structured annotations.
   claim in the line's actual words, the album's story, or documented statements.
 - Cite specific evidence where you can: liner notes, documented interviews,
   known biographical events. Never invent sources.
-- Match the lyrics' language: annotate Chinese lyrics in Chinese, English lyrics
-  in English (Chinese explanations may accompany English terms).
+- ALWAYS write every annotation field in Simplified Chinese (简体中文),
+  regardless of the lyrics' language. English terms/quotes may appear inside
+  the Chinese explanation where helpful.
 - Output ONLY valid JSON — no markdown fences, no commentary outside the JSON.
 
 ## Output Format

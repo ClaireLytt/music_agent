@@ -11,8 +11,10 @@ focused on text generation for batch annotation.
 from __future__ import annotations
 
 import json
+import threading
 import logging
 import time
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -96,7 +98,9 @@ class LLMClient:
     ) -> LLMResponse:
         for attempt in range(max_retries):
             try:
-                return fn(*args)
+                resp = fn(*args)
+                _record_usage(self.model, resp.usage)
+                return resp
             except Exception as exc:
                 status = (
                     getattr(exc, "status_code", None)
@@ -301,3 +305,40 @@ class LLMClient:
             thinking_text="",
             usage=usage,
         )
+
+
+# ── token usage accounting (⚙️ 设置页可视化) ────────────────────────────
+_USAGE_PATH = Path("data/cache/llm_usage.json")
+_usage_lock = threading.Lock()
+
+
+def _record_usage(model: str, usage: dict) -> None:
+    """Accumulate per-call token usage; never raises (accounting must not
+    break the call it is accounting for)."""
+    tin = int(usage.get("input_tokens", 0) or 0)
+    tout = int(usage.get("output_tokens", 0) or 0)
+    day = time.strftime("%Y-%m-%d")
+    try:
+        with _usage_lock:
+            try:
+                data = json.loads(_USAGE_PATH.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = {"total": {}, "days": {}}
+            for bucket in (data.setdefault("total", {}),
+                           data.setdefault("days", {}).setdefault(day, {})):
+                bucket["calls"] = bucket.get("calls", 0) + 1
+                bucket["input_tokens"] = bucket.get("input_tokens", 0) + tin
+                bucket["output_tokens"] = bucket.get("output_tokens", 0) + tout
+            data["last_model"] = model
+            _USAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            _USAGE_PATH.write_text(json.dumps(data, ensure_ascii=False,
+                                              indent=1), encoding="utf-8")
+    except Exception:
+        logger.debug("usage accounting skipped", exc_info=True)
+
+
+def load_usage() -> dict:
+    try:
+        return json.loads(_USAGE_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"total": {}, "days": {}}

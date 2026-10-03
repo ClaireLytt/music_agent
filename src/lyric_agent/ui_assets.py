@@ -206,6 +206,10 @@ _HEAD_JS = """
       if (inp) inp.focus();
       play(c);
     }
+    try {  // 盲打偏好跨会话记忆
+      if (localStorage.getItem('ll_tp_blind') === '1')
+        c.classList.add('tp-blind');
+    } catch (err) {}
   }, 300);
   // focus on pointerdown AND click — belt and braces against focus races
   ['pointerdown', 'click'].forEach((evt) =>
@@ -214,6 +218,12 @@ _HEAD_JS = """
       if (!c) return;
       if (evt === 'click' && e.target.closest('[data-ll-say]')) {
         play(c);
+        return;
+      }
+      if (evt === 'click' && e.target.closest('[data-tp-eye]')) {
+        const blind = c.classList.toggle('tp-blind');
+        try { localStorage.setItem('ll_tp_blind', blind ? '1' : '0'); }
+        catch (err) {}
         return;
       }
       const inp = c.querySelector('.ll-type-input');
@@ -727,21 +737,6 @@ _HEAD_JS = """
                    (del.dataset.delTs || '') + '\\t' + Date.now());
       return;
     }
-    const word = e.target.closest('.cloud-word');
-    if (word) {
-      writeChannel('ll-word-pick', word.dataset.word + '\\t' + Date.now());
-      return;
-    }
-    const emo = e.target.closest('[data-emo-pick]');
-    if (emo) {
-      writeChannel('ll-emo-pick', emo.dataset.emoPick + '\\t' + Date.now());
-      return;
-    }
-    const ov = e.target.closest('[data-ov-pick]');
-    if (ov) {
-      writeChannel('ll-ov-pick', ov.dataset.ovPick + '\\t' + Date.now());
-      return;
-    }
     // 📺 B 站视频: collapse/expand (the iframe is always rendered now)
     const vt = e.target.closest('[data-video-toggle]');
     if (vt) {
@@ -785,6 +780,12 @@ _HEAD_JS = """
       ga.textContent = '✨ 生成中…';
       ga.disabled = true;
       writeChannel('ll-gen-ann', ga.dataset.genAnn + '\\t' + Date.now());
+      return;
+    }
+    const bvu = e.target.closest('[data-bvid-unbind]');
+    if (bvu) {
+      if (!confirm('删除这首歌的视频绑定？（之后可重新搜索或手填）')) return;
+      writeChannel('ll-bvid-act', 'unbind	' + Date.now());
       return;
     }
     const bvs = e.target.closest('[data-bvid-search]');
@@ -1447,6 +1448,8 @@ footer, .gradio-container footer { display: none !important; }
   line-height: 1.5; }
 .mv-ts.mv-seek { cursor: pointer; }
 .mv-ts.mv-seek:hover { color: var(--accent); }
+.lyric-line .lyric-trans { font-size: .82em;
+  color: var(--text-secondary); margin-top: 1px; }
 /* 点句批注卡 */
 .ann-card { padding: 12px 14px; border: 1px solid var(--border);
   border-radius: 12px; background: var(--bg-card); margin-bottom: 10px;
@@ -1490,6 +1493,14 @@ footer, .gradio-container footer { display: none !important; }
 .ll-type-card.tp-ime .tp-ime-hint { display: block; }
 .ll-type-card .tp-blurhint { font-size: .8em; color: var(--text-secondary);
   margin-top: 10px; }
+.ll-type-card .tp-wline-word { background: var(--accent-soft);
+  border-radius: 4px; padding: 0 2px; }
+.ll-type-card.tp-blind .tp-ch { color: transparent;
+  border-bottom: 2px solid var(--karaoke-rest); }
+.ll-type-card.tp-blind .tp-ch.ok { color: var(--accent);
+  border-bottom-color: var(--accent); }
+.ll-type-card.tp-blind .tp-wline-word { background: var(--text-secondary);
+  color: transparent; border-radius: 4px; }
 .ll-type-card.tp-shake { animation: tp-shake .25s; }
 @keyframes tp-shake {
   25% { transform: translateX(-5px); } 75% { transform: translateX(5px); }

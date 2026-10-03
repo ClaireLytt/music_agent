@@ -339,29 +339,6 @@ def main() -> None:
     except Exception as e:
         check("notes add + delete", False, repr(e))
 
-    # ── 4d4. 曲库洞察 ──
-    try:
-        out = call("init_insights", [cardigan], session=f"{SESSION}-ins")
-        daily, _dd, cloud, emo, story = out
-        ok = ("每日一句" in str(daily) and str(cloud).count("cloud-word") > 10
-              and str(emo).count("emo-node") >= 1
-              and len(story.get("choices", [])) >= 2)
-        check("insights init (daily/cloud/emotion/story)", bool(ok))
-    except Exception as e:
-        check("insights init (daily/cloud/emotion/story)", False, repr(e))
-    try:
-        out = call("on_word_pick", ["time\t1", "Taylor Swift"],
-                   session=f"{SESSION}-ins")
-        check("word cloud click -> imagery", "img-timeline" in str(out[0]))
-    except Exception as e:
-        check("word cloud click -> imagery", False, repr(e))
-    try:
-        out = call("on_emo_pick", ["cardigan\t1"], session=f"{SESSION}-ins")
-        check("emotion map click -> play song",
-              out[0].get("value") == cardigan)
-    except Exception as e:
-        check("emotion map click -> play song", False, repr(e))
-
     # ── 4d5. 歌词竞猜 ──
     # gr.State round-trips as null over the raw HTTP API; the session keeps
     # the real state server-side, so chain calls within one session and

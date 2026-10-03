@@ -187,7 +187,8 @@ def auto_bind_missing(songs: list[dict], is_enabled) -> int:
     for s in songs:
         if not is_enabled():
             break
-        if s.get("bvid") or not s.get("title") or not s.get("dir"):
+        if (s.get("bvid") or s.get("bvid_no_auto")
+                or not s.get("title") or not s.get("dir")):
             continue
         if time.time() - fails.get(s["dir"], 0) < _RETRY_AFTER_S:
             continue
