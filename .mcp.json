@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "lyric-lens": {
+      "command": "lyric-agent",
+      "args": ["mcp"]
+    }
+  }
+}
