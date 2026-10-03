@@ -58,6 +58,14 @@ _HEAD_JS = """
 (function() {
   let lastQuery = '';
   let saved = null;  // {word, line, song} of the open popover
+  let lastSpoken = '';  // the data.q already auto-pronounced
+  // pronunciation à la qwerty-learner: youdao dictvoice, client-side only
+  const voiceUrl = (w) =>
+    'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(w)
+    + '&type=2';
+  function sayWord(w) {
+    if (w) new Audio(voiceUrl(w)).play().catch(() => {});
+  }
   function closePop() {
     document.querySelectorAll('.ll-dict-pop').forEach((p) => p.remove());
   }
@@ -102,7 +110,8 @@ _HEAD_JS = """
     const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
     let html = '<div class="dict-word">' + esc(data.word);
     if (data.phonetic) html += ' <span class="dict-phon">/' + esc(data.phonetic) + '/</span>';
-    html += '</div>';
+    html += ' <button class="dict-btn dict-say" data-dict-say '
+          + 'title="重播发音">🔊</button></div>';
     if (data.found) {
       html += '<div class="dict-body">'
         + esc(data.translation).split('\\n').join('<br>') + '</div>';
@@ -124,6 +133,16 @@ _HEAD_JS = """
       favBtn.textContent = '✓ 已收藏';
       favBtn.disabled = true;
     });
+    const sayBtn = pop.querySelector('[data-dict-say]');
+    if (sayBtn) sayBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sayWord(saved.word);
+    });
+    // auto-pronounce once per lookup (the AI reply re-renders the same q)
+    if (data.q !== lastSpoken) {
+      lastSpoken = data.q;
+      sayWord(data.word);
+    }
     const aiBtn = pop.querySelector('[data-dict-ai]');
     if (aiBtn) aiBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1391,6 +1410,7 @@ footer, .gradio-container footer { display: none !important; }
   background: var(--accent-soft); color: var(--text-primary);
 }
 .ll-dict-pop .dict-actions { margin-top: 10px; display: flex; gap: 8px; }
+.ll-dict-pop .dict-say { padding: 0 6px; }
 .ll-dict-pop .dict-btn {
   all: unset; cursor: pointer; padding: 5px 10px; border-radius: 8px;
   background: var(--bg-card-hover); font-size: .92em;
