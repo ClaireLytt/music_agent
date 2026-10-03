@@ -61,7 +61,9 @@ def serve(port: int | None, no_browser: bool) -> None:
         share=False,
         # public deployments run headless — never pop a browser there
         inbrowser=not no_browser and not settings.public_mode,
-        allowed_paths=[str(Path(settings.songs_dir).resolve())],
+        allowed_paths=[str(Path(settings.songs_dir).resolve()),
+                       # ⌨️ 单词练习 word-pronunciation mp3s
+                       str(Path("data/cache/tts").resolve())],
         **auth_kwargs,
         **launch_kwargs(),
     )

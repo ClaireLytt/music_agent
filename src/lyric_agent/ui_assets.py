@@ -145,6 +145,85 @@ _HEAD_JS = """
     render(data);
   }, 300);
 })();
+// ⌨️ 单词练习: qwerty-learner-style keystroke loop. The backend renders a
+// .ll-type-card (data-word/data-mp3/data-nonce); this block owns typing:
+// correct letters color up, one wrong key resets the whole word, completion
+// reports through the ll-review-done channel.
+(() => {
+  function sendChannel(id, value) {
+    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
+    if (!box) return;
+    box.value = value;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  let nonce = null, pos = 0, mistakes = 0, t0 = 0, done = false;
+  const card = () => document.querySelector('.ll-type-card');
+  const chars = (c) => c.querySelectorAll('.tp-ch');
+  function reset(c) {
+    pos = 0;
+    chars(c).forEach((el) => el.classList.remove('ok'));
+  }
+  function play(c) {
+    if (c.dataset.mp3) new Audio(c.dataset.mp3).play().catch(() => {});
+  }
+  setInterval(() => {
+    const c = card();
+    if (!c || c.dataset.nonce === nonce) return;
+    nonce = c.dataset.nonce;
+    mistakes = 0; t0 = Date.now(); done = false;
+    reset(c);
+    // only grab focus while the practice tab is actually visible
+    if (c.offsetParent !== null) {
+      const inp = c.querySelector('.ll-type-input');
+      if (inp) inp.focus();
+      play(c);
+    }
+  }, 300);
+  // focus on pointerdown AND click — belt and braces against focus races
+  ['pointerdown', 'click'].forEach((evt) =>
+    document.addEventListener(evt, (e) => {
+      const c = e.target.closest('.ll-type-card');
+      if (!c) return;
+      if (evt === 'click' && e.target.closest('[data-ll-say]')) {
+        play(c);
+        return;
+      }
+      const inp = c.querySelector('.ll-type-input');
+      if (inp) inp.focus();
+    }, true));
+  document.addEventListener('keydown', (e) => {
+    if (!e.target.classList || !e.target.classList.contains('ll-type-input'))
+      return;
+    const c = card();
+    if (!c || done) return;
+    if (e.isComposing || e.keyCode === 229) {   // CJK IME is active
+      c.classList.add('tp-ime');
+      e.preventDefault();
+      return;
+    }
+    c.classList.remove('tp-ime');
+    if (e.key.length !== 1) return;             // let Tab/F5/etc through
+    e.preventDefault();                          // space must not scroll
+    const want = c.dataset.word;
+    const spans = chars(c);
+    if (e.key.toLowerCase() === want[pos]) {
+      spans[pos].classList.add('ok');
+      pos += 1;
+      if (pos >= want.length) {
+        done = true;
+        sendChannel('ll-review-done',
+                    want + '\\t' + mistakes + '\\t' + (Date.now() - t0)
+                    + '\\t' + Date.now());
+      }
+    } else {
+      mistakes += 1;                             // wrong key: retype it all
+      reset(c);
+      c.classList.remove('tp-shake');
+      void c.offsetWidth;                        // restart the animation
+      c.classList.add('tp-shake');
+    }
+  }, true);
+})();
 // per-song ⋯ menu: the selected row grows a ⋯ button; expanding it
 // offers 🗑️ delete (native confirm, then the ll-del-song channel).
 // Admin-only: the role-gating block below strips it for viewers.
@@ -1265,6 +1344,25 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
   padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
   line-height: 1.5; }
+/* ⌨️ 单词练习 */
+.ll-type-card { padding: 18px 20px; border: 1px solid var(--border);
+  border-radius: 14px; background: var(--bg-card); cursor: text; }
+.ll-type-card .tp-word { font-size: 34px; font-weight: 800;
+  letter-spacing: 3px; color: var(--karaoke-rest); margin-bottom: 10px; }
+.ll-type-card .tp-ch.ok { color: var(--accent); }
+.ll-type-card .ll-type-input { position: absolute; opacity: 0;
+  width: 1px; height: 1px; border: 0; padding: 0; }
+.ll-type-card .wb-meaning, .ll-type-card .wb-src, .ll-type-card .wb-ai {
+  margin-top: 6px; }
+.ll-type-card .tp-ime-hint { display: none; color: #cf222e;
+  font-size: .85em; margin-top: 4px; }
+.ll-type-card.tp-ime .tp-ime-hint { display: block; }
+.ll-type-card .tp-blurhint { font-size: .8em; color: var(--text-secondary);
+  margin-top: 10px; }
+.ll-type-card.tp-shake { animation: tp-shake .25s; }
+@keyframes tp-shake {
+  25% { transform: translateX(-5px); } 75% { transform: translateX(5px); }
+}
 .wb-item .wb-jump { cursor: pointer; }
 .wb-item .wb-jump:hover { color: var(--accent); text-decoration: underline; }
 .fav-item[data-cite-label] { cursor: pointer; }

@@ -640,6 +640,40 @@ def render_wordbook(entries: list[dict],
     return f'<div class="wb-list">{"".join(items)}</div>'
 
 
+def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
+    """⌨️ 单词练习 card. The JS keystroke loop (ui_assets) reads data-word /
+    data-mp3 / data-nonce and colors the .tp-ch spans; the hidden input
+    receives focus so the player's space/arrow shortcuts stay exempt."""
+    word = entry.get("word", "")
+    chars = "".join(f'<span class="tp-ch" data-ch="{_esc(c.lower())}">'
+                    f'{_esc(c)}</span>' for c in word)
+    phon = entry.get("phonetic", "")
+    phon_html = f'<span class="wb-phon">/{_esc(phon)}/</span>' if phon else ""
+    say = ('<button class="ptool" data-ll-say="1" title="重播发音">🔊</button>'
+           if mp3_url else "")
+    meaning = (entry.get("translation", "") or "").replace("\\n", "；")
+    rows = []
+    if meaning:
+        rows.append(f'<div class="wb-meaning">{_esc(meaning)}</div>')
+    if entry.get("line"):
+        rows.append(f'<div class="wb-src">「{_esc(entry["line"])}」'
+                    f'·《{_esc(entry.get("song", ""))}》</div>')
+    ai = (entry.get("ai", "") or "").strip()
+    if ai:
+        rows.append(f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(
+            "\n", "<br>"))
+    return (
+        f'<div class="ll-type-card" data-word="{_esc(word.lower())}" '
+        f'data-mp3="{_esc(mp3_url)}" data-nonce="{_esc(nonce)}">'
+        f'<div class="tp-word">{chars} {phon_html} {say}</div>'
+        f'<input class="ll-type-input" autocomplete="off" '
+        f'autocapitalize="off" spellcheck="false">'
+        f'<div class="tp-ime-hint">请切换到英文输入法</div>'
+        f'{"".join(rows)}'
+        f'<div class="tp-blurhint">💡 打错整词重来；点卡片可继续输入</div>'
+        f'</div>')
+
+
 # ── Insights renderers (曲库洞察) ─────────────────────────
 
 def _render_daily_quote(q: dict | None) -> str:

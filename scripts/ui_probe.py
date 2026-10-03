@@ -896,6 +896,39 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("egg_quiz", "echo-guessing quiz question + submit",
                     c_egg_quiz)
 
+        def c_word_practice():
+            # typing drill renders a card (or the empty-book hint — the
+            # wordbook is gitignored and may be empty on a fresh machine)
+            probe.tab("⌨️ 单词练习")
+            pg.get_by_role("button", name="⌨️ 开始 / 换一词").click()
+            probe.wait_until(
+                lambda: count(".ll-type-card") >= 1
+                or "单词本是空的" in pg.locator("body").inner_text(),
+                msg="practice rendered neither a card nor the empty hint")
+            if count(".ll-type-card") == 0:
+                return  # empty book: guard path verified
+            card = pg.locator(".ll-type-card").first
+            word = card.get_attribute("data-word")
+            # press_sequentially focuses the element itself — immune to the
+            # click→focus race that made this check flaky
+            pg.locator(".ll-type-input").press_sequentially(word, delay=40)
+            probe.wait_until(
+                lambda: "本轮 1 词" in pg.locator("body").inner_text(),
+                msg="completed word did not update the session stats")
+        probe.check("word_practice", "typing drill grades a typed word",
+                    c_word_practice)
+
+        def c_word_export():
+            probe.tab("⌨️ 单词练习")
+            pg.get_by_role("button",
+                           name="📤 导出 qwerty-learner 词典").click()
+            probe.wait_until(
+                lambda: ("已生成" in pg.locator("body").inner_text()
+                         or "没有可导出" in pg.locator("body").inner_text()),
+                msg="export produced neither a file notice nor the empty hint")
+        probe.check("word_export", "qwerty dictionary export responds",
+                    c_word_export)
+
         def c_universe_present():
             # universe/letter are LLM-priced AND the pair dropdown is
             # pre-filled on load (clicking 写信 would actually spend), so

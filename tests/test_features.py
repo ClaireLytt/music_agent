@@ -531,3 +531,85 @@ def test_album_timeline_order():
     assert "2010" in html and "2012" in html and "年份未知" in html
     assert "ovt-divider" in html
     assert "chat-empty" in render_album_timeline(songs, "nobody")
+
+
+def test_review_order_and_pick(tmp_path, monkeypatch):
+    from lyric_agent import review as rv
+
+    book = [
+        {"word": "old"},                                          # 旧条目无 review
+        {"word": "hard", "review": {"correct": 1, "wrong": 3, "last_ts": 50}},
+        {"word": "stale", "review": {"correct": 2, "wrong": 0, "last_ts": 10}},
+        {"word": "fresh", "review": {"correct": 5, "wrong": 0, "last_ts": 99}},
+    ]
+    ordered = [e["word"] for e in rv.order_words(book)]
+    # 错误率最高 > 未练过(ts=0) > 久未练 > 刚练熟
+    assert ordered == ["hard", "old", "stale", "fresh"]
+
+    import random
+    rng = random.Random(7)
+    picks = {rv.pick_word(book, rng)["word"] for _ in range(20)}
+    assert picks <= {"hard", "old", "stale"}          # top-3 之内随机
+    only = [{"word": "solo"}]
+    assert rv.pick_word(only, rng, exclude="solo")["word"] == "solo"
+    assert rv.pick_word([], rng) is None
+
+
+def test_review_record_persists(tmp_path, monkeypatch):
+    from lyric_agent import dictionary as d
+    from lyric_agent import review as rv
+
+    monkeypatch.setattr(d, "_WORDBOOK_PATH", tmp_path / "wb.json")
+    d.add_word("scarf", line="l", song="s")
+    book = rv.record_result("SCARF", correct=True, now=123.0)
+    assert book[0]["review"] == {"correct": 1, "last_ts": 123.0}
+    book = rv.record_result("scarf", correct=False, now=456.0)
+    assert book[0]["review"] == {"correct": 1, "wrong": 1, "last_ts": 456.0}
+    assert rv.book_stats(book) == {"total": 1, "practiced": 1, "mastered": 0}
+
+
+def test_export_qwerty_format():
+    from lyric_agent.review import export_qwerty
+
+    book = [{"word": "use", "translation": "n. 运用\\nvt. 使用"},
+            {"word": "bare", "translation": ""},
+            {"word": "", "translation": "skipme"}]
+    out = export_qwerty(book)
+    assert out == [{"name": "use", "trans": ["n. 运用", "vt. 使用"]},
+                   {"name": "bare", "trans": [""]}]
+    import json
+    assert json.dumps(out)
+
+
+def test_synthesize_word_offline(tmp_path, monkeypatch):
+    from lyric_agent import review as rv
+
+    monkeypatch.setattr(rv, "TTS_CACHE_DIR", tmp_path)
+
+    class Boom:
+        def __init__(self, *a, **k): ...
+        async def save(self, path):
+            Path(path).write_bytes(b"")          # 模拟残片
+            raise OSError("no network")
+
+    import sys, types
+    monkeypatch.setitem(sys.modules, "edge_tts",
+                        types.SimpleNamespace(Communicate=Boom))
+    from pathlib import Path
+    assert rv.synthesize_word("hello") is None
+    assert not (tmp_path / "hello.mp3").exists()  # 无残片
+
+
+def test_render_practice_card_escapes():
+    from lyric_agent.ui_helpers import render_practice_card
+
+    html = render_practice_card(
+        {"word": "a<b", "phonetic": "x&y", "translation": "n. 甲",
+         "line": "<i>", "song": "s", "ai": "①<z>"},
+        mp3_url="/gradio_api/file=C:/t.mp3", nonce="n1")
+    assert 'data-word="a&lt;b"' in html and 'data-nonce="n1"' in html
+    assert 'data-ch="a"' in html and '&lt;i&gt;' in html and '&lt;z&gt;' in html
+    assert "ll-type-input" in html and "data-ll-say" in html
+    # 无发音时不渲染重播按钮
+    silent = render_practice_card({"word": "w"}, mp3_url="", nonce="n2")
+    assert "data-ll-say" not in silent

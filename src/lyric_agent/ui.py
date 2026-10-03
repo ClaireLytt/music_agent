@@ -18,6 +18,7 @@ import logging
 import re
 import shutil
 import threading
+import uuid
 import time
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,7 @@ from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
 from .archaeology import (load_report, mine_motifs, parse_report,
                            render_report, report_messages, save_report)
 from .evidence import QuoteIndex, parse_claims, render_evidence_card
-from .ui_helpers import render_wordbook
+from .ui_helpers import _file_url, render_practice_card, render_wordbook
 from .lrc_parser import parse_lrc
 from .search import LyricsSearcher
 
@@ -844,6 +845,32 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 "🥚 抽一题", variant="primary", scale=1)
                             egg_quiz_submit_btn = gr.Button("🥚 交卷", scale=1)
                         egg_quiz_result = gr.Markdown("")
+                    if not public:
+                        with gr.Tab("⌨️ 单词练习"):
+                            gr.Markdown(
+                                "打字练收藏的单词（qwerty-learner 式）：看释义"
+                                "和出处歌词盲打单词，**打错一个键整词重来**，"
+                                "练对的字母会亮起；错得多的词会更频繁出现。")
+                            review_state = gr.State(
+                                {"word": "", "words": 0, "perfect": 0,
+                                 "chars": 0, "ms": 0})
+                            review_html = gr.HTML("")
+                            review_stats_md = gr.Markdown("")
+                            with gr.Row():
+                                review_start_btn = gr.Button(
+                                    "⌨️ 开始 / 换一词", variant="primary",
+                                    scale=1)
+                                review_export_btn = gr.Button(
+                                    "📤 导出 qwerty-learner 词典", scale=1)
+                            review_download = gr.DownloadButton(
+                                "⬇️ 下载词典 JSON", visible=False)
+                            review_export_status = gr.Markdown("")
+                            # JS -> backend: word done ("word\tmistakes\tms\tts")
+                            review_done_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-review-done",
+                                elem_classes=["ll-hidden"], show_label=False,
+                                container=False)
                     with gr.Tab("🎙️ 听歌识曲"):
                         gr.Markdown("用麦克风录一段（或上传一段音频片段），"
                                     "在你的本地曲库中识别是哪首歌、"
@@ -1835,6 +1862,87 @@ def create_app(settings: Settings) -> gr.Blocks:
         egg_quiz_submit_btn.click(
             on_egg_quiz_submit, [egg_quiz_state, egg_quiz_options],
             [egg_quiz_state, egg_quiz_result])
+
+        # ── ⌨️ 单词练习 ──
+        if not public:
+            def _review_stats_line(state) -> str:
+                from .review import book_stats
+                s = book_stats(load_wordbook())
+                parts = []
+                if state["words"]:
+                    pct = round(100 * state["perfect"] / state["words"])
+                    wpm = (round((state["chars"] / 5)
+                                 / (state["ms"] / 60000), 1)
+                           if state["ms"] else 0)
+                    parts.append(f"本轮 **{state['words']}** 词 · 一遍过 "
+                                 f"{state['perfect']}（{pct}%） · WPM {wpm}")
+                parts.append(f"单词本 {s['practiced']}/{s['total']} 已练 · "
+                             f"{s['mastered']} 熟练")
+                return " ｜ ".join(parts)
+
+            def _review_next(state, exclude: str = ""):
+                from .review import pick_word, synthesize_word
+                entry = pick_word(load_wordbook(), exclude=exclude)
+                if entry is None:
+                    state["word"] = ""
+                    return (state,
+                            '<div class="chat-empty">单词本是空的——先去'
+                            '「🎧 播放解读」双击歌词里的英文单词收藏几个。'
+                            '</div>', _review_stats_line(state))
+                mp3 = synthesize_word(entry["word"])
+                url = _file_url(mp3) if mp3 else ""
+                state["word"] = entry["word"]
+                return (state,
+                        render_practice_card(entry, url, uuid.uuid4().hex),
+                        _review_stats_line(state))
+
+            def on_review_start(state):
+                return _review_next(state, exclude=state.get("word", ""))
+
+            def on_review_done(payload: str, state):
+                parts = (payload or "").split("\t")
+                if len(parts) < 3:
+                    return gr.skip(), gr.skip(), gr.skip()
+                word, mistakes, ms = parts[0], parts[1], parts[2]
+                if not word or word != state.get("word", "").lower():
+                    return gr.skip(), gr.skip(), gr.skip()  # stale payload
+                from .review import record_result
+                clean = mistakes == "0"
+                record_result(word, clean)
+                state["words"] += 1
+                state["perfect"] += 1 if clean else 0
+                state["chars"] += len(word)
+                try:
+                    state["ms"] += max(0, int(ms))
+                except ValueError:
+                    pass
+                return _review_next(state, exclude=word)
+
+            def on_review_export():
+                from .review import export_qwerty
+                book = load_wordbook()
+                if not book:
+                    return (gr.DownloadButton(visible=False),
+                            "单词本是空的，没有可导出的词。")
+                out = Path("data/cache/qwerty_export.json")
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(json.dumps(export_qwerty(book),
+                                          ensure_ascii=False, indent=2),
+                               encoding="utf-8")
+                return (gr.DownloadButton(value=str(out), visible=True),
+                        f"已生成 {len(book)} 词。把 JSON 放进你本地部署的 "
+                        "qwerty-learner 的 `public/dicts/` 并在 "
+                        "`resources/dictionary.ts` 注册即可使用。")
+
+            review_start_btn.click(on_review_start, [review_state],
+                                   [review_state, review_html,
+                                    review_stats_md])
+            review_done_box.change(on_review_done,
+                                   [review_done_box, review_state],
+                                   [review_state, review_html,
+                                    review_stats_md])
+            review_export_btn.click(on_review_export, None,
+                                    [review_download, review_export_status])
 
         # ── 听歌识曲 ──
 
