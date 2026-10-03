@@ -41,7 +41,8 @@ from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
 from .archaeology import (load_report, mine_motifs, parse_report,
                            render_report, report_messages, save_report)
 from .evidence import QuoteIndex, parse_claims, render_evidence_card
-from .ui_helpers import _file_url, render_practice_card, render_wordbook
+from .ui_helpers import (_ANN_HINT, _file_url, render_annotation_card,
+                         render_practice_card, render_wordbook)
 from .lrc_parser import parse_lrc
 from .search import LyricsSearcher
 
@@ -489,6 +490,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                     with gr.Column(scale=2, min_width=320):
                         gr.HTML('<div class="side-panel-title">💬 AI 助手</div>')
                         chat_state = gr.State(None)
+                        ann_html = gr.HTML(_ANN_HINT)
+                        # JS -> backend: 确认后为本句生成批注 ("<idx>	<ts>")
+                        gen_ann_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-gen-ann",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
                         chat_topic = gr.HTML(_CHAT_TOPIC_DEFAULT)
                         chat_html = gr.HTML(_CHAT_HINT)
                         with gr.Row():
@@ -1088,7 +1095,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                 return ("", None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
                         None, _ECHO_HINT, "", "", gr.Image(visible=False),
                         _INTRO_EMPTY, "", gr.Image(visible=False),
-                        _render_notes([])) + _collections_for("")
+                        _render_notes([]), _ANN_HINT) + _collections_for("")
             info = find_song(choice)
             audio = resolve_audio(info["dir"])
             info["audio_type"], info["audio_src"] = audio.type, audio.path_or_url or ""
@@ -1097,12 +1104,13 @@ def create_app(settings: Settings) -> gr.Blocks:
             intro = _render_intro(_load_intro(info["dir"]))
             return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
                     None, _ECHO_HINT, "", "", gr.Image(visible=False),
-                    intro, "", gr.Image(visible=False), _notes_for(info)
-                    ) + _collections_for(info["title"])
+                    intro, "", gr.Image(visible=False), _notes_for(info),
+                    _ANN_HINT) + _collections_for(info["title"])
 
         song_outputs = [lyrics_html, chat_state, chat_topic, chat_html,
                         echo_state, echo_html, echo_out, card_status, card_img,
-                        intro_html, echo_card_status, echo_card_img, notes_html]
+                        intro_html, echo_card_status, echo_card_img, notes_html,
+                        ann_html]
         if not public:
             # the two per-song collections re-render on every song switch
             song_outputs += [favs_html, wordbook_html]
@@ -2183,18 +2191,18 @@ def create_app(settings: Settings) -> gr.Blocks:
             idx_str = (idx_str or "").strip()
             if not idx_str.isdigit() or not ctx["songs"]:
                 return (session, _CHAT_TOPIC_DEFAULT, _render_chat(session),
-                        gr.skip(), gr.skip(), gr.skip())
+                        gr.skip(), gr.skip(), gr.skip(), gr.skip())
             idx = int(idx_str)
             info = find_song(choice)
             data = _load_song_data(info["dir"])
             line = next((ln for ln in data["timed_lines"] if ln.line_index == idx), None)
             if line is None:
                 return (session, _CHAT_TOPIC_DEFAULT, _render_chat(session),
-                        gr.skip(), gr.skip(), gr.skip())
+                        gr.skip(), gr.skip(), gr.skip(), gr.skip())
             if session is not None and session.lyric_line == line.text \
                     and session.line_index == idx:
                 return (session, _chat_topic_html(line.text), _render_chat(session),
-                        gr.skip(), gr.skip(), gr.skip())
+                        gr.skip(), gr.skip(), gr.skip(), gr.skip())
             # annotations stay out of the UI but still feed the AI as context
             ann = data["annotations"].get(idx)
             # public mode: visitors must not see each other's saved Q&A
@@ -2225,11 +2233,54 @@ def create_app(settings: Settings) -> gr.Blocks:
                         "artist": info.get("artist", ""), "results": echoes}
                 echo_render = _render_echo_html(echoes, info.get("artist", ""))
             return (session, _chat_topic_html(line.text), _render_chat(session),
-                    echo, echo_render, "")
+                    echo, echo_render, "",
+                    render_annotation_card(ann, idx, can_generate=not public))
 
         line_pick.change(on_line_pick, [line_pick, song_radio, chat_state],
                          [chat_state, chat_topic, chat_html,
-                          echo_state, echo_html, echo_out])
+                          echo_state, echo_html, echo_out, ann_html])
+
+        def on_gen_ann(payload: str, choice: str, user_cfg):
+            """「✨ 为本句生成」按钮：用户点击确认后才发生的唯一一次调用。"""
+            idx_str = (payload or "").split("\t")[0].strip()
+            if public or not idx_str.isdigit() or not ctx["songs"]:
+                return gr.skip()
+            idx = int(idx_str)
+            info = find_song(choice)
+            data = _load_song_data(info["dir"])
+            line = next((ln for ln in data["timed_lines"]
+                         if ln.line_index == idx), None)
+            if line is None:
+                return gr.skip()
+            req_settings = _request_settings(user_cfg)
+            if not req_settings.api_key:
+                return ('<div class="ann-card ann-empty">⚠️ 未配置 API Key，'
+                        '无法生成。请到「⚙️ 设置」页签填写。</div>')
+            from .annotator.engine import regenerate_annotation
+            from .annotator.models import Song, SongMetadata
+            ann_path = Path(info["dir"]) / "annotations.json"
+            try:
+                song = (Song.load(ann_path) if ann_path.exists()
+                        else Song(metadata=SongMetadata(
+                            title=info.get("title", ""),
+                            artist=info.get("artist", ""),
+                            album=info.get("album", ""),
+                            year=int(info.get("year") or 0),
+                            era=info.get("era", ""))))
+                ann = regenerate_annotation(req_settings, song.metadata,
+                                            idx, line.text)
+                song.annotations = [a for a in song.annotations
+                                    if a.line_index != idx] + [ann]
+                song.annotations.sort(key=lambda a: a.line_index)
+                song.save(ann_path)
+            except Exception as exc:
+                logger.exception("single-line annotation failed")
+                return (f'<div class="ann-card ann-empty">⚠️ 生成失败：'
+                        f'{_esc(str(exc)[:150])}</div>')
+            return render_annotation_card(ann, idx, can_generate=not public)
+
+        gen_ann_box.change(on_gen_ann, [gen_ann_box, song_radio, user_llm],
+                           [ann_html])
 
         def on_chat_send(session, user_text: str, choice: str, user_cfg):
             text = (user_text or "").strip()

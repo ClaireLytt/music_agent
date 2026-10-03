@@ -38,15 +38,18 @@ _HEAD_JS = """
     const pend = window.__llPendingLine;
     if (pend != null && pend >= 0) {
       let tries = 0;
-      // the OLD song's lyrics are still mounted when the radio flips; wait
-      // for the re-render to swap the scroll node, or we'd flash a line of
-      // the previous song on a DOM node about to be destroyed
-      const oldScroll = document.querySelector('#lyrics-scroll');
+      // the OLD song's lyrics may still be mounted when the radio flips —
+      // only flash once the rendered title matches the newly checked radio
+      // (covers both orders: render-before-watcher and watcher-before-render)
+      const want = c.value;
       const t = setInterval(() => {
-        const scroll = document.querySelector('#lyrics-scroll');
-        if (scroll === oldScroll) { if (++tries > 40) clearInterval(t); return; }
-        const el = scroll ? scroll.querySelector(
-          '.lyric-line[data-index="' + pend + '"]') : null;
+        const titleEl = document.querySelector('.song-title-display');
+        const title = titleEl ? titleEl.textContent.trim() : '';
+        const ready = title && (want === title
+                                || want.indexOf(title + ' — ') === 0);
+        if (!ready) { if (++tries > 40) clearInterval(t); return; }
+        const el = document.querySelector(
+          '#lyrics-scroll .lyric-line[data-index="' + pend + '"]');
         if (el) {
           clearInterval(t);
           el.scrollIntoView({ block: 'center' });
@@ -774,6 +777,16 @@ _HEAD_JS = """
       }, 300);
       return;
     }
+    // ✨ per-line annotation: the button is the consent gate — a native
+    // confirm makes the single LLM call explicit before anything is spent
+    const ga = e.target.closest('[data-gen-ann]');
+    if (ga) {
+      if (!confirm('将调用 1 次 LLM 为这句歌词生成 AI 批注，继续？')) return;
+      ga.textContent = '✨ 生成中…';
+      ga.disabled = true;
+      writeChannel('ll-gen-ann', ga.dataset.genAnn + '\\t' + Date.now());
+      return;
+    }
     const bvs = e.target.closest('[data-bvid-search]');
     if (bvs) {
       writeChannel('ll-bvid-act', 'search\\t' + Date.now());
@@ -1434,6 +1447,18 @@ footer, .gradio-container footer { display: none !important; }
   line-height: 1.5; }
 .mv-ts.mv-seek { cursor: pointer; }
 .mv-ts.mv-seek:hover { color: var(--accent); }
+/* 点句批注卡 */
+.ann-card { padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-card); margin-bottom: 10px;
+  font-size: 13px; line-height: 1.6; }
+.ann-card .ann-summary { font-weight: 700; color: var(--text-primary);
+  margin-bottom: 6px; }
+.ann-card .ann-row { color: var(--text-primary); margin-top: 4px; }
+.ann-card .ann-row b { color: var(--text-secondary); font-weight: 600;
+  margin-right: 2px; }
+.ann-card .ann-rel { color: var(--text-secondary); }
+.ann-card.ann-empty { color: var(--text-secondary); display: flex;
+  align-items: center; gap: 10px; flex-wrap: wrap; }
 /* 📺 B 站视频模式 */
 .bv-frame { position: relative; width: 100%; padding-top: 56.25%;
   margin-top: 10px; border-radius: 12px; overflow: hidden;

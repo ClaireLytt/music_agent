@@ -850,3 +850,24 @@ def test_quiz_passage_context():
             break
     else:
         raise AssertionError("passage never grew beyond one line")
+
+
+def test_render_annotation_card():
+    from lyric_agent.annotator.models import Annotation, RelatedLine
+    from lyric_agent.ui_helpers import render_annotation_card
+
+    ann = Annotation(line_index=3, lyric_text="x", summary="核心<隐喻>",
+                     metaphor_analysis="本体喻体", wordplay="",
+                     emotional_tone="tenderness",
+                     related_lines=[RelatedLine(song="All Too Well",
+                                                album="Red", line="old scarf")])
+    html = render_annotation_card(ann, 3, can_generate=True)
+    assert "核心&lt;隐喻&gt;" in html and "本体喻体" in html
+    assert "tenderness" in html and "All Too Well" in html
+    assert "data-gen-ann" not in html          # 有批注不出生成按钮
+    assert "文字游戏" not in html              # 空字段不渲染
+    # 空态：非公开带确认按钮，公开不带
+    empty = render_annotation_card(None, 7, can_generate=True)
+    assert 'data-gen-ann="7"' in empty and "调用 1 次 LLM" in empty
+    assert "data-gen-ann" not in render_annotation_card(
+        None, 7, can_generate=False)

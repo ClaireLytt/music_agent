@@ -692,6 +692,49 @@ def render_wordbook(entries: list[dict],
     return f'<div class="wb-list">{"".join(items)}</div>'
 
 
+_ANN_HINT = ('<div class="chat-empty">点一句歌词，这里展示它的'
+             ' AI 批注。</div>')
+
+_ANN_ROWS = [  # (attr, emoji, label)
+    ("metaphor_analysis", "🎭", "修辞"),
+    ("allusions", "📜", "用典"),
+    ("wordplay", "🃏", "文字游戏"),
+    ("cultural_context", "🌍", "文化背景"),
+    ("taylor_swift_context", "📀", "创作背景"),
+]
+
+
+def render_annotation_card(ann, line_index: int,
+                           can_generate: bool) -> str:
+    """点句后的批注卡。ann 为 None 时给空态——非公开模式附一个需要用户
+    点击确认的「生成本句批注」按钮（按钮即授权，不点永不调 LLM）。"""
+    if ann is None or not getattr(ann, "summary", ""):
+        btn = (f'<button class="dict-btn" data-gen-ann="{line_index}">'
+               '✨ 为本句生成 AI 批注（调用 1 次 LLM）</button>'
+               if can_generate else "")
+        return (f'<div class="ann-card ann-empty">这句还没有 AI 批注。'
+                f'{btn}</div>')
+    parts = [f'<div class="ann-card">'
+             f'<div class="ann-summary">📖 {_esc(ann.summary)}</div>']
+    for attr, emoji, label in _ANN_ROWS:
+        v = getattr(ann, attr, None)
+        if v:
+            parts.append(f'<div class="ann-row">{emoji} '
+                         f'<b>{label}</b> {_esc(v)}</div>')
+    tone = getattr(ann, "emotional_tone", "") or ""
+    if tone and tone != "unknown":
+        parts.append(f'<div class="ann-row">💗 <b>情绪</b> {_esc(tone)}</div>')
+    related = getattr(ann, "related_lines", None) or []
+    for r in related[:2]:
+        song = getattr(r, "song", "") or ""
+        line = getattr(r, "line", "") or ""
+        if song and line:
+            parts.append(f'<div class="ann-row ann-rel">🔗 '
+                         f'《{_esc(song)}》“{_esc(line)}”</div>')
+    parts.append('</div>')
+    return "".join(parts)
+
+
 def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
     """⌨️ 单词练习 card. The JS keystroke loop (ui_assets) reads data-word /
     data-mp3 / data-nonce and colors the .tp-ch spans; the hidden input

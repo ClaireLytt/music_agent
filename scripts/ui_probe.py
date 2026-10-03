@@ -899,6 +899,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("word_practice", "typing drill grades a typed word",
                     c_word_practice)
 
+
         def c_word_export():
             probe.tab("⌨️ 单词练习")
             pg.get_by_role("button",
@@ -909,6 +910,21 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 msg="export produced neither a file notice nor the empty hint")
         probe.check("word_export", "qwerty dictionary export responds",
                     c_word_export)
+
+        def c_annotation_card():
+            # clicking an annotated line surfaces the annotation card;
+            # an unannotated line offers the consent button (NOT clicked —
+            # it would spend an LLM call)
+            probe.tab("🎧 播放解读")
+            pg.get_by_role("radio", name=PLAIN_SONG).check()
+            probe.wait_until(lambda: count(".lyric-line") > 12,
+                             msg="cardigan lyrics did not render")
+            pg.locator('.lyric-line[data-index="12"]').click()
+            probe.wait_until(
+                lambda: count(".ann-card .ann-summary") >= 1,
+                msg="annotated line showed no annotation card")
+        probe.check("annotation_card", "line click surfaces its annotation",
+                    c_annotation_card)
 
         def c_video_bind_ui():
             # auto-bind is disabled for probe runs (BILI_AUTO_BIND=0); pick
