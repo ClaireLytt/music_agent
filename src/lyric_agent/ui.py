@@ -386,6 +386,22 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     file_types=[".mp3", ".wav", ".flac",
                                                 ".ogg", ".m4a"])
                                 audio_up_status = gr.Markdown("")
+                            with gr.Accordion("🎚 歌词时间校准", open=False):
+                                gr.Markdown(
+                                    "歌词快/慢半拍时微调（正值 = 歌词提前）。"
+                                    "拖动即实时预览，满意后保存。", elem_id=None)
+                                offset_slider = gr.Slider(
+                                    minimum=-5000, maximum=5000, step=50,
+                                    value=0, label="偏移 (ms)")
+                                offset_save_btn = gr.Button("保存偏移",
+                                                            size="sm")
+                                offset_status = gr.Markdown("")
+                            # backend -> JS: 偏移实时预览值
+                            offset_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-offset-set",
+                                elem_classes=["ll-hidden"], show_label=False,
+                                container=False)
                             with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
                                               open=False):
                                 bvid_input = gr.Textbox(
@@ -709,13 +725,32 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 return (MV_EMPTY if not public else
                                         '<div class="chat-empty">该歌曲还没有'
                                         'MV 彩蛋（公开版不提供现场生成）。</div>')
-                            return render_mv_html(parse_mv(cached),
-                                                  info.get("title", ""),
-                                                  info.get("artist", ""),
-                                                  verifier=_quote_verifier(),
-                                                  label_of=_label_of())
+                            return render_mv_html(
+                                parse_mv(cached), info.get("title", ""),
+                                info.get("artist", ""),
+                                verifier=_quote_verifier(),
+                                label_of=_label_of(),
+                                video=((choice, info["bvid"])
+                                       if info.get("bvid") else None))
                         mv_song_dd.change(_on_mv_song, [mv_song_dd, user_llm],
                                           [mv_html])
+                        # JS -> backend: ⏱ 锚点点击 → 切歌进播放页，
+                        # iframe 定位由 JS 侧完成 ("<label>\t<ts>")
+                        mv_seek_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-mv-seek",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+
+                        def on_mv_seek(payload: str):
+                            label = (payload or "").split("\t")[0].strip()
+                            if (not label
+                                    or label not in _label_of().values()):
+                                return gr.skip(), gr.skip()
+                            return (gr.Radio(value=label),
+                                    gr.Tabs(selected="play"))
+
+                        mv_seek_box.change(on_mv_seek, [mv_seek_box],
+                                           [song_radio, tabs])
 
             # ══ 页签 3.5: 歌词宇宙侦探 ══
             with gr.Tab("🕵️ 歌词宇宙"):
@@ -877,8 +912,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     scale=1)
                                 review_export_btn = gr.Button(
                                     "📤 导出 qwerty-learner 词典", scale=1)
+                                anki_export_btn = gr.Button(
+                                    "🗂️ 导出 Anki 牌组", scale=1)
                             review_download = gr.DownloadButton(
                                 "⬇️ 下载词典 JSON", visible=False)
+                            anki_download = gr.DownloadButton(
+                                "⬇️ 下载 Anki TSV", visible=False)
                             review_export_status = gr.Markdown("")
                             # JS -> backend: word done ("word\tmistakes\tms\tts")
                             review_done_box = gr.Textbox(
@@ -1959,6 +1998,22 @@ def create_app(settings: Settings) -> gr.Blocks:
             review_export_btn.click(on_review_export, None,
                                     [review_download, review_export_status])
 
+            def on_anki_export():
+                from .review import export_anki
+                book = load_wordbook()
+                if not book:
+                    return (gr.DownloadButton(visible=False),
+                            "单词本是空的，没有可导出的词。")
+                out = Path("data/cache/anki_export.txt")
+                out.parent.mkdir(parents=True, exist_ok=True)
+                out.write_text(export_anki(book), encoding="utf-8")
+                return (gr.DownloadButton(value=str(out), visible=True),
+                        f"已生成 {len(book)} 词的 Anki TSV——Anki 里"
+                        "「文件 → 导入」选择它即可。")
+
+            anki_export_btn.click(on_anki_export, None,
+                                  [anki_download, review_export_status])
+
         # ── 听歌识曲 ──
 
         def on_identify(sample):
@@ -2096,6 +2151,42 @@ def create_app(settings: Settings) -> gr.Blocks:
                             [lyrics_html])
             bvid_save_btn.click(on_bvid_save, [bvid_input, song_radio],
                                 [bvid_status, lyrics_html])
+
+            # ── 🎚 歌词时间校准 ──
+            def on_offset_preview(v):
+                # JS applies it live to #ll-audio's data-offset
+                return json.dumps({"offset": int(v), "ts": time.time()})
+
+            def on_offset_load(choice: str):
+                info = find_song(choice)
+                return gr.Slider(value=int(info.get("audio_offset_ms", 0)
+                                           or 0))
+
+            def on_offset_save(v, choice: str):
+                info = find_song(choice)
+                if not info.get("dir"):
+                    return "⚠️ 请先在列表中选择一首歌。", gr.skip()
+                meta_path = Path(info["dir"]) / "metadata.json"
+                meta = (json.loads(meta_path.read_text(encoding="utf-8"))
+                        if meta_path.exists() else {})
+                if int(v):
+                    meta["audio_offset_ms"] = int(v)
+                else:
+                    meta.pop("audio_offset_ms", None)
+                meta_path.write_text(
+                    json.dumps(meta, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                refresh_library()
+                return (f"✅ 已保存偏移 {int(v)} ms。",
+                        _bvid_rerender(choice))
+
+            offset_slider.change(on_offset_preview, [offset_slider],
+                                 [offset_box])
+            offset_save_btn.click(on_offset_save,
+                                  [offset_slider, song_radio],
+                                  [offset_status, lyrics_html])
+            # 切歌时带出当前偏移（独立监听，不动 on_song_select 的输出位序）
+            song_radio.change(on_offset_load, [song_radio], [offset_slider])
 
         def _filtered_labels(sort: str, q: str) -> list[str]:
             labels = song_choices(sort)
@@ -2362,9 +2453,10 @@ def create_app(settings: Settings) -> gr.Blocks:
             req_settings = _request_settings(user_cfg)
             existing = load_mv(info["dir"], req_settings.model_name)
             if existing is not None:
-                yield render_mv_html(parse_mv(existing), title, artist,
-                                     verifier=_quote_verifier(),
-                                     label_of=_label_of())
+                yield render_mv_html(
+                    parse_mv(existing), title, artist,
+                    verifier=_quote_verifier(), label_of=_label_of(),
+                    video=(choice, info["bvid"]) if info.get("bvid") else None)
                 return
             if not req_settings.api_key:
                 yield ('<div class="chat-empty">⚠️ 未配置 API Key，无法生成。'
@@ -2383,9 +2475,10 @@ def create_app(settings: Settings) -> gr.Blocks:
                        f'{_esc(str(exc)[:150])}</div>')
                 return
             save_mv(info["dir"], data, req_settings.model_name)
-            yield render_mv_html(parse_mv(data), title, artist,
-                                 verifier=_quote_verifier(),
-                                 label_of=_label_of())
+            yield render_mv_html(
+                parse_mv(data), title, artist,
+                verifier=_quote_verifier(), label_of=_label_of(),
+                video=(choice, info["bvid"]) if info.get("bvid") else None)
 
         # ── 歌词收藏夹 ──
 

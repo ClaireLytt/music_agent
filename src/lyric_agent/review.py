@@ -100,6 +100,33 @@ def export_qwerty(book: list[dict]) -> list[dict]:
     return out
 
 
+def _anki_field(s: str) -> str:
+    """One Anki TSV field: tabs/newlines folded (HTML is allowed)."""
+    return (s or "").replace("\t", " ").replace("\\n", "；") \
+                    .replace("\n", "<br>").strip()
+
+
+def export_anki(book: list[dict]) -> str:
+    """Anki-importable TSV: front = word + phonetic, back = gloss +
+    source lyric + the saved AI explanation. One note per line."""
+    lines = ["#separator:tab", "#html:true"]
+    for e in book:
+        word = e.get("word", "")
+        if not word:
+            continue
+        phon = e.get("phonetic", "")
+        front = f"{word} /{phon}/" if phon else word
+        back = [_anki_field(e.get("translation", ""))]
+        if e.get("line"):
+            back.append(_anki_field(
+                f"「{e['line']}」·《{e.get('song', '')}》"))
+        if e.get("ai"):
+            back.append("✨ " + _anki_field(e["ai"]))
+        lines.append(f"{_anki_field(front)}\t"
+                     + "<br>".join(p for p in back if p))
+    return "\n".join(lines) + "\n"
+
+
 def synthesize_word(word: str, voice: str = TTS_VOICE) -> Path | None:
     """Cached edge-tts pronunciation for one word; None on any failure
     (offline practice stays usable, just silent)."""

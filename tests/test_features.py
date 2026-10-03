@@ -713,3 +713,47 @@ def test_render_audio_html_video_toggle_with_audio(tmp_path):
     assert 'id="ll-audio"' in html and "data-video-toggle" in html
     assert 'data-embed="https://player.bilibili.com' in html
     assert "<iframe allowfullscreen" in html and 'src="https://player' not in html
+
+
+def test_ts_to_seconds():
+    from lyric_agent.bilibili import ts_to_seconds
+
+    assert ts_to_seconds("1:32") == 92
+    assert ts_to_seconds("01:02:03") == 3723
+    assert ts_to_seconds("约 2:05 处") == 125
+    assert ts_to_seconds("开头") is None
+    assert ts_to_seconds("") is None
+
+
+def test_mv_render_seek_anchor():
+    from lyric_agent.mv_eggs import MvEggs, render_mv_html
+
+    m = MvEggs(known=True, director="d",
+               eggs=[("细节A", "", "1:32"), ("细节B", "", "")], caveat="")
+    # 有 bvid -> 锚点可点（data-mv-t 秒数）
+    html = render_mv_html(m, "晴天", "周杰伦", video=("晴天", "BV1xx411c7mD"))
+    assert 'data-mv-t="92"' in html and "mv-seek" in html
+    assert 'data-mv-bvid="BV1xx411c7mD"' in html
+    # 无 bvid -> 普通时间戳，不可点
+    plain = render_mv_html(m, "晴天", "周杰伦", video=None)
+    assert "data-mv-t" not in plain and "🎞️" in plain
+
+
+def test_export_anki_format():
+    from lyric_agent.review import export_anki
+
+    book = [{"word": "scarf", "phonetic": "skɑːf",
+             "translation": "n. 围巾\\nvt. 披上",
+             "line": "left my\tscarf", "song": "All Too Well",
+             "ai": "①语境义：围巾\n②整句：好"},
+            {"word": "", "translation": "skip"}]
+    out = export_anki(book)
+    lines = out.strip().splitlines()
+    assert lines[0] == "#separator:tab" and lines[1] == "#html:true"
+    assert len(lines) == 3
+    front, back = lines[2].split("\t")
+    assert front == "scarf /skɑːf/"
+    assert "围巾；vt. 披上" in back          # 字面 \n 折叠
+    assert "left my scarf" in back           # 字段内 tab 折叠
+    assert "①语境义：围巾<br>②整句：好" in back  # 真实换行转 <br>
+    assert "《All Too Well》" in back

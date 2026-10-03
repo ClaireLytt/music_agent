@@ -451,8 +451,8 @@ def _render_video_html(song_info: dict, has_audio: bool,
                 'frameborder="0"></iframe></div>')
         else:
             parts.append(
-                f'<div class="bv-frame"><iframe allowfullscreen '
-                f'scrolling="no" frameborder="0" '
+                f'<div class="bv-frame" data-embed="{_esc(embed_url(bvid))}">'
+                f'<iframe allowfullscreen scrolling="no" frameborder="0" '
                 f'src="{_esc(embed_url(bvid))}"></iframe></div>' + _BV_NOTE)
     elif not public:
         parts.append(

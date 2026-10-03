@@ -554,6 +554,22 @@ _HEAD_JS = """
     });
   }, 600);
 
+  // 🎚 offset live preview: backend writes {offset} into #ll-offset-set,
+  // we apply it straight onto the audio element — karaoke reads
+  // data-offset every frame, so the lyrics shift immediately
+  let lastOffsetMsg = null;
+  setInterval(() => {
+    const box = document.querySelector('#ll-offset-set textarea, #ll-offset-set input');
+    if (!box || !box.value || box.value === lastOffsetMsg) return;
+    const first = lastOffsetMsg === null;
+    lastOffsetMsg = box.value;
+    if (first) return;  // page-load leftover
+    let data;
+    try { data = JSON.parse(box.value); } catch (e) { return; }
+    const a = getAudio();
+    if (a) a.dataset.offset = String(data.offset || 0);
+  }, 300);
+
   // MCP play-command relay: the backend timer mirrors the command file into
   // #ll-mcp-play; when its value changes, switch happens server-side (radio
   // update) — here we wait for the target song to render, then play (+seek).
@@ -711,6 +727,29 @@ _HEAD_JS = """
         const a = getAudio();
         if (a && show) a.pause();
       }
+      return;
+    }
+    // 🎬 MV 彩蛋 ⏱ 锚点: switch to the song on the play tab (backend) and
+    // seek its video iframe to the stamp (here, via a bounded retry loop)
+    const mvs = e.target.closest('[data-mv-t]');
+    if (mvs) {
+      const bvid = mvs.dataset.mvBvid, t = mvs.dataset.mvT;
+      writeChannel('ll-mv-seek', mvs.dataset.mvLabel + '\\t' + Date.now());
+      let tries = 0;
+      const timer = setInterval(() => {
+        const frame = document.querySelector('.bv-frame');
+        const embed = frame && (frame.dataset.embed ||
+          (frame.querySelector('iframe') || {}).src || '');
+        if (frame && embed.indexOf(bvid) !== -1) {
+          clearInterval(timer);
+          const ifr = frame.querySelector('iframe');
+          if (ifr) ifr.src = (frame.dataset.embed || embed).split('&t=')[0]
+                             + '&t=' + t;
+          frame.style.display = '';
+          const a = getAudio();
+          if (a) a.pause();
+        } else if (++tries > 30) clearInterval(timer);
+      }, 300);
       return;
     }
     const bvs = e.target.closest('[data-bvid-search]');
@@ -1370,6 +1409,8 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
   padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
   line-height: 1.5; }
+.mv-ts.mv-seek { cursor: pointer; }
+.mv-ts.mv-seek:hover { color: var(--accent); }
 /* 📺 B 站视频模式 */
 .bv-frame { position: relative; width: 100%; padding-top: 56.25%;
   margin-top: 10px; border-radius: 12px; overflow: hidden;

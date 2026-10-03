@@ -156,7 +156,8 @@ def search_links(title: str, artist: str) -> str:
 
 
 def render_mv_html(m: MvEggs, title: str, artist: str,
-                   verifier=None, label_of: dict | None = None) -> str:
+                   verifier=None, label_of: dict | None = None,
+                   video: tuple[str, str] | None = None) -> str:
     """verifier: callable(quote, song_hint) -> hit dict | None (evidence.
     QuoteIndex.verify). With it, each lyric_link is checked against the
     library: verified quotes get a ✅ + clickable jump, unverified ⚠️."""
@@ -188,8 +189,20 @@ def render_mv_html(m: MvEggs, title: str, artist: str,
     rows = []
     for egg in m.eggs:
         detail, link, ts = (tuple(egg) + ("", ""))[:3]
-        stamp = (f'<span class="mv-ts" title="画面在 MV 中的位置">🎞️ '
-                 f'{_esc(ts)}</span>' if ts else "")
+        stamp = ""
+        if ts:
+            seek = ""
+            if video and video[1]:
+                from .bilibili import ts_to_seconds
+                secs = ts_to_seconds(ts)
+                if secs is not None:
+                    seek = (f' data-mv-label="{_esc(video[0])}" '
+                            f'data-mv-bvid="{_esc(video[1])}" '
+                            f'data-mv-t="{secs}"')
+            stamp = (f'<span class="mv-ts{" mv-seek" if seek else ""}"'
+                     f'{seek} title="'
+                     f'{"点击在视频模式中跳到此处" if seek else "画面在 MV 中的位置"}'
+                     f'">🎞️ {_esc(ts)}</span>')
         rows.append('<li class="mv-egg">' + stamp + _esc(detail)
                     + _link_html(link) + "</li>")
     rows = "".join(rows)

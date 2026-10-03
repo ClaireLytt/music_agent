@@ -49,6 +49,18 @@ def extract_bvid(text: str) -> str:
     return m.group(0) if m else ""
 
 
+_TS_RE = re.compile(r"(?:(\d+):)?(\d{1,2}):(\d{2})")
+
+
+def ts_to_seconds(ts: str) -> int | None:
+    """「1:32」/「01:02:03」(可带前后缀文字) → 秒；解析不出返回 None。"""
+    m = _TS_RE.search(ts or "")
+    if not m:
+        return None
+    h, mm, ss = m.groups()
+    return int(h or 0) * 3600 + int(mm) * 60 + int(ss)
+
+
 def embed_url(bvid: str) -> str:
     """Official embed player URL (no autoplay, danmaku off)."""
     return ("https://player.bilibili.com/player.html"
