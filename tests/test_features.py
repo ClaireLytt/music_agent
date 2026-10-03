@@ -757,3 +757,16 @@ def test_export_anki_format():
     assert "left my scarf" in back           # 字段内 tab 折叠
     assert "①语境义：围巾<br>②整句：好" in back  # 真实换行转 <br>
     assert "《All Too Well》" in back
+
+
+def test_render_video_reveal_after_bind(tmp_path):
+    from lyric_agent.ui_helpers import _render_audio_html
+
+    info = {"audio_type": "local", "audio_src": str(tmp_path / "a.mp3"),
+            "dir": str(tmp_path), "title": "t", "artist": "a", "album": "",
+            "name": "t", "bvid": "BV1xx411c7mD"}
+    shown = _render_audio_html(info, public=False, reveal_video=True)
+    assert '"bv-frame" style="display:none"' not in shown           # 绑定后立即展开
+    assert 'src="https://player.bilibili.com' in shown
+    hidden = _render_audio_html(info, public=False)
+    assert '"bv-frame" style="display:none"' in hidden              # 平时仍懒加载

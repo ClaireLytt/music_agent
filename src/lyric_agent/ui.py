@@ -2104,9 +2104,13 @@ def create_app(settings: Settings) -> gr.Blocks:
                 refresh_library()
 
             def _bvid_rerender(choice: str):
+                # right after binding, show the video immediately instead of
+                # hiding it behind the 📺 chip (the "saved but nothing
+                # happened" confusion)
                 info = find_song(choice)
                 data = _load_song_data(info["dir"])
-                return _render_lyrics_html(data, info, public=public)
+                return _render_lyrics_html(data, info, public=public,
+                                           reveal_video=True)
 
             def on_bvid_act(payload: str, choice: str):
                 parts = (payload or "").split("\t")
@@ -2138,19 +2142,25 @@ def create_app(settings: Settings) -> gr.Blocks:
                 from .bilibili import extract_bvid
                 info = find_song(choice)
                 if not info.get("dir"):
-                    return "⚠️ 请先在列表中选择一首歌。", gr.skip()
+                    return "⚠️ 请先在列表中选择一首歌。", gr.skip(), gr.skip()
                 bvid = extract_bvid(text)
                 if (text or "").strip() and not bvid:
                     return ("⚠️ 没找到 BV 号——请粘贴形如 BV1xx411c7mD 的 ID "
-                            "或完整视频链接。"), gr.skip()
+                            "或完整视频链接。"), gr.skip(), gr.skip()
                 _save_bvid(info, bvid)
-                msg = f"✅ 已绑定 {bvid}" if bvid else "✅ 已解绑视频。"
-                return msg, _bvid_rerender(choice)
+                msg = f"✅ 已绑定 {bvid}，视频已在上方展开。" if bvid                     else "✅ 已解绑视频。"
+                return msg, _bvid_rerender(choice), gr.Textbox(value=bvid)
+
+            def on_bvid_load(choice: str):
+                # keep the accordion input mirroring the saved binding, so a
+                # page refresh never looks like the link was lost
+                return gr.Textbox(value=find_song(choice).get("bvid", ""))
 
             bvid_box.change(on_bvid_act, [bvid_box, song_radio],
                             [lyrics_html])
             bvid_save_btn.click(on_bvid_save, [bvid_input, song_radio],
-                                [bvid_status, lyrics_html])
+                                [bvid_status, lyrics_html, bvid_input])
+            song_radio.change(on_bvid_load, [song_radio], [bvid_input])
 
             # ── 🎚 歌词时间校准 ──
             def on_offset_preview(v):

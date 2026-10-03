@@ -434,7 +434,7 @@ _BV_NOTE = ('<div class="bv-note">📺 视频模式：歌词同步/卡拉OK不�
 
 
 def _render_video_html(song_info: dict, has_audio: bool,
-                       public: bool) -> str:
+                       public: bool, reveal: bool = False) -> str:
     """📺 B 站视频区：官方嵌入播放器 + 绑定/候选 UI（非公开）。"""
     from .bilibili import embed_url
     bvid = song_info.get("bvid", "")
@@ -442,13 +442,17 @@ def _render_video_html(song_info: dict, has_audio: bool,
     if bvid:
         if has_audio:
             # lazy iframe: src assigned by JS on first toggle, so song
-            # switches never hit bilibili (and probes stay offline)
+            # switches never hit bilibili (and probes stay offline).
+            # reveal=True (right after binding) shows it immediately.
+            src = f' src="{_esc(embed_url(bvid))}"' if reveal else ""
+            shown = "" if reveal else ' style="display:none"'
             parts.append(
-                '<button class="ptool" data-video-toggle="1">📺 视频</button>'
-                f'<div class="bv-frame" style="display:none" '
+                '<button class="ptool" data-video-toggle="1">📺 看 MV'
+                '</button>'
+                f'<div class="bv-frame"{shown} '
                 f'data-embed="{_esc(embed_url(bvid))}">'
-                '<iframe allowfullscreen scrolling="no" '
-                'frameborder="0"></iframe></div>')
+                f'<iframe allowfullscreen scrolling="no" '
+                f'frameborder="0"{src}></iframe></div>')
         else:
             parts.append(
                 f'<div class="bv-frame" data-embed="{_esc(embed_url(bvid))}">'
@@ -471,13 +475,14 @@ def _render_video_html(song_info: dict, has_audio: bool,
 
 
 def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
-                       public: bool = False) -> str:
+                       public: bool = False, reveal_video: bool = False) -> str:
     a_type, src = song_info["audio_type"], song_info["audio_src"]
     offset = song_info.get("audio_offset_ms", 0)
     hint = ('<div class="preview-hint">🎧 官方试听片段 · 歌词已自动对齐</div>'
             if offset else "")
     if a_type not in ("local", "url"):
-        video = _render_video_html(song_info, has_audio=False, public=public)
+        video = _render_video_html(song_info, has_audio=False,
+                                   public=public, reveal=reveal_video)
         if song_info.get("bvid"):
             return video  # bound video replaces the no-audio banner
         return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>' + video
@@ -495,7 +500,8 @@ def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
         f'data-offset="{offset}"{intro} '
         f'src="{_esc(url)}" style="width:100%"></audio>'
         + _player_tools(song_info, chorus_ts) + hint
-        + _render_video_html(song_info, has_audio=True, public=public)
+        + _render_video_html(song_info, has_audio=True, public=public,
+                             reveal=reveal_video)
     )
 
 
@@ -606,7 +612,8 @@ def _render_echo_html(results: list[dict], artist: str) -> str:
 
 
 def _render_lyrics_html(song_data: dict, song_info: dict,
-                        public: bool = False) -> str:
+                        public: bool = False,
+                        reveal_video: bool = False) -> str:
     lines = song_data["timed_lines"]
 
     artist = song_info["artist"]
@@ -637,7 +644,7 @@ def _render_lyrics_html(song_data: dict, song_info: dict,
     return (
         header_html
         + _render_audio_html(song_info, song_data.get("chorus_ts"),
-                             public=public)
+                             public=public, reveal_video=reveal_video)
         + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
           '🖱️ <b>双击英文单词</b>查词义/收藏生词 · '
           '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'
