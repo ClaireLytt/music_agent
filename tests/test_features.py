@@ -613,6 +613,8 @@ def test_render_practice_card_escapes():
     assert 'data-word="a&lt;b"' in html and 'data-nonce="n1"' in html
     assert 'data-ch="a"' in html and '&lt;i&gt;' in html and '&lt;z&gt;' in html
     assert "ll-type-input" in html and "data-ll-say" in html
+    assert 'class="ll-type-card tp-blind"' in html   # 默认盲打首帧
+    assert "data-tp-eye" in html
     # 无发音时不渲染重播按钮
     silent = render_practice_card({"word": "w"}, mp3_url="", nonce="n2")
     assert "data-ll-say" not in silent

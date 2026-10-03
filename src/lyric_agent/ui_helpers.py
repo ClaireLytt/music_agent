@@ -786,8 +786,10 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
     if ai:
         rows.append(f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(
             "\n", "<br>"))
-    return (
-        f'<div class="ll-type-card" data-word="{_esc(word.lower())}" '
+    return (  # 默认盲打（tp-blind 烘焙进首帧，杜绝"闪现全词"）；
+        # 用户点 👁 或 localStorage 记忆为显示时由 JS 摘除
+        f'<div class="ll-type-card tp-blind" '
+        f'data-word="{_esc(word.lower())}" '
         f'data-mp3="{_esc(mp3_url)}" data-nonce="{_esc(nonce)}">'
         f'<div class="tp-word">{chars} {phon_html} {say} {eye}</div>'
         f'<input class="ll-type-input" autocomplete="off" '

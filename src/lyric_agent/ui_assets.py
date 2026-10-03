@@ -206,9 +206,9 @@ _HEAD_JS = """
       if (inp) inp.focus();
       play(c);
     }
-    try {  // 盲打偏好跨会话记忆
-      if (localStorage.getItem('ll_tp_blind') === '1')
-        c.classList.add('tp-blind');
+    try {  // 卡片默认盲打（服务端烘焙）；记忆为"显示"时才摘除
+      if (localStorage.getItem('ll_tp_blind') === '0')
+        c.classList.remove('tp-blind');
     } catch (err) {}
   }, 300);
   // focus on pointerdown AND click — belt and braces against focus races
@@ -224,6 +224,9 @@ _HEAD_JS = """
         const blind = c.classList.toggle('tp-blind');
         try { localStorage.setItem('ll_tp_blind', blind ? '1' : '0'); }
         catch (err) {}
+        // 焦点回输入框——否则切换后按键落在按钮上，显示模式下"打不了字"
+        const inp2 = c.querySelector('.ll-type-input');
+        if (inp2) inp2.focus();
         return;
       }
       const inp = c.querySelector('.ll-type-input');
