@@ -674,7 +674,7 @@ def test_bilibili_search_parses_and_ladders(monkeypatch):
     b._cache.clear()
     out = b.search_mv("晴天", "周杰伦", limit=3)
     assert out == [{"bvid": "BV1xx411c7mD", "title": "晴天 MV",
-                    "author": "up主", "duration": "4:29"}]
+                    "author": "up主", "duration": "4:29", "play": 0}]
     assert any("w_rid=" in u for u in calls)   # signed retry happened
 
 
@@ -709,10 +709,11 @@ def test_render_audio_html_video_toggle_with_audio(tmp_path):
             "dir": str(tmp_path), "title": "t", "artist": "a", "album": "",
             "name": "t", "bvid": "BV1xx411c7mD"}
     html = _render_audio_html(info, public=False)
-    # 音频照常 + 懒加载 iframe（无 src，embed 存 data 属性）
+    # 音频照常 + 视频始终展开（带 src），📺 按钮只做收起/展开
     assert 'id="ll-audio"' in html and "data-video-toggle" in html
     assert 'data-embed="https://player.bilibili.com' in html
-    assert "<iframe allowfullscreen" in html and 'src="https://player' not in html
+    assert 'src="https://player.bilibili.com' in html
+    assert '"bv-frame" style="display:none"' not in html
 
 
 def test_ts_to_seconds():
@@ -759,14 +760,66 @@ def test_export_anki_format():
     assert "《All Too Well》" in back
 
 
-def test_render_video_reveal_after_bind(tmp_path):
-    from lyric_agent.ui_helpers import _render_audio_html
 
-    info = {"audio_type": "local", "audio_src": str(tmp_path / "a.mp3"),
-            "dir": str(tmp_path), "title": "t", "artist": "a", "album": "",
-            "name": "t", "bvid": "BV1xx411c7mD"}
-    shown = _render_audio_html(info, public=False, reveal_video=True)
-    assert '"bv-frame" style="display:none"' not in shown           # 绑定后立即展开
-    assert 'src="https://player.bilibili.com' in shown
-    hidden = _render_audio_html(info, public=False)
-    assert '"bv-frame" style="display:none"' in hidden              # 平时仍懒加载
+
+def test_bilibili_pick_best():
+    from lyric_agent.bilibili import pick_best
+
+    def c(title, play, bvid="BVx"):
+        return {"title": title, "play": play, "bvid": bvid,
+                "author": "", "duration": ""}
+
+    cands = [c("晴天 翻唱", 9_000_000), c("周杰伦《晴天》官方MV", 500_000),
+             c("reaction 看晴天", 100), c("无关视频", 99_999_999)]
+    best = pick_best(cands, "晴天", "周杰伦")
+    assert best["title"] == "周杰伦《晴天》官方MV"   # 含歌手名压过高播放翻唱
+    # 无歌手命中 -> 含歌名里播放量最高
+    best2 = pick_best(cands, "晴天", "")
+    assert best2["title"] == "晴天 翻唱"
+    # 歌名全不含 -> 退回相关性第一条
+    assert pick_best(cands, "七里香", "周杰伦")["title"] == "晴天 翻唱"
+    assert pick_best([], "晴天", "周杰伦") is None
+
+
+def test_auto_bind_missing(tmp_path, monkeypatch):
+    import json
+    from lyric_agent import bilibili as b
+
+    d = tmp_path / "songA"
+    d.mkdir()
+    (d / "metadata.json").write_text(json.dumps(
+        {"title": "A", "artist": "X"}, ensure_ascii=False), encoding="utf-8")
+    manual = tmp_path / "songB"
+    manual.mkdir()
+    (manual / "metadata.json").write_text(json.dumps(
+        {"title": "B", "artist": "X", "bvid": "BVmanual9999"},
+        ensure_ascii=False), encoding="utf-8")
+    songs = [
+        {"title": "A", "artist": "X", "dir": str(d), "bvid": ""},
+        {"title": "B", "artist": "X", "dir": str(manual),
+         "bvid": "BVmanual9999"},
+        {"title": "FailSong", "artist": "X", "dir": str(tmp_path / "nope"),
+         "bvid": ""},
+    ]
+    monkeypatch.setattr(b, "_THROTTLE_S", 0)
+    monkeypatch.setattr(b, "_AUTOBIND_FAIL_PATH",
+                        str(tmp_path / "fails.json"))
+    monkeypatch.setattr(b, "search_mv", lambda t, a: (
+        [] if t == "FailSong" else
+        [{"title": f"X - {t} MV", "play": 10, "bvid": "BV1xx411c7mD",
+          "author": "", "duration": ""}]))
+    n = b.auto_bind_missing(songs, lambda: True)
+    assert n == 1
+    meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
+    assert meta["bvid"] == "BV1xx411c7mD" and meta["bvid_source"] == "auto"
+    # 手动绑定未被碰
+    metaB = json.loads((manual / "metadata.json").read_text(encoding="utf-8"))
+    assert metaB["bvid"] == "BVmanual9999" and "bvid_source" not in metaB
+    # 失败被记忆 -> 第二轮零新绑定且不重试失败项
+    calls = []
+    monkeypatch.setattr(b, "search_mv",
+                        lambda t, a: calls.append(t) or [])
+    songs2 = [dict(songs[0], bvid="BV1xx411c7mD"),
+              songs[1], songs[2]]
+    assert b.auto_bind_missing(songs2, lambda: True) == 0
+    assert calls == []   # songA 已绑、songB 手动、FailSong 在 24h 冷却中

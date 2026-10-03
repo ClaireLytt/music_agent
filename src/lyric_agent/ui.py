@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import shutil
 import threading
@@ -139,8 +140,42 @@ def create_app(settings: Settings) -> gr.Blocks:
         ctx.pop("fp_index", None)
         ctx.pop("corpus_lines", None)
         ctx.pop("clouds", None)
+        # new songs may need a bilibili MV auto-bound (thread set up below;
+        # indirect via ctx so the startup call above this definition is safe)
+        kick = ctx.get("kick_autobind")
+        if kick:
+            kick()
 
     refresh_library()
+
+    # ── 📺 自动绑定 B 站 MV（后台，节流，可用 BILI_AUTO_BIND=0 关闭）──
+    _autobind_enabled = (os.getenv("BILI_AUTO_BIND", "1") != "0"
+                         and not settings.public_mode)
+
+    def _kick_autobind() -> None:
+        if not _autobind_enabled or ctx.get("autobind_running"):
+            return
+        if not any(not s.get("bvid") for s in ctx["songs"]):
+            return
+        ctx["autobind_running"] = True
+
+        def _run() -> None:
+            try:
+                from .bilibili import auto_bind_missing
+                n = auto_bind_missing(list(ctx["songs"]),
+                                      lambda: _autobind_enabled)
+                if n:
+                    refresh_library()
+                    logger.info("auto-bound %d bilibili MVs", n)
+            except Exception:
+                logger.exception("MV auto-bind thread failed")
+            finally:
+                ctx["autobind_running"] = False
+
+        threading.Thread(target=_run, daemon=True,
+                         name="ll-autobind").start()
+
+    ctx["kick_autobind"] = _kick_autobind
 
     def song_choice_label(s: dict) -> str:
         # titles are the identity in every handler; when two library songs
@@ -330,6 +365,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             logger.info("Warm-up done: model + index + motifs ready")
         except Exception:
             logger.exception("Warm-up failed (features degrade gracefully)")
+        _kick_autobind()
 
     threading.Thread(target=_warm_up, daemon=True,
                      name="ll-warmup").start()
@@ -2104,13 +2140,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                 refresh_library()
 
             def _bvid_rerender(choice: str):
-                # right after binding, show the video immediately instead of
-                # hiding it behind the 📺 chip (the "saved but nothing
-                # happened" confusion)
                 info = find_song(choice)
                 data = _load_song_data(info["dir"])
-                return _render_lyrics_html(data, info, public=public,
-                                           reveal_video=True)
+                return _render_lyrics_html(data, info, public=public)
 
             def on_bvid_act(payload: str, choice: str):
                 parts = (payload or "").split("\t")

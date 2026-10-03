@@ -38,9 +38,15 @@ _HEAD_JS = """
     const pend = window.__llPendingLine;
     if (pend != null && pend >= 0) {
       let tries = 0;
+      // the OLD song's lyrics are still mounted when the radio flips; wait
+      // for the re-render to swap the scroll node, or we'd flash a line of
+      // the previous song on a DOM node about to be destroyed
+      const oldScroll = document.querySelector('#lyrics-scroll');
       const t = setInterval(() => {
-        const el = document.querySelector(
-          '#lyrics-scroll .lyric-line[data-index="' + pend + '"]');
+        const scroll = document.querySelector('#lyrics-scroll');
+        if (scroll === oldScroll) { if (++tries > 40) clearInterval(t); return; }
+        const el = scroll ? scroll.querySelector(
+          '.lyric-line[data-index="' + pend + '"]') : null;
         if (el) {
           clearInterval(t);
           el.scrollIntoView({ block: 'center' });
@@ -733,14 +739,11 @@ _HEAD_JS = """
       writeChannel('ll-ov-pick', ov.dataset.ovPick + '\\t' + Date.now());
       return;
     }
-    // 📺 B 站视频模式: toggle shows the frame and lazily sets the iframe
-    // src on first use, so song switches never hit bilibili by themselves
+    // 📺 B 站视频: collapse/expand (the iframe is always rendered now)
     const vt = e.target.closest('[data-video-toggle]');
     if (vt) {
       const frame = document.querySelector('.bv-frame');
       if (frame) {
-        const ifr = frame.querySelector('iframe');
-        if (ifr && !ifr.src) ifr.src = frame.dataset.embed;
         const show = frame.style.display === 'none';
         frame.style.display = show ? '' : 'none';
         const a = getAudio();

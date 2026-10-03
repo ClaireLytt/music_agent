@@ -49,6 +49,9 @@ _BENIGN_CONSOLE = (
     "favicon",
     "manifest.json",
     "the server responded with a status of 404",  # gradio asset probes
+    "player.bilibili.com",       # bound-MV iframe noise is not an app bug
+    "bilibili.com",              # ditto (embed player's own asset chatter)
+    "bili-user-fingerprint",     # embed player's internal reporter errors
 )
 
 AUDIO_SONG = "北京昨夜下了雪"   # library song that ships with audio
@@ -930,18 +933,34 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_word_export)
 
         def c_video_bind_ui():
-            # cardigan has no audio and no bvid: the bind entry points must
-            # render, and no bilibili iframe may load (probe stays offline —
-            # the search button is deliberately NOT clicked)
+            # auto-bind is disabled for probe runs (BILI_AUTO_BIND=0); pick
+            # a still-unbound song from disk and assert the bind entry
+            # points render without any iframe. If the whole library is
+            # bound, fall back to asserting the manual accordion exists.
             probe.tab("🎧 播放解读")
-            pg.get_by_role("radio", name=PLAIN_SONG).check()
-            probe.wait_until(
-                lambda: count("[data-bvid-search]") >= 1,
-                msg="B站 MV search button missing on a no-audio song")
-            must(count(".bv-frame") == 0,
-                 "iframe rendered without a bound bvid")
+            import json as _json
+            target = None
+            for d in sorted((ROOT / "data" / "songs").iterdir()):
+                mp = d / "metadata.json"
+                if not mp.exists():
+                    continue
+                try:
+                    meta = _json.loads(mp.read_text(encoding="utf-8"))
+                except ValueError:
+                    continue
+                if not meta.get("bvid"):
+                    target = meta.get("title", d.name)
+                    break
             must(pg.get_by_text("📺 关联 B 站视频").count() >= 1,
                  "manual bvid accordion missing")
+            if target is None:
+                return  # every song bound — nothing unbound to assert on
+            pg.get_by_role("radio", name=target, exact=True).first.check()
+            probe.wait_until(
+                lambda: count("[data-bvid-search]") >= 1,
+                msg=f"B站 MV search button missing on unbound song {target}")
+            must(count(".bv-frame") == 0,
+                 "iframe rendered without a bound bvid")
         probe.check("video_bind_ui", "bilibili bind entry points render",
                     c_video_bind_ui)
 
@@ -1187,7 +1206,9 @@ def main() -> int:
         base = f"http://127.0.0.1:{port}"
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         server_log = OUT_DIR / "server.log"
-        env = {**__import__("os").environ, "UI_PORT": str(port)}
+        # BILI_AUTO_BIND=0: no grey-API搜索 traffic from probe runs
+        env = {**__import__("os").environ, "UI_PORT": str(port),
+               "BILI_AUTO_BIND": "0"}
         with open(server_log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "lyric_agent.cli", "serve", "--no-browser"],

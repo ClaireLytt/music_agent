@@ -119,13 +119,29 @@ def _parse_results(data: dict, limit: int) -> list[dict]:
             continue
         out.append({"bvid": it["bvid"], "title": _strip_em(it.get("title")),
                     "author": it.get("author", ""),
-                    "duration": it.get("duration", "")})
+                    "duration": it.get("duration", ""),
+                    "play": int(it.get("play", 0) or 0)})
         if len(out) >= limit:
             break
     return out
 
 
-def search_mv(title: str, artist: str, limit: int = 3) -> list[dict]:
+def pick_best(cands: list[dict], title: str, artist: str) -> dict | None:
+    """自动绑定的选片规则：标题必须含歌名；含歌手名视作正主优先；
+    同级取播放量最高。全被淘汰时退回搜索相关性第一条。"""
+    if not cands:
+        return None
+    t, a = title.casefold(), artist.casefold()
+    pool = [c for c in cands if t in c["title"].casefold()]
+    if not pool:
+        return cands[0]
+    # artist-in-title strictly dominates play count (官方/正主 beats a
+    # 9-million-view 翻唱), then plays break ties
+    return max(pool, key=lambda c: (bool(a) and a in c["title"].casefold(),
+                                    c.get("play", 0)))
+
+
+def search_mv(title: str, artist: str, limit: int = 10) -> list[dict]:
     """Top MV candidates for a song; [] on any failure (manual fallback)."""
     keyword = f"{title} {artist} MV".strip()
     params = {"search_type": "video", "keyword": keyword, "page": "1"}
@@ -146,3 +162,60 @@ def search_mv(title: str, artist: str, limit: int = 3) -> list[dict]:
     except Exception as exc:  # network/parse — degrade to manual input
         logger.warning("bilibili search unavailable: %s", exc)
     return []
+
+
+_AUTOBIND_FAIL_PATH = "data/cache/bvid_autobind.json"
+_RETRY_AFTER_S = 24 * 3600
+_THROTTLE_S = 3
+
+
+def auto_bind_missing(songs: list[dict], is_enabled) -> int:
+    """Background bulk binder: search + pick_best for every song without a
+    bvid, writing metadata in place. Throttled; failures remembered for 24h
+    so restarts don't re-hammer the search endpoint. Never raises.
+
+    is_enabled: zero-arg callable checked before each song (kill switch).
+    Returns the number of songs bound."""
+    import json as _json
+    import pathlib
+    fail_path = pathlib.Path(_AUTOBIND_FAIL_PATH)
+    try:
+        fails = _json.loads(fail_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        fails = {}
+    bound = 0
+    for s in songs:
+        if not is_enabled():
+            break
+        if s.get("bvid") or not s.get("title") or not s.get("dir"):
+            continue
+        if time.time() - fails.get(s["dir"], 0) < _RETRY_AFTER_S:
+            continue
+        try:
+            best = pick_best(search_mv(s["title"], s.get("artist", "")),
+                             s["title"], s.get("artist", ""))
+            if best is None:
+                raise LookupError("no candidates")
+            meta_path = pathlib.Path(s["dir"]) / "metadata.json"
+            meta = (_json.loads(meta_path.read_text(encoding="utf-8"))
+                    if meta_path.exists() else {})
+            if not meta.get("bvid"):  # never overwrite a manual binding
+                meta["bvid"] = best["bvid"]
+                meta["bvid_source"] = "auto"
+                meta_path.write_text(
+                    _json.dumps(meta, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+                bound += 1
+                logger.info("auto-bound %s -> %s (%s)", s["title"],
+                            best["bvid"], best["title"])
+        except Exception as exc:
+            fails[s["dir"]] = time.time()
+            logger.info("auto-bind skipped %s: %s", s.get("title"), exc)
+            try:
+                fail_path.parent.mkdir(parents=True, exist_ok=True)
+                fail_path.write_text(_json.dumps(fails, ensure_ascii=False),
+                                     encoding="utf-8")
+            except OSError:
+                pass
+        time.sleep(_THROTTLE_S)
+    return bound
