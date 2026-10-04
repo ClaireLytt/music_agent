@@ -770,27 +770,6 @@ _HEAD_JS = """
     }
     // 🎬 MV 彩蛋 ⏱ 锚点: switch to the song on the play tab (backend) and
     // seek its video iframe to the stamp (here, via a bounded retry loop)
-    const mvs = e.target.closest('[data-mv-t]');
-    if (mvs) {
-      const bvid = mvs.dataset.mvBvid, t = mvs.dataset.mvT;
-      writeChannel('ll-mv-seek', mvs.dataset.mvLabel + '\\t' + Date.now());
-      let tries = 0;
-      const timer = setInterval(() => {
-        const frame = document.querySelector('.bv-frame');
-        const embed = frame && (frame.dataset.embed ||
-          (frame.querySelector('iframe') || {}).src || '');
-        if (frame && embed.indexOf(bvid) !== -1) {
-          clearInterval(timer);
-          const ifr = frame.querySelector('iframe');
-          if (ifr) ifr.src = (frame.dataset.embed || embed).split('&t=')[0]
-                             + '&t=' + t;
-          frame.style.display = '';
-          const a = getAudio();
-          if (a) a.pause();
-        } else if (++tries > 30) clearInterval(timer);
-      }, 300);
-      return;
-    }
     // ✨ per-line annotation: the button is the consent gate — a native
     // confirm makes the single LLM call explicit before anything is spent
     const ga = e.target.closest('[data-gen-ann]');
@@ -1588,8 +1567,6 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
   padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
   line-height: 1.5; }
-.mv-ts.mv-seek { cursor: pointer; }
-.mv-ts.mv-seek:hover { color: var(--accent); }
 .lyric-line .lyric-trans { font-size: .82em;
   color: var(--text-secondary); margin-top: 1px; }
 /* 🧭 新手指引 */

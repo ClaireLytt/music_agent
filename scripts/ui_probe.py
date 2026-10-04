@@ -611,14 +611,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("fanlore", "fanlore tab picker + guarded button",
                     c_fanlore)
 
-        def c_imagery():
-            probe.tab("🔍 意象追踪")
-            pg.get_by_placeholder("输入意象，如：雨 / scarf / 童年").fill("time")
-            pg.get_by_role("button", name="追踪").click()
-            pg.wait_for_timeout(6000)
-            must(count(".img-timeline") == 1, "imagery timeline missing")
-        probe.check("imagery", "imagery trace search", c_imagery)
-
 
 
         def c_quiz():
@@ -758,26 +750,14 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
 
 
-        def c_mv_eggs_present():
-            probe.tab("🕵️ 歌迷考据")
-            probe.tab("🎬 MV 彩蛋")
-            pg.wait_for_timeout(600)
-            must(pg.locator("#ll-mv-song").count() == 1,
-                 "MV song picker missing")
-            must("MV 彩蛋" in pg.locator("#ll-mv").inner_text()
-                 or "生成 MV 彩蛋" in pg.locator("body").inner_text(),
-                 "MV eggs panel missing")
-            # LLM-priced button is asserted present but NOT clicked
-            must(pg.get_by_role("button", name="🎬 生成 MV 彩蛋").count() == 1,
-                 "MV eggs generate button missing")
-            probe.tab("🎮 互动")  # hand the tab back to the checks after us
-        probe.check("mv_eggs_present", "MV eggs accordion present",
-                    c_mv_eggs_present)
 
 
         # ── add-song tab ──
         def c_catalog():
             probe.tab("➕ 添加歌曲")
+            # 内置曲库折叠在手风琴里，先展开
+            pg.get_by_text("📚 从内置曲库挑选", exact=False).first.click()
+            pg.wait_for_timeout(600)
             n_before = count("#ll-catalog input[type=checkbox]")
             must(n_before >= 50, f"catalog too small: {n_before}")
             pg.locator("#ll-cat-search input, #ll-cat-search textarea") \

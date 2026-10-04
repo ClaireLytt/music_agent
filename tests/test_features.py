@@ -726,20 +726,6 @@ def test_ts_to_seconds():
     assert ts_to_seconds("") is None
 
 
-def test_mv_render_seek_anchor():
-    from lyric_agent.mv_eggs import MvEggs, render_mv_html
-
-    m = MvEggs(known=True, director="d",
-               eggs=[("细节A", "", "1:32"), ("细节B", "", "")], caveat="")
-    # 有 bvid -> 锚点可点（data-mv-t 秒数）
-    html = render_mv_html(m, "晴天", "周杰伦", video=("晴天", "BV1xx411c7mD"))
-    assert 'data-mv-t="92"' in html and "mv-seek" in html
-    assert 'data-mv-bvid="BV1xx411c7mD"' in html
-    # 无 bvid -> 普通时间戳，不可点
-    plain = render_mv_html(m, "晴天", "周杰伦", video=None)
-    assert "data-mv-t" not in plain and "🎞️" in plain
-
-
 def test_export_anki_format():
     from lyric_agent.review import export_anki
 

@@ -4,11 +4,11 @@ For one song the LLM organizes what it reliably knows — official facts,
 in-library lyric parallels (fed in as hard evidence from the echo scan)
 and fan theories — into a story page: hook → labeled clues → a plot-
 theory chain → a fan-video style summary. The schema forces honesty the
-same way mv_eggs does: every clue carries a source type, quoted lyrics
+structurally: every clue carries a source type, quoted lyrics
 are verified against the library at render time, and when the model has
 no solid lore it must say so (known=false) instead of inventing any.
 
-mv_eggs.py's no-heavy-deps pattern: prompts + JSON parsing + HTML only.
+No heavy deps: prompts + JSON parsing + HTML only.
 Results are persisted per song as fanlore.json (generated once, reused).
 """
 
@@ -231,7 +231,7 @@ def render_fanlore_html(f: Fanlore, title: str,
         note = f.caveat or ("AI 对这首歌没有可靠的考据素材（官方信息太少"
                             "或过于冷门），所以不乱编。")
         return (f'<div class="lore-page">{head}'
-                f'<div class="mv-none">{_esc(note)}</div>'
+                f'<div class="chat-empty">{_esc(note)}</div>'
                 f'{_DISCLAIM}</div>')
     parts = [head]
     if f.hook:

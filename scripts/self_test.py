@@ -256,19 +256,6 @@ def main() -> None:
     except Exception as e:
         check("echo map payload + overview", False, repr(e))
 
-    # ── 4d. 意象追踪 ──
-    try:
-        out = call("on_imagery", ["scarf", "Taylor Swift"])
-        check("imagery trace (artist scope)",
-              "img-timeline" in str(out[0]) and "原词" in str(out[0]))
-    except Exception as e:
-        check("imagery trace (artist scope)", False, repr(e))
-    try:
-        out = call("on_imagery", ["", "Taylor Swift"])
-        check("imagery trace empty query -> hint", "输入一个意象" in str(out[0]))
-    except Exception as e:
-        check("imagery trace empty query -> hint", False, repr(e))
-
     # ── 4d2. 播放器工具（波形/副歌/A-B/韵脚开关随音频渲染） ──
     try:
         out = call("on_song_select", ["北京昨夜下了雪"],
