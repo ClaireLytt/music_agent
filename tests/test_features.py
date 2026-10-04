@@ -872,6 +872,7 @@ def test_render_annotation_card():
 
 def test_llm_usage_accounting(monkeypatch, tmp_path):
     """记账挂在重试包装器上：成功调用必入账，且绝不炸正常返回。"""
+    pytest.importorskip("openai")  # 最小环境跳过而非报错
     from lyric_agent import llm
     from lyric_agent.config import Settings
 
