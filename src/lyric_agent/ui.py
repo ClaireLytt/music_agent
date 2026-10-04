@@ -2087,6 +2087,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 .replace("\\n", "\n")),
                 "found": hit is not None,
                 "canFav": not public,
+                # 之前生成过的 AI 语境解释直接带出（弹卡被关/重开也不丢）
+                "ai": _cached_dict_ai(word, parts[1] if len(parts) > 1 else ""),
             }
             return gr.Textbox(value=json.dumps(result, ensure_ascii=False))
 
