@@ -771,9 +771,9 @@ def test_bilibili_pick_best():
 
     cands = [c("晴天 翻唱", 9_000_000), c("周杰伦《晴天》官方MV", 500_000),
              c("reaction 看晴天", 100), c("无关视频", 99_999_999)]
+    # 含歌名的候选里播放量最高者当选（用户决定：播放量优先）
     best = pick_best(cands, "晴天", "周杰伦")
-    assert best["title"] == "周杰伦《晴天》官方MV"   # 含歌手名压过高播放翻唱
-    # 无歌手命中 -> 含歌名里播放量最高
+    assert best["title"] == "晴天 翻唱"
     best2 = pick_best(cands, "晴天", "")
     assert best2["title"] == "晴天 翻唱"
     # 歌名全不含 -> 退回相关性第一条

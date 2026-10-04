@@ -463,11 +463,17 @@ def _render_video_html(song_info: dict, has_audio: bool,
             'data-bvid-search="1">🔍 搜索 B 站 MV</button>'
             '<span class="bv-bind-hint">或在下方「📺 关联 B 站视频」'
             '手风琴里粘 BV 号</span></div>')
-        for c in song_info.get("bvid_cands", []):
+        cands = sorted(song_info.get("bvid_cands", []),
+                       key=lambda c: c.get("play", 0), reverse=True)
+        for c in cands:
+            play = c.get("play", 0)
+            play_s = (f"{play / 10000:.1f}万" if play >= 10000
+                      else str(play)) + "播放"
             parts.append(
                 f'<div class="bv-cand" data-bvid-pick="{_esc(c["bvid"])}">'
                 f'<b>{_esc(c["title"])}</b>'
-                f'<span class="bv-cand-meta">UP主 {_esc(c["author"])} · '
+                f'<span class="bv-cand-meta">▶ {play_s} · '
+                f'UP主 {_esc(c["author"])} · '
                 f'{_esc(c["duration"])} · {_esc(c["bvid"])}'
                 '（点击绑定）</span></div>')
     return "".join(parts)
@@ -785,7 +791,8 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
         f'autocapitalize="off" spellcheck="false">'
         f'<div class="tp-ime-hint">请切换到英文输入法</div>'
         f'{"".join(rows)}'
-        f'<div class="tp-blurhint">💡 打错整词重来；点卡片可继续输入</div>'
+        f'<div class="tp-blurhint">💡 打错整词重来 · Tab 偷看单词 1 秒 · '
+        f'点卡片可继续输入</div>'
         f'</div>')
 
 

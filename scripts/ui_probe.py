@@ -149,6 +149,9 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         browser = pw.chromium.launch(
             args=["--autoplay-policy=no-user-gesture-required"])
         page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        # 预置"新手指引已看过"，避免自动弹出的指引遮挡其余检查
+        page.add_init_script(
+            "try{localStorage.setItem('ll_onboard','1')}catch(e){}")
         probe = Probe(page, server_log)
         pg, must, count = page, probe.must, probe.count
 
@@ -507,6 +510,30 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                  "intro panel neither text nor empty-state")
         probe.check("intro_panel", "song intro panel content or hint",
                     c_intro_panel)
+
+        def c_onboarding():
+            # ❓ reopens the guided tour; 跳过 closes it (reopenable = spec)
+            probe.tab("🎧 播放解读")
+            probe.wait_until(lambda: count("#ll-onboard-btn") == 1,
+                             msg="onboarding ❓ button missing")
+            pg.locator("#ll-onboard-btn").click()
+            probe.wait_until(lambda: count(".ll-onboard-box") == 1,
+                             msg="tour box did not open")
+            pg.locator('[data-ob="next"]').click()
+            probe.wait_until(
+                lambda: "歌词区" in pg.locator(".ll-onboard-box").inner_text(),
+                msg="step 2 text missing")
+            pg.locator('[data-ob="skip"]').click()
+            probe.wait_until(lambda: count(".ll-onboard-box") == 0,
+                             msg="tour box did not close")
+            pg.locator("#ll-onboard-btn").click()   # 可反复打开
+            probe.wait_until(lambda: count(".ll-onboard-box") == 1,
+                             msg="tour not reopenable")
+            pg.locator('[data-ob="skip"]').click()
+            probe.wait_until(lambda: count(".ll-onboard-box") == 0,
+                             msg="tour box did not close again")
+        probe.check("onboarding", "guided tour opens/advances/reopens",
+                    c_onboarding)
 
         def c_space_shortcut():
             pg.get_by_role("radio", name=AUDIO_SONG).check()

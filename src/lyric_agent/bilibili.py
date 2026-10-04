@@ -127,21 +127,18 @@ def _parse_results(data: dict, limit: int) -> list[dict]:
 
 
 def pick_best(cands: list[dict], title: str, artist: str) -> dict | None:
-    """自动绑定的选片规则：标题必须含歌名；含歌手名视作正主优先；
-    同级取播放量最高。全被淘汰时退回搜索相关性第一条。"""
+    """自动绑定的选片规则：标题必须含歌名，其中取播放量最高（用户决定：
+    播放量优先于"标题含歌手名"）。全被淘汰时退回搜索相关性第一条。"""
     if not cands:
         return None
-    t, a = title.casefold(), artist.casefold()
+    t = title.casefold()
     pool = [c for c in cands if t in c["title"].casefold()]
     if not pool:
         return cands[0]
-    # artist-in-title strictly dominates play count (官方/正主 beats a
-    # 9-million-view 翻唱), then plays break ties
-    return max(pool, key=lambda c: (bool(a) and a in c["title"].casefold(),
-                                    c.get("play", 0)))
+    return max(pool, key=lambda c: c.get("play", 0))
 
 
-def search_mv(title: str, artist: str, limit: int = 10) -> list[dict]:
+def search_mv(title: str, artist: str, limit: int = 20) -> list[dict]:
     """Top MV candidates for a song; [] on any failure (manual fallback)."""
     keyword = f"{title} {artist} MV".strip()
     params = {"search_type": "video", "keyword": keyword, "page": "1"}

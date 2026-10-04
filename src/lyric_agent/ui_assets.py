@@ -78,6 +78,31 @@ _HEAD_JS = """
   function closePop() {
     document.querySelectorAll('.ll-dict-pop').forEach((p) => p.remove());
   }
+  // 弹卡可拖动：按住卡片空白处（按钮除外）移动
+  function makeDraggable(pop) {
+    let sx = 0, sy = 0, px = 0, py = 0, moved = false;
+    pop.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button')) return;
+      sx = e.clientX; sy = e.clientY; moved = false;
+      const r = pop.getBoundingClientRect();
+      px = r.left; py = r.top;
+      pop.setPointerCapture(e.pointerId);
+      const onMove = (ev) => {
+        const dx = ev.clientX - sx, dy = ev.clientY - sy;
+        if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+        moved = true;
+        pop.style.left = Math.max(0, px + dx) + 'px';
+        pop.style.top = Math.max(0, py + dy) + 'px';
+      };
+      const onUp = (ev) => {
+        pop.releasePointerCapture(e.pointerId);
+        pop.removeEventListener('pointermove', onMove);
+        pop.removeEventListener('pointerup', onUp);
+      };
+      pop.addEventListener('pointermove', onMove);
+      pop.addEventListener('pointerup', onUp);
+    });
+  }
   function sendChannel(id, value) {
     const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
     if (!box) return false;
@@ -110,6 +135,7 @@ _HEAD_JS = """
     pop.style.left = Math.min(rect.left, window.innerWidth - 300) + 'px';
     pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 160) + 'px';
     document.body.appendChild(pop);
+    makeDraggable(pop);
     lastQuery = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
     sendChannel('ll-dict-pick', lastQuery);
   });
@@ -243,7 +269,19 @@ _HEAD_JS = """
       return;
     }
     c.classList.remove('tp-ime');
-    if (e.key.length !== 1) return;             // let Tab/F5/etc through
+    if (e.key === 'Tab') {                      // 盲打模式偷看一眼（~1 秒）
+      e.preventDefault();
+      if (c.classList.contains('tp-blind')) {
+        c.classList.remove('tp-blind');
+        const n = c.dataset.nonce;
+        setTimeout(() => {
+          const cc = card();
+          if (cc && cc.dataset.nonce === n) cc.classList.add('tp-blind');
+        }, 1000);
+      }
+      return;
+    }
+    if (e.key.length !== 1) return;             // let F5/etc through
     e.preventDefault();                          // space must not scroll
     const want = c.dataset.word;
     const spans = chars(c);
@@ -926,6 +964,92 @@ _HEAD_JS = """
     }
   });
 })();
+// 🧭 新手指引：首次进入自动播放；左下角 ❓ 随时重开。
+// 纯前端分步高亮（backdrop 阴影圈出目标元素 + 气泡说明）。
+(function() {
+  const STEPS = [
+    { sel: '#ll-songs',
+      text: '🎵 这里是歌曲列表：点歌名切歌，支持筛选和排序；每首歌的 ⋯ 菜单可删除。' },
+    { sel: '#lyrics-container',
+      text: '📖 歌词区：▶ 播放后歌词跟唱滚动；<b>单击</b>一句歌词可向右侧 AI 提问，'
+            + '<b>双击英文单词</b>弹出词义卡（可收藏、可 AI 语境解释）。' },
+    { sel: '.player-tools',
+      text: '🎚 播放器工具：跳副歌、A-B 循环、韵脚标色；'
+            + '💫 回声时刻开着时，唱到有呼应的歌词会自动弹出回声卡。' },
+    { sel: 'button[role="tab"]',
+      text: '🗂 顶部页签：🔤 歌曲寻词练打字背单词，🥚 彩蛋地图看歌词互文，'
+            + '➕ 添加歌曲自动配歌词和 MV，⚙️ 设置里填 API Key 看用量。' },
+    { sel: null,
+      text: '✅ 就这些！随时点<b>左下角 ❓</b> 重新打开本指引。祝听歌愉快～' },
+  ];
+  let idx = 0, box = null, ring = null;
+  function stop() {
+    if (box) box.remove();
+    if (ring) ring.remove();
+    box = ring = null;
+    try { localStorage.setItem('ll_onboard', '1'); } catch (err) {}
+  }
+  function show(i) {
+    idx = i;
+    const s = STEPS[i];
+    if (!ring) {
+      ring = document.createElement('div');
+      ring.className = 'll-tour-ring';
+      document.body.appendChild(ring);
+    }
+    const el = s.sel ? document.querySelector(s.sel) : null;
+    if (el && el.offsetParent !== null) {
+      const r = el.getBoundingClientRect();
+      ring.style.display = 'block';
+      ring.style.left = (r.left - 6) + 'px';
+      ring.style.top = (r.top - 6) + 'px';
+      ring.style.width = (r.width + 12) + 'px';
+      ring.style.height = (r.height + 12) + 'px';
+    } else {
+      ring.style.display = 'block';
+      ring.style.left = '50%'; ring.style.top = '40%';
+      ring.style.width = '0px'; ring.style.height = '0px';
+    }
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'll-onboard-box';
+      document.body.appendChild(box);
+    }
+    box.innerHTML = '<div class="ob-text">' + s.text + '</div>'
+      + '<div class="ob-nav"><span class="ob-dots">'
+      + STEPS.map((_, k) => k === i ? '●' : '○').join(' ') + '</span>'
+      + (i > 0 ? '<button class="ob-btn" data-ob="prev">上一步</button>' : '')
+      + (i < STEPS.length - 1
+         ? '<button class="ob-btn ob-main" data-ob="next">下一步</button>'
+           + '<button class="ob-btn" data-ob="skip">跳过</button>'
+         : '<button class="ob-btn ob-main" data-ob="skip">完成</button>')
+      + '</div>';
+    // 气泡固定在屏幕下方居中，避免遮住被圈出的元素
+    box.querySelectorAll('[data-ob]').forEach((b) =>
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const act = b.dataset.ob;
+        if (act === 'next') show(idx + 1);
+        else if (act === 'prev') show(idx - 1);
+        else stop();
+      }));
+  }
+  function start() { stop(); show(0); }
+  // ❓ 重开按钮 + 首次自动播放
+  const t = setInterval(() => {
+    if (!document.querySelector('#ll-songs')) return;
+    clearInterval(t);
+    const btn = document.createElement('button');
+    btn.id = 'll-onboard-btn';
+    btn.title = '新手指引';
+    btn.textContent = '❓';
+    btn.addEventListener('click', start);
+    document.body.appendChild(btn);
+    let seen = '1';
+    try { seen = localStorage.getItem('ll_onboard') || ''; } catch (err) {}
+    if (!seen) setTimeout(start, 800);
+  }, 400);
+})();
 </script>
 """
 
@@ -1368,6 +1492,7 @@ footer, .gradio-container footer { display: none !important; }
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 12px; box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
   font-size: .9em; line-height: 1.55;
+  cursor: move; user-select: none; touch-action: none;
 }
 .ll-dict-pop .dict-word { font-weight: 700; margin-bottom: 4px; }
 .ll-dict-pop .dict-phon { color: var(--text-secondary); font-weight: 400; }
@@ -1401,6 +1526,35 @@ footer, .gradio-container footer { display: none !important; }
 .mv-ts.mv-seek:hover { color: var(--accent); }
 .lyric-line .lyric-trans { font-size: .82em;
   color: var(--text-secondary); margin-top: 1px; }
+/* 🧭 新手指引 */
+.ll-tour-ring {
+  position: fixed; z-index: 1290; pointer-events: none; border-radius: 12px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, .45);
+  transition: all .3s ease; }
+.ll-onboard-box {
+  position: fixed; z-index: 1300; left: 50%; bottom: 60px;
+  transform: translateX(-50%); width: min(460px, 92vw);
+  padding: 14px 16px; border-radius: 14px; background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .25);
+  font-size: 13.5px; line-height: 1.7; }
+.ll-onboard-box .ob-nav { margin-top: 10px; display: flex; gap: 8px;
+  align-items: center; }
+.ll-onboard-box .ob-dots { margin-right: auto;
+  color: var(--text-secondary); letter-spacing: 2px; }
+.ll-onboard-box .ob-btn { padding: 4px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  cursor: pointer; font-size: 12.5px; color: var(--text-primary); }
+.ll-onboard-box .ob-btn.ob-main { background: var(--accent); color: #fff;
+  border-color: var(--accent); }
+#ll-onboard-btn {
+  position: fixed; z-index: 1280; left: 14px; bottom: 14px;
+  width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); font-size: 15px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .15); }
+#ll-onboard-btn:hover { color: var(--accent); border-color: var(--accent); }
 /* 点句批注卡 */
 .ann-card { padding: 12px 14px; border: 1px solid var(--border);
   border-radius: 12px; background: var(--bg-card); margin-bottom: 10px;
