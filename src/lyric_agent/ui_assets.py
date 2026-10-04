@@ -269,7 +269,7 @@ _HEAD_JS = """
       return;
     }
     c.classList.remove('tp-ime');
-    if (e.key === 'Tab') {                      // 盲打模式偷看一眼（~1 秒）
+    if (e.key === 'Tab') {                      // 盲打模式偷看一眼（0.2 秒）
       e.preventDefault();
       if (c.classList.contains('tp-blind')) {
         c.classList.remove('tp-blind');
@@ -277,7 +277,7 @@ _HEAD_JS = """
         setTimeout(() => {
           const cc = card();
           if (cc && cc.dataset.nonce === n) cc.classList.add('tp-blind');
-        }, 1000);
+        }, 200);
       }
       return;
     }
@@ -1600,11 +1600,11 @@ footer, .gradio-container footer { display: none !important; }
 .ll-type-card .ll-type-input { position: absolute; opacity: 0;
   width: 1px; height: 1px; border: 0; padding: 0; }
 .ll-type-card .wb-meaning, .ll-type-card .wb-src, .ll-type-card .wb-ai {
-  margin-top: 6px; }
+  margin-top: 6px; font-size: 1.05em; }
 .ll-type-card .tp-ime-hint { display: none; color: #cf222e;
   font-size: .85em; margin-top: 4px; }
 .ll-type-card.tp-ime .tp-ime-hint { display: block; }
-.ll-type-card .tp-blurhint { font-size: .8em; color: var(--text-secondary);
+.ll-type-card .tp-blurhint { font-size: .95em; color: var(--text-secondary);
   margin-top: 10px; }
 .ll-type-card .tp-wline-word { background: var(--accent-soft);
   border-radius: 4px; padding: 0 2px; }
