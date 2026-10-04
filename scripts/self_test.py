@@ -249,7 +249,7 @@ def main() -> None:
         payload, overview = out[0], out[1]
         d = json.loads(payload) if payload else {"lines": []}
         ok = (d.get("song") == "cardigan" and d["lines"]
-              and all({"i", "song", "sim"} == set(o) for o in d["lines"])
+              and all({"i", "song", "sim"} <= set(o) for o in d["lines"])
               and "data-goto-line" in str(overview))
         check("echo map payload + overview", bool(ok),
               f"lines={len(d.get('lines', []))}")

@@ -893,3 +893,41 @@ def test_llm_usage_accounting(monkeypatch, tmp_path):
                         lambda sp, msgs: seen.update(sp=sp) or resp)
     c.generate("你是测试", "hi")
     assert seen["sp"].startswith("你是测试") and "精简直接" in seen["sp"]
+
+
+def test_echo_overview_hero_and_fold():
+    from types import SimpleNamespace as NS
+    from lyric_agent.ui_helpers import _render_echo_overview
+
+    hits = [(NS(line_index=1, text="src one"),
+             NS(song="S1", album="", line="dst one", similarity=0.5)),
+            (NS(line_index=4, text="src two"),
+             NS(song="S2", album="A", line="dst two", similarity=0.9))]
+    html = _render_echo_overview(hits, "歌手")
+    assert "你可能没注意到" in html and "echo-hero" in html
+    # 最强相似度的一对成为 hero
+    assert html.index("dst two") < html.index("dst one")
+    assert "<details" in html and "展开全部 2 处" in html
+    # 单条命中时没有折叠区
+    assert "<details" not in _render_echo_overview(hits[:1], "")
+
+
+def test_echo_story_render_states():
+    from lyric_agent.ui_helpers import render_echo_story
+
+    assert "echo-story" in render_echo_story("两首歌写同一场雨。", False)
+    btn = render_echo_story("", True)
+    assert "data-echo-story" in btn and "1 次 LLM" in btn
+    assert render_echo_story("", False) == ""
+
+
+def test_echo_card_comment_and_word(tmp_path):
+    from lyric_agent.share_card import render_echo_card
+
+    path = render_echo_card(
+        "Artist", "songA", "I can see the rain fall",
+        "songB", "the rain falls on me", similarity=0.7,
+        out_dir=tmp_path, comment="同一场雨的开头与结局",
+        learn_word="rain", learn_gloss="n. 雨")
+    from pathlib import Path
+    assert Path(path).exists() and Path(path).stat().st_size > 10000

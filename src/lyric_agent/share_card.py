@@ -129,8 +129,14 @@ def render_echo_card(
     line_b: str,
     similarity: float = 0.0,
     out_dir: str | Path = "data/cards",
+    comment: str = "",
+    learn_word: str = "",
+    learn_gloss: str = "",
 ) -> str:
-    """Two-quote 彩蛋 card: a pair of echoing lyric lines side by side."""
+    """Two-quote 彩蛋 card: a pair of echoing lyric lines side by side.
+
+    comment: 一句 AI 点评（可空）；learn_word/learn_gloss: 英文歌的
+    「今日一词」（两句共有的词 + 词典释义，可空）。"""
     line_a, line_b = _clean(line_a), _clean(line_b)
 
     img = _gradient(W, H, (24, 44, 62), (66, 46, 94))
@@ -171,7 +177,24 @@ def render_echo_card(
     draw.text((bx + 24, mid - 16), badge, font=badge_font, fill=(40, 34, 60))
     y = mid + 70
 
-    quote_block(y, song_b, line_b)
+    y = quote_block(y, song_b, line_b)
+
+    if comment:
+        cfont = _font(26)
+        for ln in _wrap("💬 " + _clean(comment), cfont, inner)[:3]:
+            draw.text((MARGIN, y), ln, font=cfont, fill=(226, 222, 240))
+            y += 40
+        y += 10
+    if learn_word:
+        wfont = _font(28, bold=True)
+        draw.text((MARGIN, y), f"📒 今日一词：{learn_word}", font=wfont,
+                  fill=(255, 214, 130))
+        y += 44
+        if learn_gloss:
+            gfont = _font(24)
+            for ln in _wrap(_clean(learn_gloss), gfont, inner)[:2]:
+                draw.text((MARGIN, y), ln, font=gfont, fill=(226, 222, 240))
+                y += 36
 
     footer = _clean(artist) or ""
     if footer:

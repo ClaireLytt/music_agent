@@ -569,28 +569,54 @@ _ECHO_OVERVIEW_EMPTY = ('<div class="chat-empty">本歌暂未发现与同歌手�
                         '强呼应彩蛋。</div>')
 
 
+def render_echo_story(story: str | None, can_generate: bool) -> str:
+    """每首歌一段"粉丝解说"小故事：缓存后默认展示；未生成时给
+    consent 按钮（1 次 LLM，data-echo-story 由 _HEAD_JS 委托处理）。"""
+    if story:
+        return (f'<div class="echo-story">📖 '
+                f'{_esc(story)}</div>')
+    if can_generate:
+        return ('<div class="echo-story echo-story-empty">'
+                '<button class="ptool" data-echo-story="1">'
+                '✨ 生成彩蛋故事（调用 1 次 LLM，之后永久展示）</button>'
+                '<span class="echo-story-hint">把全部呼应讲成一段 100 字的'
+                '粉丝解说</span></div>')
+    return ""
+
+
 def _render_echo_overview(hits: list[tuple[Any, Any]], artist: str) -> str:
-    """Whole-song echo overview: every 🥚 line and its strongest target.
+    """Whole-song echo overview: a hero "你可能没注意到" pick on top, the
+    full list folded below.
 
     hits: (TimedLine, EchoLine) pairs; each entry is clickable and jumps to
     the lyric line (data-goto-line is handled in _HEAD_JS).
     """
     if not hits:
         return _ECHO_OVERVIEW_EMPTY
-    items = []
-    for ln, e in hits:
+
+    def _item(ln, e, extra_cls="", label=""):
         album = f" · {_esc(e.album)}" if e.album else ""
-        items.append(
-            f'<div class="echo-ov-item" data-goto-line="{ln.line_index}" '
-            f'title="点击跳转到这句歌词">'
+        return (
+            f'<div class="echo-ov-item{extra_cls}" '
+            f'data-goto-line="{ln.line_index}" title="点击跳转到这句歌词">'
+            f'{label}'
             f'<div class="echo-ov-src">“{_esc(ln.text)}”</div>'
             f'<div class="echo-ov-dst">↔ 《{_esc(e.song)}》{album}：'
             f'“{_esc(e.line)}”<span class="echo-ov-sim">{e.similarity}</span>'
-            '</div></div>'
-        )
-    head = (f'<div class="echo-ov-head">共 {len(hits)} 处与'
-            f'{_esc(artist or "同歌手")}其他作品的呼应 · 点击条目跳转</div>')
-    return f'<div class="echo-ov-list">{head}{"".join(items)}</div>'
+            '</div></div>')
+
+    # 最强的一处呼应置顶（"哇"时刻），其余折叠备查
+    best = max(hits, key=lambda p: p[1].similarity)
+    hero = _item(best[0], best[1], " echo-hero",
+                 '<div class="echo-hero-head">👀 你可能没注意到</div>')
+    rest = [_item(ln, e) for ln, e in hits if (ln, e) != best]
+    folded = ""
+    if rest:
+        folded = (f'<details class="echo-ov-more"><summary>展开全部 '
+                  f'{len(hits)} 处与{_esc(artist or "同歌手")}'
+                  '其他作品的呼应</summary>'
+                  + "".join(rest) + "</details>")
+    return f'<div class="echo-ov-list">{hero}{folded}</div>'
 
 
 def _render_echo_html(results: list[dict], artist: str) -> str:

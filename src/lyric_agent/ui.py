@@ -294,7 +294,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             settings.embedding_model,
             settings.echo_min_similarity,
             settings.echo_min_similarity_cjk,
-            "tour-v4",  # + jump label/target line (回声时刻卡可点击跳转)
+            "tour-v5",  # overview: hero 置顶 + 折叠列表
         ]
         cache = ctx.setdefault("echo_maps", {})
         cached = cache.get(song_dir)
@@ -629,6 +629,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # ("jump:<i>" / "del:<i>")
                         fav_box = gr.Textbox(
                             value="", visible=True, elem_id="ll-fav-act",
+                            elem_classes=["ll-hidden"], show_label=False,
+                            container=False)
+                        # JS -> backend: "✨ 生成彩蛋故事" consent clicks
+                        echo_story_box = gr.Textbox(
+                            value="", visible=True, elem_id="ll-echo-story",
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
                         # JS -> backend: evidence-card citation jumps
@@ -1032,10 +1037,82 @@ def create_app(settings: Settings) -> gr.Blocks:
             # the two per-song collections re-render on every song switch
             song_outputs += [favs_html, wordbook_html]
 
+        def _echo_story_of(song_dir: str) -> str:
+            try:
+                return json.loads(
+                    (Path(song_dir) / "echo_story.json").read_text(
+                        encoding="utf-8")).get("story", "")
+            except (OSError, ValueError):
+                return ""
+
         def on_echo_map(choice: str) -> tuple[str, str]:
             if not ctx["songs"]:
                 return "", _ECHO_OVERVIEW_EMPTY
-            return build_echo_map(find_song(choice))
+            info = find_song(choice)
+            payload, overview = build_echo_map(info)
+            from .ui_helpers import render_echo_story
+            story = (_echo_story_of(info["dir"])
+                     if info.get("dir") else "")
+            has_hits = overview != _ECHO_OVERVIEW_EMPTY and bool(payload)
+            block = render_echo_story(
+                story, can_generate=(not public) and has_hits)
+            return payload, block + overview
+
+        def on_echo_story(trigger: str, choice: str, user_cfg):
+            """Consent-gated: 把本歌最强的几处呼应讲成一段粉丝解说
+            （只基于歌词本身，严禁编造创作背景），缓存后永久展示。"""
+            if not (trigger or "").strip() or not ctx["songs"]:
+                return gr.skip()
+            info = find_song(choice)
+            if not info.get("dir"):
+                return gr.skip()
+            req = _request_settings(user_cfg)
+            if not req.api_key:
+                gr.Warning("需要 API Key 才能生成彩蛋故事（⚙️ 设置）。")
+                return gr.skip()
+            payload, overview = build_echo_map(info)
+            try:
+                lines = json.loads(payload).get("lines", []) if payload else []
+            except ValueError:
+                lines = []
+            if not lines:
+                gr.Warning("这首歌没有可讲的呼应。")
+                return gr.skip()
+            data = _load_song_data(info["dir"])
+            by_idx = {ln.line_index: ln.text for ln in data["timed_lines"]}
+            top = sorted(lines, key=lambda o: -o.get("sim", 0))[:5]
+            pairs = "\n".join(
+                f'本歌「{by_idx.get(o["i"], "")}」 ↔ '
+                f'《{o["song"]}》「{o.get("target", "")}」'
+                for o in top)
+            from .llm import LLMClient
+            try:
+                resp = LLMClient(req).generate(
+                    system_prompt=(
+                        "你是懂行的歌迷解说。根据给出的歌词呼应对，写一段"
+                        "100 字左右的简体中文解说，把这些呼应讲成一个"
+                        "有发现感的小故事（比如同一场景的开头与结局、"
+                        "同一意象的反复）。只基于歌词文本本身推断，"
+                        "严禁编造创作背景、幕后故事或歌手意图。"
+                        "不要列条目，写成连贯一段话。"),
+                    user_message=(f"歌曲：《{info.get('title', '')}》"
+                                  f"（{info.get('artist', '')}）\n"
+                                  f"呼应对：\n{pairs}"),
+                )
+                story = resp.reply_text.strip()
+                Path(info["dir"], "echo_story.json").write_text(
+                    json.dumps({"story": story}, ensure_ascii=False,
+                               indent=1), encoding="utf-8")
+            except Exception as exc:
+                logger.exception("echo story failed")
+                gr.Warning(f"生成失败：{str(exc)[:120]}")
+                return gr.skip()
+            from .ui_helpers import render_echo_story
+            return render_echo_story(story, False) + overview
+
+        echo_story_box.change(on_echo_story,
+                              [echo_story_box, song_radio, user_llm],
+                              [echo_overview])
 
         song_radio.change(on_song_select, [song_radio], song_outputs).then(
             on_echo_map, [song_radio], [echo_map_box, echo_overview])
@@ -2219,6 +2296,23 @@ def create_app(settings: Settings) -> gr.Blocks:
                 return ("⚠️ 请先点击一句有彩蛋呼应的歌词，再生成对照卡。",
                         gr.Image(visible=False))
             top = echo["results"][0]
+            # 卡上带一句点评（已生成的彩蛋故事截前一句，零新增调用）
+            info = find_song(choice)
+            comment = ""
+            if info.get("dir"):
+                story = _echo_story_of(info["dir"])
+                if story:
+                    comment = re.split(r"[。！？]", story)[0][:60]
+            # 英文歌「今日一词」：两句共有的最长实义词 + 本地词典释义
+            word = gloss = ""
+            common = (set(re.findall(r"[A-Za-z']{4,}", echo.get("line", "")))
+                      & set(re.findall(r"[A-Za-z']{4,}", top.get("line", ""))))
+            common -= {"that", "this", "with", "your", "from", "have",
+                       "what", "when", "will", "just", "like", "been"}
+            if common:
+                word = max(common, key=len).lower()
+                hit = dict_lookup(word) or {}
+                gloss = (hit.get("translation", "") or "").split("\\n")[0]
             try:
                 from .share_card import render_echo_card
                 path = render_echo_card(
@@ -2226,6 +2320,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                     song_a=echo.get("song", ""), line_a=echo.get("line", ""),
                     song_b=top["song"], line_b=top["line"],
                     similarity=top.get("similarity", 0.0),
+                    comment=comment, learn_word=word, learn_gloss=gloss,
                 )
             except Exception as exc:
                 logger.exception("Echo card failed")

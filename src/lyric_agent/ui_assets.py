@@ -767,6 +767,14 @@ _HEAD_JS = """
       writeChannel('ll-gen-ann', ga.dataset.genAnn + '\\t' + Date.now());
       return;
     }
+    const es = e.target.closest('[data-echo-story]');
+    if (es) {
+      if (!confirm('将调用 1 次 LLM 把本歌的呼应讲成一段彩蛋故事，继续？')) return;
+      es.textContent = '✨ 生成中…';
+      es.disabled = true;
+      writeChannel('ll-echo-story', 'gen\\t' + Date.now());
+      return;
+    }
     const bvu = e.target.closest('[data-bvid-unbind]');
     if (bvu) {
       if (!confirm('删除这首歌的视频绑定？（之后可重新搜索或手填）')) return;
@@ -1655,6 +1663,19 @@ footer, .gradio-container footer { display: none !important; }
   transition: border-color 0.15s ease;
 }
 .echo-ov-item:hover { border-color: var(--accent); }
+.echo-ov-item.echo-hero { border-color: var(--accent);
+  background: var(--accent-soft); padding: 12px 14px; }
+.echo-hero-head { font-size: 12px; font-weight: 700; color: var(--accent);
+  margin-bottom: 4px; }
+.echo-ov-more summary { cursor: pointer; font-size: 12px;
+  color: var(--text-secondary); margin: 6px 0 8px; }
+.echo-ov-more summary:hover { color: var(--accent); }
+.echo-story { padding: 10px 14px; border-radius: 10px; margin-bottom: 8px;
+  background: var(--bg-card); border: 1px dashed var(--accent);
+  font-size: 13px; line-height: 1.8; color: var(--text-primary); }
+.echo-story-empty { border-style: solid; border-color: var(--border); }
+.echo-story-hint { margin-left: 8px; font-size: 11.5px;
+  color: var(--text-secondary); }
 .echo-ov-src { font-size: 13px; font-style: italic; color: var(--text-primary); }
 .echo-ov-dst { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
 .echo-ov-sim { margin-left: 6px; font-size: 11px; color: var(--accent); }
