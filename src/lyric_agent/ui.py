@@ -769,7 +769,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 parse_mv(cached), info.get("title", ""),
                                 info.get("artist", ""),
                                 verifier=_quote_verifier(),
-                                label_of=_label_of(),
                                 video=((choice, info["bvid"])
                                        if info.get("bvid") else None))
                         mv_song_dd.change(_on_mv_song, [mv_song_dd, user_llm],
@@ -1979,7 +1978,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             if existing is not None:
                 yield render_mv_html(
                     parse_mv(existing), title, artist,
-                    verifier=_quote_verifier(), label_of=_label_of(),
+                    verifier=_quote_verifier(),
                     video=(choice, info["bvid"]) if info.get("bvid") else None)
                 return
             if not req_settings.api_key:
@@ -2001,7 +2000,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             save_mv(info["dir"], data, req_settings.model_name)
             yield render_mv_html(
                 parse_mv(data), title, artist,
-                verifier=_quote_verifier(), label_of=_label_of(),
+                verifier=_quote_verifier(),
                 video=(choice, info["bvid"]) if info.get("bvid") else None)
 
         # ── 歌词收藏夹 ──

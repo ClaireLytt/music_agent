@@ -154,11 +154,11 @@ def search_links(title: str, artist: str) -> str:
 
 
 def render_mv_html(m: MvEggs, title: str, artist: str,
-                   verifier=None, label_of: dict | None = None,
+                   verifier=None,
                    video: tuple[str, str] | None = None) -> str:
     """verifier: callable(quote, song_hint) -> hit dict | None (evidence.
     QuoteIndex.verify). With it, each lyric_link is checked against the
-    library: verified quotes get a ✅ + clickable jump, unverified ⚠️."""
+    library: verified quotes get a ✅, unverified ⚠️."""
     links = search_links(title, artist)
     head = f'<div class="mv-head">🎬 MV 彩蛋 · {_esc(title)}</div>'
     if not m.known or not m.eggs:
@@ -174,13 +174,9 @@ def render_mv_html(m: MvEggs, title: str, artist: str,
             return f'<span class="mv-link">↔ {_esc(link)}</span>'
         hit = verifier(link, title)
         if hit:
-            label = (label_of or {}).get(hit["song_title"], "")
-            jump = (f' data-cite-label="{_esc(label)}" '
-                    f'data-cite-line="{hit["line_index"]}"' if label else "")
-            return (f'<span class="mv-link ev-ok"{jump}>↔ ✅ '
-                    f'“{_esc(hit["line_text"])}”——《{_esc(hit["song_title"])}》'
-                    f'第 {hit["line_index"] + 1} 行'
-                    f'{"（点击跳转）" if label else ""}</span>')
+            return (f'<span class="mv-link ev-ok">↔ ✅ '
+                    f'“{_esc(hit["line_text"])}”——'
+                    f'《{_esc(hit["song_title"])}》</span>')
         return (f'<span class="mv-link ev-bad">↔ ⚠️ “{_esc(link)}”'
                 f'（未在曲库中找到，此句可能是 AI 编造）</span>')
 
