@@ -391,7 +391,8 @@ _HEAD_JS = """
   // player tools state (survives per-song re-renders of the audio block)
   let abStart = null, abEnd = null;
   let radioOn = false, rhymeOn = false, radioPending = false;
-  let tourOn = false;
+  let tourOn = true;  // 回声时刻默认开启（可在播放器工具里关）
+  try { if (localStorage.getItem('ll_tour') === '0') tourOn = false; } catch (err) {}
   let lastAudioEl = null;
 
   function getAudio() { return document.getElementById('ll-audio'); }
@@ -412,7 +413,9 @@ _HEAD_JS = """
     box.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // 🎧 导览: commentary card for the line that just became active
+  // 💫 回声时刻: when the line that just became active echoes another
+  // song, slide in a card; clicking it jumps to that song (the existing
+  // [data-cite-label] delegate does the switch + line flash)
   function maybeTourCard(idx) {
     if (!tourOn) return;
     const box = document.querySelector('#ll-echo-map textarea, #ll-echo-map input');
@@ -427,56 +430,27 @@ _HEAD_JS = """
     const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
     const card = document.createElement('div');
     card.className = 'll-tour-card';
-    let html = '<div class="tour-head">🎧 AI 导览</div>';
+    if (o.label) {
+      card.dataset.citeLabel = o.label;
+      card.dataset.citeLine = String(o.ti != null ? o.ti : -1);
+    }
+    let html = '<div class="tour-head">💫 回声时刻'
+      + '<span class="tour-close" title="关闭">✕</span></div>';
+    html += '<div class="tour-echo">这句让人想起《' + esc(o.song) + '》';
+    if (o.target) html += '——“' + esc(o.target) + '”';
+    html += '</div>';
     if (o.note) html += '<div class="tour-note">📝 ' + esc(o.note) + '</div>';
-    html += '<div class="tour-echo">🥚 这句呼应《' + esc(o.song) + '》';
-    if (o.target) html += '：“' + esc(o.target) + '”';
-    html += '</div><div class="tour-hint">点击卡片关闭 · 详情见右侧 🥚 面板</div>';
+    html += '<div class="tour-hint">'
+      + (o.label ? '点击卡片去听那句' : '详情见右侧 🥚 面板') + '</div>';
     card.innerHTML = html;
-    card.addEventListener('click', () => {
+    card.querySelector('.tour-close').addEventListener('click', (e) => {
+      e.stopPropagation();
       card.remove();
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
-      restoreDuck();
     });
+    // jump handled by the document-level cite delegate; just tidy up
+    card.addEventListener('click', () => card.remove());
     document.body.appendChild(card);
     setTimeout(() => { if (card.isConnected) card.remove(); }, 9000);
-    speakTour(o);
-  }
-
-  // DJ voice via the browser's own TTS — zero backend, works offline;
-  // silently absent when the platform ships no voices
-  function restoreDuck() {
-    const a = getAudio();
-    if (a && a.dataset.llBaseVol) {
-      a.volume = parseFloat(a.dataset.llBaseVol);
-      delete a.dataset.llBaseVol;
-    }
-  }
-
-  function speakTour(o) {
-    try {
-      const synth = window.speechSynthesis;
-      if (!synth) return;
-      // cancel() does NOT reliably fire the old utterance's 'end' event,
-      // so restore from the stored base volume before ducking again
-      synth.cancel();
-      restoreDuck();
-      let text = '';
-      if (o.note) text += o.note + '。';
-      text += '这句呼应了《' + o.song + '》';
-      if (o.target) text += '里的：' + o.target;
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'zh-CN';
-      u.rate = 1.15;
-      const a = getAudio();
-      if (a && !a.paused) {
-        a.dataset.llBaseVol = String(a.volume);
-        a.volume = Math.max(0.15, a.volume * 0.3);
-        u.addEventListener('end', restoreDuck);
-        u.addEventListener('error', restoreDuck);
-      }
-      synth.speak(u);
-    } catch (err) {}
   }
 
   function applyRhyme() {
@@ -690,11 +664,9 @@ _HEAD_JS = """
     if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
     if (e.target.id === 'll-tour-toggle') {
       tourOn = e.target.checked;
-      if (!tourOn) {
+      try { localStorage.setItem('ll_tour', tourOn ? '1' : '0'); } catch (err) {}
+      if (!tourOn)
         document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
-        if (window.speechSynthesis) window.speechSynthesis.cancel();
-        restoreDuck();
-      }
     }
     if (e.target.id === 'll-rhyme-toggle') {
       rhymeOn = e.target.checked;
@@ -1380,7 +1352,11 @@ footer, .gradio-container footer { display: none !important; }
   from { transform: translateY(14px); opacity: 0; }
   to { transform: none; opacity: 1; }
 }
-.ll-tour-card .tour-head { font-weight: 700; margin-bottom: 4px; }
+.ll-tour-card .tour-head { font-weight: 700; margin-bottom: 4px;
+  display: flex; justify-content: space-between; align-items: center; }
+.ll-tour-card .tour-close { cursor: pointer; padding: 0 4px;
+  color: var(--text-secondary); font-weight: 400; }
+.ll-tour-card .tour-close:hover { color: var(--text-primary); }
 .ll-tour-card .tour-note { color: var(--text-primary); margin-bottom: 4px; }
 .ll-tour-card .tour-echo { color: var(--text-primary); }
 .ll-tour-card .tour-hint { margin-top: 6px; font-size: 11px; color: var(--text-secondary); }

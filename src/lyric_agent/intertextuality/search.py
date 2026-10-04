@@ -102,6 +102,7 @@ class EchoLine:
     album: str
     line: str
     similarity: float
+    line_index: int = -1
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -165,6 +166,7 @@ def find_song_echoes(
         echoes.append(EchoLine(
             song=line.song, album=line.album,
             line=line.text, similarity=round(sim, 3),
+            line_index=line.line_index,
         ))
     return echoes
 

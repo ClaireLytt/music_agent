@@ -263,7 +263,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             settings.embedding_model,
             settings.echo_min_similarity,
             settings.echo_min_similarity_cjk,
-            "tour-v3",  # + target/note; filler-only lines dropped
+            "tour-v4",  # + jump label/target line (回声时刻卡可点击跳转)
         ]
         cache = ctx.setdefault("echo_maps", {})
         cached = cache.get(song_dir)
@@ -313,7 +313,9 @@ def create_app(settings: Settings) -> gr.Blocks:
             "song": info.get("title", ""),
             "lines": [
                 {"i": ln.line_index, "song": e.song, "sim": e.similarity,
-                 "target": e.line[:80], "note": _note(ln.line_index)}
+                 "target": e.line[:80], "note": _note(ln.line_index),
+                 "ti": e.line_index,
+                 "label": _label_of().get(e.song, "")}
                 for ln, e in hits
             ],
         }, ensure_ascii=False)

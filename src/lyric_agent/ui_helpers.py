@@ -426,7 +426,7 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
         '<label class="ptool-toggle" '
         'title="导览模式：唱到带 🥚 的句子时，自动弹出该句的讲解与它呼应的歌，'
         '并用语音播报（AI DJ）">'
-        '<input type="checkbox" id="ll-tour-toggle"> 🎧 导览</label>'
+        '<input type="checkbox" id="ll-tour-toggle"> 💫 回声时刻</label>'
         '</div>'
     )
 
