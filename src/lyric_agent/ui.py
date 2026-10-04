@@ -163,6 +163,37 @@ def create_app(settings: Settings) -> gr.Blocks:
 
     ctx["kick_autobind"] = _kick_autobind
 
+    def _kick_corpus_rebuild() -> None:
+        """新增歌曲后后台重建语料+embeddings（本地模型，零 LLM），
+        让回声时刻/彩蛋把新歌纳入回声池，无需手跑命令或重启。"""
+        if os.getenv("LL_CORPUS_REBUILD", "1") == "0":
+            return  # probe/tests: keep runs from mutating the real corpus
+        if ctx.get("corpus_rebuilding"):
+            return
+        ctx["corpus_rebuilding"] = True
+
+        def _run() -> None:
+            try:
+                from .intertextuality.corpus import build_corpus
+                from .intertextuality.embeddings import generate_embeddings
+                n_songs, n_lines = build_corpus(
+                    settings.songs_dir, settings.corpus_dir,
+                    catalog_path="data/catalog/catalog.json")
+                generate_embeddings(settings.corpus_dir,
+                                    model_name=settings.embedding_model)
+                # 让 echo 索引下次访问时重新加载（扫描缓存键含
+                # embeddings mtime，自动失效）
+                ctx.pop("echo_index", None)
+                logger.info("corpus rebuilt: %d songs, %d lines",
+                            n_songs, n_lines)
+            except Exception:
+                logger.exception("background corpus rebuild failed")
+            finally:
+                ctx["corpus_rebuilding"] = False
+
+        threading.Thread(target=_run, daemon=True,
+                         name="ll-corpus-rebuild").start()
+
     def song_choice_label(s: dict) -> str:
         # titles are the identity in every handler; when two library songs
         # share a title (cross-artist covers), disambiguate with the artist
@@ -2527,11 +2558,14 @@ def create_app(settings: Settings) -> gr.Blocks:
                 shutil.copy(audio_file, d / f"audio{ext}")
 
             refresh_library()
+            _kick_corpus_rebuild()
             new_song = next((s for s in ctx["songs"] if s["name"] == slug), None)
             new_label = song_choice_label(new_song) if new_song else None
             status = (
                 f"✅ 已添加《{title}》（{lrc_note}）到 `data/songs/{slug}/`。\n\n"
                 "已切到「最新在前」排序，它就在左侧歌曲列表**最上方**并已打开。"
+                "回声索引正在后台重建（本地计算，约一分钟），完成后"
+                "💫 回声时刻/彩蛋会自动把这首歌纳入。"
                 "目前还没有 AI 批注 —— 点击下方按钮生成，"
                 f"或在终端运行 `lyric-agent generate data/songs/{slug}`。"
             )
@@ -2773,6 +2807,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             _SONG_DATA_CACHE.pop(info["dir"], None)
             ctx.setdefault("echo_maps", {}).pop(info["dir"], None)
             refresh_library()
+            _kick_corpus_rebuild()
             gr.Info(f"🗑️ 已删除《{label}》。")
             return _library_updates(None, sort, q)
 
