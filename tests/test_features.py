@@ -868,3 +868,20 @@ def test_render_annotation_card():
     assert 'data-gen-ann="7"' in empty and "调用 1 次 LLM" in empty
     assert "data-gen-ann" not in render_annotation_card(
         None, 7, can_generate=False)
+
+
+def test_llm_usage_accounting(monkeypatch, tmp_path):
+    """记账挂在重试包装器上：成功调用必入账，且绝不炸正常返回。"""
+    from lyric_agent import llm
+    from lyric_agent.config import Settings
+
+    monkeypatch.setattr(llm, "_USAGE_PATH", tmp_path / "usage.json")
+    s = Settings(api_key="x", llm_provider="openai", model_name="m-test")
+    c = llm.LLMClient(s)
+    resp = llm.LLMResponse(reply_text="ok",
+                           usage={"input_tokens": 3, "output_tokens": 5})
+    out = c._call_with_retry(lambda: resp)
+    assert out.reply_text == "ok"
+    u = llm.load_usage()
+    assert u["total"] == {"calls": 1, "input_tokens": 3, "output_tokens": 5}
+    assert u["last_model"] == "m-test"

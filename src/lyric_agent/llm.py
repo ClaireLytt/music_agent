@@ -99,7 +99,7 @@ class LLMClient:
         for attempt in range(max_retries):
             try:
                 resp = fn(*args)
-                _record_usage(self.model, resp.usage)
+                _record_usage(self.settings.model_name, resp.usage)
                 return resp
             except Exception as exc:
                 status = (
