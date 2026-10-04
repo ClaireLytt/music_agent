@@ -611,20 +611,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                             container=False)
                                         note_add_btn = gr.Button(
                                             "添加", scale=1, size="sm")
-                            if not public:
-                                with gr.Tab("📻"):
-                                    with gr.Column(elem_id="ll-radio-acc"):
-                                        gr.HTML('<div class="side-panel-title">'
-                                                '📻 AI 电台</div>')
-                                        gr.Markdown(
-                                            "勾选播放器下方的「📻 电台模式」后，"
-                                            "歌曲播完会自动切到下一首；为歌曲生成过"
-                                            "**串场语音**（把「歌曲导读」朗读成"
-                                            " DJ 播报）的话，进歌前会先播报再放歌。")
-                                        radio_gen_btn = gr.Button(
-                                            "🎙️ 为本歌生成串场语音（需先有导读）",
-                                            size="sm")
-                                        radio_status = gr.Markdown("")
                         line_pick = gr.Textbox(
                             value="", visible=True, elem_id="ll-line-pick",
                             elem_classes=["ll-hidden"], show_label=False,
@@ -2319,36 +2305,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                           [notes_html, note_input])
         note_del_box.change(on_del_note, [note_del_box, song_radio],
                             [notes_html])
-
-        # ── AI 电台串场语音 ──
-
-        def on_gen_radio_intro(choice: str):
-            info = find_song(choice)
-            if not info.get("dir"):
-                return "⚠️ 请先选择一首歌。", gr.skip()
-            intro_text = _load_intro(info["dir"])
-            if not intro_text:
-                return ("⚠️ 本歌还没有导读文本 —— 先在「📖 歌曲导读」里点"
-                        "「生成 30 秒导读」，再来生成串场语音。"), gr.skip()
-            from .radio import synthesize_intro
-            try:
-                speech = (f"接下来这首，是{info.get('artist', '')}的"
-                          f"《{info.get('title', '')}》。{intro_text}")
-                synthesize_intro(info["dir"], speech)
-            except Exception as exc:
-                logger.exception("TTS failed")
-                return f"⚠️ 串场语音生成失败：{str(exc)[:150]}", gr.skip()
-            data = _load_song_data(info["dir"])
-            audio = resolve_audio(info["dir"])
-            info["audio_type"], info["audio_src"] = \
-                audio.type, audio.path_or_url or ""
-            return ("✅ 串场语音已生成。勾选播放器下方「📻 电台模式」，"
-                    "自动切到这首歌时会先播报再进歌。",
-                    _render_lyrics_html(data, info, public=public))
-
-        if not public:
-            radio_gen_btn.click(on_gen_radio_intro, [song_radio],
-                                [radio_status, lyrics_html])
 
         def on_echo_explain(echo, user_cfg):
             if not echo or not echo.get("results"):

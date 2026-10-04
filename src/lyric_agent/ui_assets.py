@@ -390,7 +390,7 @@ _HEAD_JS = """
   let userScrolling = false, scrollTimeout = null, lastActive = -2;
   // player tools state (survives per-song re-renders of the audio block)
   let abStart = null, abEnd = null;
-  let radioOn = false, rhymeOn = false, radioPending = false;
+  let rhymeOn = false;
   let tourOn = true;  // 回声时刻默认开启（可在播放器工具里关）
   try { if (localStorage.getItem('ll_tour') === '0') tourOn = false; } catch (err) {}
   let lastAudioEl = null;
@@ -617,51 +617,23 @@ _HEAD_JS = """
   }, 700);
 
   // new-song watcher: the audio block is re-rendered per song, so restore
-  // toggle states, rebuild the waveform, reset the A-B loop, and (in radio
-  // mode) play the spoken intro before the song itself
+  // toggle states, rebuild the waveform, reset the A-B loop
   setInterval(() => {
     const a = getAudio();
     if (!a || a === lastAudioEl) return;
     lastAudioEl = a;
     abStart = abEnd = null;
-    const r = document.getElementById('ll-radio-toggle');
-    if (r) r.checked = radioOn;
     const y = document.getElementById('ll-rhyme-toggle');
     if (y) y.checked = rhymeOn;
     const tg = document.getElementById('ll-tour-toggle');
     if (tg) tg.checked = tourOn;
     applyRhyme();
     initWave(a);
-    if (radioPending) {
-      radioPending = false;
-      const intro = a.dataset.intro;
-      if (radioOn && intro) {
-        const voice = new Audio(intro);
-        voice.addEventListener('ended', () => a.play().catch(() => {}));
-        // a broken intro file fires 'error', never 'ended' — don't stall
-        voice.addEventListener('error', () => a.play().catch(() => {}));
-        voice.play().catch(() => { a.play().catch(() => {}); });
-      } else if (radioOn) {
-        a.play().catch(() => {});
-      }
-    }
   }, 500);
-
-  // radio mode: when the song ends, advance to the next one in the list
-  document.addEventListener('ended', function(e) {
-    if (!e.target || e.target.id !== 'll-audio' || !radioOn) return;
-    const inputs = Array.from(
-      document.querySelectorAll('#ll-songs input[type=radio]'));
-    if (!inputs.length) return;
-    const i = inputs.findIndex(x => x.checked);
-    radioPending = true;
-    inputs[(i + 1) % inputs.length].click();
-  }, true);  // 'ended' does not bubble — capture it
 
   // toggle listeners (delegated: the checkboxes are re-rendered per song)
   document.addEventListener('change', function(e) {
     if (!e.target) return;
-    if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
     if (e.target.id === 'll-tour-toggle') {
       tourOn = e.target.checked;
       try { localStorage.setItem('ll_tour', tourOn ? '1' : '0'); } catch (err) {}

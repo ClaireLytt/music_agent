@@ -508,21 +508,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("intro_panel", "song intro panel content or hint",
                     c_intro_panel)
 
-        def c_radio_gen_guard():
-            # exile has no intro.txt -> the TTS button must guard, not spend
-            pg.get_by_role("radio", name="exile").check()
-            pg.wait_for_timeout(2500)
-            probe.tab("📻")
-            pg.get_by_role(
-                "button",
-                name="🎙️ 为本歌生成串场语音（需先有导读）").click()
-            probe.wait_until(
-                lambda: "导读" in pg.locator("#ll-radio-acc").inner_text()
-                and "先" in pg.locator("#ll-radio-acc").inner_text(),
-                msg="radio TTS guard missing for song without intro")
-        probe.check("radio_gen_guard", "radio TTS without intro -> guard",
-                    c_radio_gen_guard)
-
         def c_space_shortcut():
             pg.get_by_role("radio", name=AUDIO_SONG).check()
             pg.wait_for_timeout(3000)

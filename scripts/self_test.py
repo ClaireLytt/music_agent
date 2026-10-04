@@ -305,13 +305,13 @@ def main() -> None:
     except Exception as e:
         check("imagery trace empty query -> hint", False, repr(e))
 
-    # ── 4d2. 播放器工具（波形/副歌/A-B/韵脚/电台开关随音频渲染） ──
+    # ── 4d2. 播放器工具（波形/副歌/A-B/韵脚开关随音频渲染） ──
     try:
         out = call("on_song_select", ["北京昨夜下了雪"],
                    session=f"{SESSION}-tools")
         lyr = str(out[0])
         ok = ('id="ll-wave"' in lyr and "副歌" in lyr and "ll-ab-a" in lyr
-              and "ll-rhyme-toggle" in lyr and "ll-radio-toggle" in lyr
+              and "ll-rhyme-toggle" in lyr
               and lyr.count("rhyme-mark") > 10)
         check("player tools rendered for audio song", bool(ok))
     except Exception as e:

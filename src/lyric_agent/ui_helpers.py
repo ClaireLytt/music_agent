@@ -408,7 +408,7 @@ def _file_url(path: str | Path) -> str:
 
 
 def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
-    """Chorus jump, A-B loop, rhyme + radio toggles (wired up in _HEAD_JS)."""
+    """Chorus jump, A-B loop, rhyme/echo toggles (wired up in _HEAD_JS)."""
     chorus = (f'<button class="ptool" data-seek="{chorus_ts}" '
               'title="跳到检测出的副歌位置">⏩ 副歌</button>'
               if chorus_ts is not None else "")
@@ -421,11 +421,7 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
         '<label class="ptool-toggle" title="同韵脚的歌词行标同色圆点">'
         '<input type="checkbox" id="ll-rhyme-toggle"> 🎯 韵脚</label>'
         '<label class="ptool-toggle" '
-        'title="播完自动切下一首；有串场语音时先播报再进歌">'
-        '<input type="checkbox" id="ll-radio-toggle"> 📻 电台模式</label>'
-        '<label class="ptool-toggle" '
-        'title="导览模式：唱到带 🥚 的句子时，自动弹出该句的讲解与它呼应的歌，'
-        '并用语音播报（AI DJ）">'
+        'title="唱到有呼应的句子时，右下角弹出回声卡，点卡片去听被呼应的那句">'
         '<input type="checkbox" id="ll-tour-toggle"> 💫 回声时刻</label>'
         '</div>'
     )
@@ -490,17 +486,10 @@ def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
             return video  # bound video replaces the no-audio banner
         return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>' + video
     url = _file_url(src) if a_type == "local" else src
-    # cached radio intro (电台串场语音), if generated for this song
-    from .radio import intro_audio_path
-    intro = ""
-    if song_info.get("dir"):
-        p = intro_audio_path(song_info["dir"])
-        if p.exists():
-            intro = f' data-intro="{_esc(_file_url(p))}"'
     return (
         '<div id="ll-wave" title="波形加载中（需联网加载 wavesurfer）"></div>'
         f'<audio id="ll-audio" controls preload="metadata" '
-        f'data-offset="{offset}"{intro} '
+        f'data-offset="{offset}" '
         f'src="{_esc(url)}" style="width:100%"></audio>'
         + _player_tools(song_info, chorus_ts) + hint
         + _render_video_html(song_info, has_audio=True, public=public)
