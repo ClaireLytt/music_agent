@@ -889,58 +889,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     "计入；按模型方计费口径为准）。")
                         usage_md = gr.Markdown("")
                         usage_refresh_btn = gr.Button("🔄 刷新", size="sm")
-                        with gr.Accordion("💰 设置单价（看金额用）",
-                                          open=False):
-                            gr.Markdown("填你服务商计费页上的单价"
-                                        "（元/百万 tokens），按模型保存。")
-                            with gr.Row():
-                                price_model = gr.Dropdown(
-                                    choices=[], value=None, label="模型",
-                                    allow_custom_value=True, scale=2)
-                                price_in = gr.Number(
-                                    label="输入单价", value=None, scale=1)
-                                price_out = gr.Number(
-                                    label="输出单价", value=None, scale=1)
-                            price_save_btn = gr.Button("保存单价", size="sm")
-
-                        _PRICES_PATH = Path("data/cache/llm_prices.json")
-
-                        def _load_prices() -> dict:
-                            try:
-                                return json.loads(_PRICES_PATH.read_text(
-                                    encoding="utf-8"))
-                            except (OSError, ValueError):
-                                return {}
-
-                        def on_price_models():
-                            from .llm import load_usage
-                            models = sorted(load_usage().get("models", {}))
-                            return gr.Dropdown(
-                                choices=models,
-                                value=models[-1] if models else None)
-
-                        def on_price_save(model, pin, pout):
-                            model = (model or "").strip()
-                            if not model or pin is None or pout is None:
-                                gr.Warning("模型名和两个单价都要填。")
-                                return gr.skip()
-                            prices = _load_prices()
-                            prices[model] = {"in": float(pin),
-                                             "out": float(pout)}
-                            _PRICES_PATH.parent.mkdir(parents=True,
-                                                      exist_ok=True)
-                            _PRICES_PATH.write_text(
-                                json.dumps(prices, ensure_ascii=False,
-                                           indent=1), encoding="utf-8")
-                            gr.Info(f"💰 已保存 {model} 的单价。")
-                            return on_usage_refresh()
-
-                        price_save_btn.click(
-                            on_price_save,
-                            [price_model, price_in, price_out], [usage_md])
-                        usage_refresh_btn.click(on_price_models, None,
-                                                [price_model])
-                        app.load(on_price_models, None, [price_model])
 
                         def on_usage_refresh():
                             from .llm import load_usage
@@ -948,46 +896,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                             tot = u.get("total", {})
                             if not tot.get("calls"):
                                 return "还没有任何 LLM 调用记录。"
-                            # 单价表（服务商/中转价格差异大，不内置猜测）：
-                            # data/cache/llm_prices.json
-                            # {"模型名": {"in": 元/百万输入, "out": 元/百万输出}}
-                            try:
-                                prices = json.loads(Path(
-                                    "data/cache/llm_prices.json"
-                                ).read_text(encoding="utf-8"))
-                            except (OSError, ValueError):
-                                prices = {}
-
-                            def _cost(model, b):
-                                p = prices.get(model)
-                                if not p:
-                                    return "—"
-                                yuan = (b.get("input_tokens", 0)
-                                        * p.get("in", 0)
-                                        + b.get("output_tokens", 0)
-                                        * p.get("out", 0)) / 1_000_000
-                                return f"¥{yuan:.4f}"
-
                             day = time.strftime("%Y-%m-%d")
                             today = u.get("days", {}).get(day, {})
-                            rows = ["| | 调用 | 输入 tokens | 输出 tokens | 费用 |",
-                                    "|---|---|---|---|---|"]
+                            rows = ["| | 调用 | 输入 tokens | 输出 tokens |",
+                                    "|---|---|---|---|"]
                             for label, b in (("今天", today), ("累计", tot)):
                                 rows.append(
                                     f"| {label} | {b.get('calls', 0)} | "
                                     f"{b.get('input_tokens', 0):,} | "
-                                    f"{b.get('output_tokens', 0):,} | — |")
+                                    f"{b.get('output_tokens', 0):,} |")
                             for model, b in sorted(
                                     u.get("models", {}).items()):
                                 rows.append(
                                     f"| `{model}` | {b.get('calls', 0)} | "
                                     f"{b.get('input_tokens', 0):,} | "
-                                    f"{b.get('output_tokens', 0):,} | "
-                                    f"{_cost(model, b)} |")
-                            if not prices:
-                                rows.append(
-                                    "\n💡 想看金额：在下方「💰 设置单价」里"
-                                    "选模型、填两个数、保存即可。")
+                                    f"{b.get('output_tokens', 0):,} |")
                             return "\n".join(rows)
 
                         usage_refresh_btn.click(on_usage_refresh, None,
