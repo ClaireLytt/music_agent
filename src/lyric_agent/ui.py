@@ -2100,7 +2100,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             """The popup's AI explanation for word+line, if one was generated
             (same cache key derivation as on_dict_ai)."""
             import hashlib
-            key = hashlib.md5(f"v2:{word}\x00{line}".encode()).hexdigest()
+            key = hashlib.md5(f"v3:{word}\x00{line}".encode()).hexdigest()
             try:
                 cache = json.loads(_AI_CACHE_PATH.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -2126,8 +2126,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                               "⚠️ AI 语境解释需要配置 API Key（⚙️ 设置）。")
                 return gr.Textbox(value=json.dumps(base, ensure_ascii=False))
             import hashlib
-            # v2: the prompt now includes a usage/example section
-            key = hashlib.md5(f"v2:{word}\x00{line}".encode()).hexdigest()
+            # v3: strict three-line template with a few-shot example
+            key = hashlib.md5(f"v3:{word}\x00{line}".encode()).hexdigest()
             try:
                 cache = json.loads(_AI_CACHE_PATH.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -2138,11 +2138,20 @@ def create_app(settings: Settings) -> gr.Blocks:
                     resp = LLMClient(req_settings).generate(
                         system_prompt=(
                             "你是英语歌词阅读助手。用户双击了歌词里的一个单词。"
-                            "用简体中文回答，不超过 120 字，不要客套，按三行输出："
-                            "①语境义：这个词在这句歌词里的含义；"
-                            "②整句：这句歌词的通顺翻译；"
-                            "③用法：这个词的常见用法/搭配，附一个简短英文例句"
-                            "和中文翻译。"),
+                            "用简体中文回答，不超过 120 字。严格按下面模板输出"
+                            "三行，不得增删行、加标题、加 markdown 或任何"
+                            "模板外内容：\n"
+                            "①语境义：<这个词在这句歌词里的含义>\n"
+                            "②整句：<这句歌词的通顺翻译>\n"
+                            "③用法：<常见用法/搭配>。例：<简短英文例句> "
+                            "<例句中文翻译>\n"
+                            "示例（单词 resist，歌词句 'Cause I can't "
+                            "resist it no more）：\n"
+                            "①语境义：再也忍不住、无法克制（想挣脱的冲动）\n"
+                            "②整句：因为我再也忍不住了\n"
+                            "③用法：can't resist (doing) sth 忍不住做某事。"
+                            "例：I can't resist checking my phone. "
+                            "我忍不住看手机。"),
                         user_message=(f"单词：{word}\n"
                                       f"歌词句：{line}\n出自：《{song}》"),
                     )
