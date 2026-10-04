@@ -110,11 +110,10 @@ def main() -> None:
     for label in songs:
         try:
             out = call("on_song_select", [label])
-            # outputs: lyrics, chat_state, topic, chat, evolution, echo_state,
+            # outputs: lyrics, chat_state, topic, chat, echo_state,
             # echo_html, echo_out, card_status, card_img — assert on the head
-            lyrics, _state, topic, _chat, evo = out[:5]
-            ok = ("lyrics-scroll" in lyrics and bool(str(evo).strip())
-                  and "尚未选择" in str(topic))
+            lyrics, _state, topic, _chat = out[:4]
+            ok = ("lyrics-scroll" in lyrics and "尚未选择" in str(topic))
             check(f"song_select: {label}", ok)
         except Exception as e:
             check(f"song_select: {label}", False, repr(e))
@@ -339,29 +338,6 @@ def main() -> None:
         check("notes add + delete", ok and "selftest 笔记" not in str(out[0]))
     except Exception as e:
         check("notes add + delete", False, repr(e))
-
-    # ── 4d4. 曲库洞察 ──
-    try:
-        out = call("init_insights", [cardigan], session=f"{SESSION}-ins")
-        daily, _dd, cloud, emo, story = out
-        ok = ("每日一句" in str(daily) and str(cloud).count("cloud-word") > 10
-              and str(emo).count("emo-node") >= 1
-              and len(story.get("choices", [])) >= 2)
-        check("insights init (daily/cloud/emotion/story)", bool(ok))
-    except Exception as e:
-        check("insights init (daily/cloud/emotion/story)", False, repr(e))
-    try:
-        out = call("on_word_pick", ["time\t1", "Taylor Swift"],
-                   session=f"{SESSION}-ins")
-        check("word cloud click -> imagery", "img-timeline" in str(out[0]))
-    except Exception as e:
-        check("word cloud click -> imagery", False, repr(e))
-    try:
-        out = call("on_emo_pick", ["cardigan\t1"], session=f"{SESSION}-ins")
-        check("emotion map click -> play song",
-              out[0].get("value") == cardigan)
-    except Exception as e:
-        check("emotion map click -> play song", False, repr(e))
 
     # ── 4d5. 歌词竞猜 ──
     # gr.State round-trips as null over the raw HTTP API; the session keeps

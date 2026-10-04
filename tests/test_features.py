@@ -69,8 +69,11 @@ def test_quiz_question():
     q = make_question(pool, random.Random(7))
     assert q is not None
     assert q.answer in q.options and len(set(q.options)) == len(q.options)
-    # the line must actually belong to the answer song
-    assert q.line in pool[q.answer][1]
+    # the passage's lines must all belong to the answer song, in order
+    passage = q.line.split("\n")
+    assert all(ln in pool[q.answer][1] for ln in passage)
+    idxs = [pool[q.answer][1].index(ln) for ln in passage]
+    assert idxs == sorted(idxs)
     assert make_question({"only": ("X", ["one line only here"])}) is None
 
 
@@ -265,6 +268,11 @@ def test_wordbook_roundtrip(tmp_path, monkeypatch):
     book = d.add_word("scarf", line="left my scarf there", song="All Too Well")
     assert len(book) == 1 and book[0]["word"] == "scarf"
     assert d.add_word("Scarf") == book  # idempotent, case-insensitive
+    # re-collecting backfills a missing AI explanation (and only that)
+    book = d.add_word("Scarf", ai="①语境义：围巾")
+    assert book[0]["ai"] == "①语境义：围巾"
+    book = d.add_word("Scarf", ai="另一个解释不覆盖")
+    assert book[0]["ai"] == "①语境义：围巾"
     assert d.remove_word("SCARF") == []
 
 
@@ -272,9 +280,13 @@ def test_render_wordbook_escapes():
     from lyric_agent.ui_helpers import render_wordbook
     html = render_wordbook([{"word": "a<b", "phonetic": "x&y",
                              "translation": "n. 释义\n第二行",
-                             "line": "<script>", "song": "s"}])
+                             "line": "<script>", "song": "s",
+                             "ai": "①语境义：<x>\n②整句：好"}])
     assert "a&lt;b" in html and "x&amp;y" in html and "&lt;script&gt;" in html
     assert "data-wb=" in html
+    assert "wb-ai" in html and "&lt;x&gt;" in html   # AI 解释展示且转义
+    assert "①语境义：&lt;x&gt;<br>②整句：好" in html  # 换行渲染
+    assert "wb-ai" not in render_wordbook([{"word": "w", "song": "s"}])
     assert "还没有收藏的单词" in render_wordbook([])
 
 
@@ -465,3 +477,419 @@ def test_generate_annotations_resume(tmp_path, monkeypatch):
     # third run: everything good -> zero LLM calls
     engine.generate_annotations(settings, d, chunk_size=10)
     assert calls["n"] == n_after_success
+
+
+def test_motif_section_renders():
+    """Motif chips: spread counts, cite jumps only for library songs, escaping."""
+    from lyric_agent.artist_profile import render_motif_section
+
+    motifs = [{"word": "雨", "n_songs": 4, "total": 9, "hits": [
+        {"song": "晴天", "album": "叶惠美", "line_index": 3,
+         "text": "雨下整夜 <my love>"},
+        {"song": "库外歌", "album": "", "line_index": 0, "text": "大雨落下"},
+    ]}]
+    html = render_motif_section(motifs, {"晴天": "晴天"})
+    assert "「雨」" in html and "出现于 4 首歌" in html and "共 9 次" in html
+    assert 'data-cite-label="晴天"' in html and 'data-cite-line="3"' in html
+    assert html.count("data-cite-label") == 1      # 库外歌 has no jump
+    assert "&lt;my love&gt;" in html and "<my love>" not in html
+    assert "chat-empty" in render_motif_section([], {})
+
+
+def test_echo_heat_aggregates():
+    """Per-album totals from node echo_count; at most 3 pair cards."""
+    from lyric_agent.artist_profile import render_echo_heat
+    from lyric_agent.intertextuality.echo_map import (
+        EchoEdge, EchoGraph, EchoNode, EchoPair,
+    )
+
+    pair = EchoPair(line_a="a", line_b="b", similarity=0.8)
+    graph = EchoGraph(
+        artist="A", threshold=0.75, song_total=3,
+        nodes=[EchoNode("s1", "AL1", 3), EchoNode("s2", "AL1", 2),
+               EchoNode("s3", "AL2", 1)],
+        edges=[EchoEdge("s1", "s2", 2, pair), EchoEdge("s1", "s3", 1, pair),
+               EchoEdge("s2", "s3", 1, pair), EchoEdge("s3", "s1", 1, pair)],
+    )
+    html = render_echo_heat(graph)
+    assert "AL1" in html and "AL2" in html
+    assert '<span class="aph-n">5</span>' in html   # AL1 = 3 + 2
+    assert html.count("aph-pair-head") == 3          # top-3 cap
+    assert "chat-empty" in render_echo_heat(None)
+    empty = EchoGraph(artist="A", threshold=0.75, song_total=0)
+    assert "chat-empty" in render_echo_heat(empty)
+
+
+def test_album_timeline_order():
+    """Known years ascending, registry fallback, unknowns clustered last."""
+    from lyric_agent.artist_profile import render_album_timeline
+
+    songs = [
+        {"title": "t1", "artist": "A", "album": "新碟", "year": 2010},
+        {"title": "t2", "artist": "A", "album": "Red", "year": 0},     # registry: 2012
+        {"title": "t3", "artist": "A", "album": "谜之专辑", "year": 0},  # unknown
+    ]
+    html = render_album_timeline(songs, "A")
+    assert html.index("新碟") < html.index("Red") < html.index("谜之专辑")
+    assert "2010" in html and "2012" in html and "年份未知" in html
+    assert "ovt-divider" in html
+    assert "chat-empty" in render_album_timeline(songs, "nobody")
+
+
+def test_review_order_and_pick(tmp_path, monkeypatch):
+    from lyric_agent import review as rv
+
+    book = [
+        {"word": "old"},                                          # 旧条目无 review
+        {"word": "hard", "review": {"correct": 1, "wrong": 3, "last_ts": 50}},
+        {"word": "stale", "review": {"correct": 2, "wrong": 0, "last_ts": 10}},
+        {"word": "fresh", "review": {"correct": 5, "wrong": 0, "last_ts": 99}},
+    ]
+    ordered = [e["word"] for e in rv.order_words(book)]
+    # 错误率最高 > 未练过(ts=0) > 久未练 > 刚练熟
+    assert ordered == ["hard", "old", "stale", "fresh"]
+
+    q = rv.round_queue(book)
+    assert q == ["hard", "old", "stale", "fresh"]   # 整轮一人一次、按优先级
+    assert len(q) == len(set(q))                    # 轮内零重复
+    assert rv.round_queue([]) == []
+def test_review_record_persists(tmp_path, monkeypatch):
+    from lyric_agent import dictionary as d
+    from lyric_agent import review as rv
+
+    monkeypatch.setattr(d, "_WORDBOOK_PATH", tmp_path / "wb.json")
+    d.add_word("scarf", line="l", song="s")
+    book = rv.record_result("SCARF", correct=True, now=123.0)
+    assert book[0]["review"] == {"correct": 1, "last_ts": 123.0}
+    book = rv.record_result("scarf", correct=False, now=456.0)
+    assert book[0]["review"] == {"correct": 1, "wrong": 1, "last_ts": 456.0}
+    assert rv.book_stats(book) == {"total": 1, "practiced": 1, "mastered": 0}
+
+
+def test_export_qwerty_format():
+    from lyric_agent.review import export_qwerty
+
+    book = [{"word": "use", "translation": "n. 运用\\nvt. 使用"},
+            {"word": "bare", "translation": ""},
+            {"word": "", "translation": "skipme"}]
+    out = export_qwerty(book)
+    assert out == [{"name": "use", "trans": ["n. 运用", "vt. 使用"]},
+                   {"name": "bare", "trans": [""]}]
+    import json
+    assert json.dumps(out)
+
+
+def test_synthesize_word_offline(tmp_path, monkeypatch):
+    from lyric_agent import review as rv
+
+    monkeypatch.setattr(rv, "TTS_CACHE_DIR", tmp_path)
+
+    class Boom:
+        def __init__(self, *a, **k): ...
+        async def save(self, path):
+            Path(path).write_bytes(b"")          # 模拟残片
+            raise OSError("no network")
+
+    import sys, types
+    monkeypatch.setitem(sys.modules, "edge_tts",
+                        types.SimpleNamespace(Communicate=Boom))
+    from pathlib import Path
+    assert rv.synthesize_word("hello") is None
+    assert not (tmp_path / "hello.mp3").exists()  # 无残片
+
+
+def test_render_practice_card_escapes():
+    from lyric_agent.ui_helpers import render_practice_card
+
+    html = render_practice_card(
+        {"word": "a<b", "phonetic": "x&y", "translation": "n. 甲",
+         "line": "<i>", "song": "s", "ai": "①<z>"},
+        mp3_url="/gradio_api/file=C:/t.mp3", nonce="n1")
+    assert 'data-word="a&lt;b"' in html and 'data-nonce="n1"' in html
+    assert 'data-ch="a"' in html and '&lt;i&gt;' in html and '&lt;z&gt;' in html
+    assert "ll-type-input" in html and "data-ll-say" in html
+    assert 'class="ll-type-card tp-blind"' in html   # 默认盲打首帧
+    assert "data-tp-eye" in html
+    # 无发音时不渲染重播按钮
+    silent = render_practice_card({"word": "w"}, mp3_url="", nonce="n2")
+    assert "data-ll-say" not in silent
+
+
+def test_bilibili_extract_and_embed():
+    from lyric_agent.bilibili import embed_url, extract_bvid
+
+    assert extract_bvid("BV1xx411c7mD") == "BV1xx411c7mD"
+    assert extract_bvid(
+        "https://www.bilibili.com/video/BV1xx411c7mD/?p=1") == "BV1xx411c7mD"
+    assert extract_bvid("杰伦 晴天") == ""
+    assert extract_bvid("") == ""
+    url = embed_url("BV1xx411c7mD")
+    assert url.startswith("https://player.bilibili.com/player.html?bvid=BV1")
+    assert "autoplay=0" in url and "danmaku=0" in url
+
+
+def test_bilibili_mixin_and_strip():
+    from lyric_agent.bilibili import _mixin_key, _strip_em
+
+    # deterministic reorder: same inputs -> same 32-char key
+    k = _mixin_key("a" * 32, "b" * 32)
+    assert len(k) == 32 and k == _mixin_key("a" * 32, "b" * 32)
+    assert set(k) <= {"a", "b"} and "b" in k
+    assert _strip_em('<em class="keyword">晴天</em>&amp;周杰伦') == "晴天&周杰伦"
+
+
+def test_bilibili_search_offline(monkeypatch):
+    from lyric_agent import bilibili as b
+
+    def boom(*a, **k):
+        raise OSError("no network")
+
+    monkeypatch.setattr(b, "_get_json", boom)
+    assert b.search_mv("晴天", "周杰伦") == []
+
+
+def test_bilibili_search_parses_and_ladders(monkeypatch):
+    from lyric_agent import bilibili as b
+
+    calls = []
+
+    def fake_get(url, headers):
+        calls.append(url)
+        if len(calls) == 1:          # bare attempt rejected
+            return {"code": -412}
+        if "nav" in url:
+            return {"data": {"wbi_img": {
+                "img_url": "https://i/x/abc.png",
+                "sub_url": "https://i/x/def.png"}}}
+        if "spi" in url:
+            return {"data": {"b_3": "fakebuvid"}}
+        return {"code": 0, "data": {"result": [
+            {"type": "video", "bvid": "BV1xx411c7mD",
+             "title": '<em class="keyword">晴天</em> MV', "author": "up主",
+             "duration": "4:29"},
+            {"type": "ketang", "bvid": "BV1zz411c7zZ", "title": "课堂"},
+        ]}}
+
+    monkeypatch.setattr(b, "_get_json", fake_get)
+    b._cache.clear()
+    out = b.search_mv("晴天", "周杰伦", limit=3)
+    assert out == [{"bvid": "BV1xx411c7mD", "title": "晴天 MV",
+                    "author": "up主", "duration": "4:29", "play": 0}]
+    assert any("w_rid=" in u for u in calls)   # signed retry happened
+
+
+def test_render_audio_html_video_branches():
+    from lyric_agent.ui_helpers import _render_audio_html
+
+    base = {"audio_type": "none", "audio_src": "", "dir": "", "title": "t",
+            "artist": "a", "album": "", "name": "t"}
+    # 无 bvid + 非公开 -> 横幅 + 搜索按钮，无 iframe
+    html = _render_audio_html(dict(base), public=False)
+    assert "no-audio-hint" in html and "data-bvid-search" in html
+    assert "bv-frame" not in html
+    # 无 bvid + 公开 -> 只有横幅，无绑定入口
+    pub = _render_audio_html(dict(base), public=True)
+    assert "data-bvid-search" not in pub and "bv-frame" not in pub
+    # 有 bvid + 无音频 -> 直接 iframe + 降级说明，横幅消失
+    bound = _render_audio_html(dict(base, bvid="BV1xx411c7mD"), public=True)
+    assert "bv-frame" in bound and "player.bilibili.com" in bound
+    assert "no-audio-hint" not in bound and "视频模式" in bound
+    # 候选卡渲染 + 转义
+    cands = [{"bvid": "BV1xx411c7mD", "title": "<晴天> MV",
+              "author": "up&主", "duration": "4:29"}]
+    with_c = _render_audio_html(dict(base, bvid_cands=cands), public=False)
+    assert 'data-bvid-pick="BV1xx411c7mD"' in with_c
+    assert "&lt;晴天&gt;" in with_c and "up&amp;主" in with_c
+
+
+def test_render_audio_html_video_toggle_with_audio(tmp_path):
+    from lyric_agent.ui_helpers import _render_audio_html
+
+    info = {"audio_type": "local", "audio_src": str(tmp_path / "a.mp3"),
+            "dir": str(tmp_path), "title": "t", "artist": "a", "album": "",
+            "name": "t", "bvid": "BV1xx411c7mD"}
+    html = _render_audio_html(info, public=False)
+    # 音频照常 + 视频始终展开（带 src），📺 按钮只做收起/展开
+    assert 'id="ll-audio"' in html and "data-video-toggle" in html
+    assert 'data-embed="https://player.bilibili.com' in html
+    assert 'src="https://player.bilibili.com' in html
+    assert '"bv-frame" style="display:none"' not in html
+
+
+def test_ts_to_seconds():
+    from lyric_agent.bilibili import ts_to_seconds
+
+    assert ts_to_seconds("1:32") == 92
+    assert ts_to_seconds("01:02:03") == 3723
+    assert ts_to_seconds("约 2:05 处") == 125
+    assert ts_to_seconds("开头") is None
+    assert ts_to_seconds("") is None
+
+
+def test_mv_render_seek_anchor():
+    from lyric_agent.mv_eggs import MvEggs, render_mv_html
+
+    m = MvEggs(known=True, director="d",
+               eggs=[("细节A", "", "1:32"), ("细节B", "", "")], caveat="")
+    # 有 bvid -> 锚点可点（data-mv-t 秒数）
+    html = render_mv_html(m, "晴天", "周杰伦", video=("晴天", "BV1xx411c7mD"))
+    assert 'data-mv-t="92"' in html and "mv-seek" in html
+    assert 'data-mv-bvid="BV1xx411c7mD"' in html
+    # 无 bvid -> 普通时间戳，不可点
+    plain = render_mv_html(m, "晴天", "周杰伦", video=None)
+    assert "data-mv-t" not in plain and "🎞️" in plain
+
+
+def test_export_anki_format():
+    from lyric_agent.review import export_anki
+
+    book = [{"word": "scarf", "phonetic": "skɑːf",
+             "translation": "n. 围巾\\nvt. 披上",
+             "line": "left my\tscarf", "song": "All Too Well",
+             "ai": "①语境义：围巾\n②整句：好"},
+            {"word": "", "translation": "skip"}]
+    out = export_anki(book)
+    lines = out.strip().splitlines()
+    assert lines[0] == "#separator:tab" and lines[1] == "#html:true"
+    assert len(lines) == 3
+    front, back = lines[2].split("\t")
+    assert front == "scarf /skɑːf/"
+    assert "围巾；vt. 披上" in back          # 字面 \n 折叠
+    assert "left my scarf" in back           # 字段内 tab 折叠
+    assert "①语境义：围巾<br>②整句：好" in back  # 真实换行转 <br>
+    assert "《All Too Well》" in back
+
+
+
+
+def test_bilibili_pick_best():
+    from lyric_agent.bilibili import pick_best
+
+    def c(title, play, bvid="BVx"):
+        return {"title": title, "play": play, "bvid": bvid,
+                "author": "", "duration": ""}
+
+    cands = [c("晴天 翻唱", 9_000_000), c("周杰伦《晴天》官方MV", 500_000),
+             c("reaction 看晴天", 100), c("无关视频", 99_999_999)]
+    best = pick_best(cands, "晴天", "周杰伦")
+    assert best["title"] == "周杰伦《晴天》官方MV"   # 含歌手名压过高播放翻唱
+    # 无歌手命中 -> 含歌名里播放量最高
+    best2 = pick_best(cands, "晴天", "")
+    assert best2["title"] == "晴天 翻唱"
+    # 歌名全不含 -> 退回相关性第一条
+    assert pick_best(cands, "七里香", "周杰伦")["title"] == "晴天 翻唱"
+    assert pick_best([], "晴天", "周杰伦") is None
+
+
+def test_auto_bind_missing(tmp_path, monkeypatch):
+    import json
+    from lyric_agent import bilibili as b
+
+    d = tmp_path / "songA"
+    d.mkdir()
+    (d / "metadata.json").write_text(json.dumps(
+        {"title": "A", "artist": "X"}, ensure_ascii=False), encoding="utf-8")
+    manual = tmp_path / "songB"
+    manual.mkdir()
+    (manual / "metadata.json").write_text(json.dumps(
+        {"title": "B", "artist": "X", "bvid": "BVmanual9999"},
+        ensure_ascii=False), encoding="utf-8")
+    songs = [
+        {"title": "A", "artist": "X", "dir": str(d), "bvid": ""},
+        {"title": "B", "artist": "X", "dir": str(manual),
+         "bvid": "BVmanual9999"},
+        {"title": "FailSong", "artist": "X", "dir": str(tmp_path / "nope"),
+         "bvid": ""},
+    ]
+    monkeypatch.setattr(b, "_THROTTLE_S", 0)
+    monkeypatch.setattr(b, "_AUTOBIND_FAIL_PATH",
+                        str(tmp_path / "fails.json"))
+    monkeypatch.setattr(b, "search_mv", lambda t, a: (
+        [] if t == "FailSong" else
+        [{"title": f"X - {t} MV", "play": 10, "bvid": "BV1xx411c7mD",
+          "author": "", "duration": ""}]))
+    n = b.auto_bind_missing(songs, lambda: True)
+    assert n == 1
+    meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
+    assert meta["bvid"] == "BV1xx411c7mD" and meta["bvid_source"] == "auto"
+    # 手动绑定未被碰
+    metaB = json.loads((manual / "metadata.json").read_text(encoding="utf-8"))
+    assert metaB["bvid"] == "BVmanual9999" and "bvid_source" not in metaB
+    # 失败被记忆 -> 第二轮零新绑定且不重试失败项
+    calls = []
+    monkeypatch.setattr(b, "search_mv",
+                        lambda t, a: calls.append(t) or [])
+    songs2 = [dict(songs[0], bvid="BV1xx411c7mD"),
+              songs[1], songs[2]]
+    assert b.auto_bind_missing(songs2, lambda: True) == 0
+    assert calls == []   # songA 已绑、songB 手动、FailSong 在 24h 冷却中
+
+
+def test_quiz_passage_context():
+    """长歌里锚点应带上邻句成段，且去掉泄露歌名的邻句。"""
+    pool = {
+        "Target": ("X", ["intro line long enough here",
+                         "(No more baby, oooh)",
+                         "the memorable anchor lyric line",
+                         "Target appears in this neighbour line",
+                         "closing line long enough too"]),
+        "Other": ("Y", ["a completely different lyric line"]),
+    }
+    import random as _r
+    for seed in range(12):
+        q = make_question(pool, _r.Random(seed))
+        if q.answer != "Target":
+            continue
+        passage = q.line.split("\n")
+        assert 1 <= len(passage) <= 3
+        assert all("target" not in ln.lower() for ln in passage)
+        if len(passage) > 1:   # 邻句确实被带上了
+            break
+    else:
+        raise AssertionError("passage never grew beyond one line")
+
+
+def test_render_annotation_card():
+    from lyric_agent.annotator.models import Annotation, RelatedLine
+    from lyric_agent.ui_helpers import render_annotation_card
+
+    ann = Annotation(line_index=3, lyric_text="x", summary="核心<隐喻>",
+                     metaphor_analysis="本体喻体", wordplay="",
+                     emotional_tone="tenderness",
+                     related_lines=[RelatedLine(song="All Too Well",
+                                                album="Red", line="old scarf")])
+    html = render_annotation_card(ann, 3, can_generate=True)
+    assert "核心&lt;隐喻&gt;" in html and "本体喻体" in html
+    assert "tenderness" in html and "All Too Well" in html
+    assert "data-gen-ann" not in html          # 有批注不出生成按钮
+    assert "文字游戏" not in html              # 空字段不渲染
+    # 空态：非公开带确认按钮，公开不带
+    empty = render_annotation_card(None, 7, can_generate=True)
+    assert 'data-gen-ann="7"' in empty and "调用 1 次 LLM" in empty
+    assert "data-gen-ann" not in render_annotation_card(
+        None, 7, can_generate=False)
+
+
+def test_llm_usage_accounting(monkeypatch, tmp_path):
+    """记账挂在重试包装器上：成功调用必入账，且绝不炸正常返回。"""
+    pytest.importorskip("openai")  # 最小环境跳过而非报错
+    from lyric_agent import llm
+    from lyric_agent.config import Settings
+
+    monkeypatch.setattr(llm, "_USAGE_PATH", tmp_path / "usage.json")
+    s = Settings(api_key="x", llm_provider="openai", model_name="m-test")
+    c = llm.LLMClient(s)
+    resp = llm.LLMResponse(reply_text="ok",
+                           usage={"input_tokens": 3, "output_tokens": 5})
+    out = c._call_with_retry(lambda: resp)
+    assert out.reply_text == "ok"
+    u = llm.load_usage()
+    assert u["total"] == {"calls": 1, "input_tokens": 3, "output_tokens": 5}
+    assert u["models"]["m-test"]["output_tokens"] == 5   # 按模型分桶
+    assert u["last_model"] == "m-test"
+    # 全局精简规则注入到 system prompt（挂在 generate 入口）
+    seen = {}
+    monkeypatch.setattr(c, "_call_openai",
+                        lambda sp, msgs: seen.update(sp=sp) or resp)
+    c.generate("你是测试", "hi")
+    assert seen["sp"].startswith("你是测试") and "精简直接" in seen["sp"]

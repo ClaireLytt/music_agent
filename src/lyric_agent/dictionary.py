@@ -118,17 +118,24 @@ def save_wordbook(entries: list[dict]) -> None:
 
 
 def add_word(word: str, line: str = "", song: str = "",
-             label: str = "", line_index: int = -1) -> list[dict]:
+             label: str = "", line_index: int = -1,
+             ai: str = "") -> list[dict]:
     """Add a looked-up word to the wordbook (idempotent). Returns the book.
 
-    label/line_index locate the source line for click-to-jump."""
+    label/line_index locate the source line for click-to-jump; ai is the
+    in-context AI explanation generated in the popup (kept with the entry).
+    Re-collecting an existing entry backfills a missing ai explanation."""
     book = load_wordbook()
     hit = lookup(word) or {"word": word, "phonetic": "", "translation": ""}
     key = hit["word"].lower()
-    if any(e.get("word", "").lower() == key for e in book):
-        return book
+    for e in book:
+        if e.get("word", "").lower() == key:
+            if ai and not e.get("ai"):
+                e["ai"] = ai
+                save_wordbook(book)
+            return book
     book.append({**hit, "line": line, "song": song,
-                 "label": label, "line_index": line_index})
+                 "label": label, "line_index": line_index, "ai": ai})
     save_wordbook(book)
     return book
 

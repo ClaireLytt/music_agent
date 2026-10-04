@@ -38,7 +38,16 @@ _HEAD_JS = """
     const pend = window.__llPendingLine;
     if (pend != null && pend >= 0) {
       let tries = 0;
+      // the OLD song's lyrics may still be mounted when the radio flips —
+      // only flash once the rendered title matches the newly checked radio
+      // (covers both orders: render-before-watcher and watcher-before-render)
+      const want = c.value;
       const t = setInterval(() => {
+        const titleEl = document.querySelector('.song-title-display');
+        const title = titleEl ? titleEl.textContent.trim() : '';
+        const ready = title && (want === title
+                                || want.indexOf(title + ' — ') === 0);
+        if (!ready) { if (++tries > 40) clearInterval(t); return; }
         const el = document.querySelector(
           '#lyrics-scroll .lyric-line[data-index="' + pend + '"]');
         if (el) {
@@ -58,6 +67,14 @@ _HEAD_JS = """
 (function() {
   let lastQuery = '';
   let saved = null;  // {word, line, song} of the open popover
+  let lastSpoken = '';  // the data.q already auto-pronounced
+  // pronunciation à la qwerty-learner: youdao dictvoice, client-side only
+  const voiceUrl = (w) =>
+    'https://dict.youdao.com/dictvoice?audio=' + encodeURIComponent(w)
+    + '&type=2';
+  function sayWord(w) {
+    if (w) new Audio(voiceUrl(w)).play().catch(() => {});
+  }
   function closePop() {
     document.querySelectorAll('.ll-dict-pop').forEach((p) => p.remove());
   }
@@ -102,7 +119,8 @@ _HEAD_JS = """
     const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
     let html = '<div class="dict-word">' + esc(data.word);
     if (data.phonetic) html += ' <span class="dict-phon">/' + esc(data.phonetic) + '/</span>';
-    html += '</div>';
+    html += ' <button class="dict-btn dict-say" data-dict-say '
+          + 'title="重播发音">🔊</button></div>';
     if (data.found) {
       html += '<div class="dict-body">'
         + esc(data.translation).split('\\n').join('<br>') + '</div>';
@@ -124,6 +142,16 @@ _HEAD_JS = """
       favBtn.textContent = '✓ 已收藏';
       favBtn.disabled = true;
     });
+    const sayBtn = pop.querySelector('[data-dict-say]');
+    if (sayBtn) sayBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sayWord(saved.word);
+    });
+    // auto-pronounce once per lookup (the AI reply re-renders the same q)
+    if (data.q !== lastSpoken) {
+      lastSpoken = data.q;
+      sayWord(data.word);
+    }
     const aiBtn = pop.querySelector('[data-dict-ai]');
     if (aiBtn) aiBtn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -144,6 +172,98 @@ _HEAD_JS = """
     if (data.q !== lastQuery) return;  // stale result for a previous word
     render(data);
   }, 300);
+})();
+// ⌨️ 单词练习: qwerty-learner-style keystroke loop. The backend renders a
+// .ll-type-card (data-word/data-mp3/data-nonce); this block owns typing:
+// correct letters color up, one wrong key resets the whole word, completion
+// reports through the ll-review-done channel.
+(() => {
+  function sendChannel(id, value) {
+    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
+    if (!box) return;
+    box.value = value;
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  let nonce = null, pos = 0, mistakes = 0, t0 = 0, done = false;
+  const card = () => document.querySelector('.ll-type-card');
+  const chars = (c) => c.querySelectorAll('.tp-ch');
+  function reset(c) {
+    pos = 0;
+    chars(c).forEach((el) => el.classList.remove('ok'));
+  }
+  function play(c) {
+    if (c.dataset.mp3) new Audio(c.dataset.mp3).play().catch(() => {});
+  }
+  setInterval(() => {
+    const c = card();
+    if (!c || c.dataset.nonce === nonce) return;
+    nonce = c.dataset.nonce;
+    mistakes = 0; t0 = Date.now(); done = false;
+    reset(c);
+    // only grab focus while the practice tab is actually visible
+    if (c.offsetParent !== null) {
+      const inp = c.querySelector('.ll-type-input');
+      if (inp) inp.focus();
+      play(c);
+    }
+    try {  // 卡片默认盲打（服务端烘焙）；记忆为"显示"时才摘除
+      if (localStorage.getItem('ll_tp_blind') === '0')
+        c.classList.remove('tp-blind');
+    } catch (err) {}
+  }, 300);
+  // focus on pointerdown AND click — belt and braces against focus races
+  ['pointerdown', 'click'].forEach((evt) =>
+    document.addEventListener(evt, (e) => {
+      const c = e.target.closest('.ll-type-card');
+      if (!c) return;
+      if (evt === 'click' && e.target.closest('[data-ll-say]')) {
+        play(c);
+        return;
+      }
+      if (evt === 'click' && e.target.closest('[data-tp-eye]')) {
+        const blind = c.classList.toggle('tp-blind');
+        try { localStorage.setItem('ll_tp_blind', blind ? '1' : '0'); }
+        catch (err) {}
+        // 焦点回输入框——否则切换后按键落在按钮上，显示模式下"打不了字"
+        const inp2 = c.querySelector('.ll-type-input');
+        if (inp2) inp2.focus();
+        return;
+      }
+      const inp = c.querySelector('.ll-type-input');
+      if (inp) inp.focus();
+    }, true));
+  document.addEventListener('keydown', (e) => {
+    if (!e.target.classList || !e.target.classList.contains('ll-type-input'))
+      return;
+    const c = card();
+    if (!c || done) return;
+    if (e.isComposing || e.keyCode === 229) {   // CJK IME is active
+      c.classList.add('tp-ime');
+      e.preventDefault();
+      return;
+    }
+    c.classList.remove('tp-ime');
+    if (e.key.length !== 1) return;             // let Tab/F5/etc through
+    e.preventDefault();                          // space must not scroll
+    const want = c.dataset.word;
+    const spans = chars(c);
+    if (e.key.toLowerCase() === want[pos]) {
+      spans[pos].classList.add('ok');
+      pos += 1;
+      if (pos >= want.length) {
+        done = true;
+        sendChannel('ll-review-done',
+                    want + '\\t' + mistakes + '\\t' + (Date.now() - t0)
+                    + '\\t' + Date.now());
+      }
+    } else {
+      mistakes += 1;                             // wrong key: retype it all
+      reset(c);
+      c.classList.remove('tp-shake');
+      void c.offsetWidth;                        // restart the animation
+      c.classList.add('tp-shake');
+    }
+  }, true);
 })();
 // per-song ⋯ menu: the selected row grows a ⋯ button; expanding it
 // offers 🗑️ delete (native confirm, then the ll-del-song channel).
@@ -475,6 +595,53 @@ _HEAD_JS = """
     });
   }, 600);
 
+  // 🎚 offset live preview: backend writes {offset} into #ll-offset-set,
+  // we apply it straight onto the audio element — karaoke reads
+  // data-offset every frame, so the lyrics shift immediately
+  let lastOffsetMsg = null;
+  setInterval(() => {
+    const box = document.querySelector('#ll-offset-set textarea, #ll-offset-set input');
+    if (!box || !box.value || box.value === lastOffsetMsg) return;
+    const first = lastOffsetMsg === null;
+    lastOffsetMsg = box.value;
+    if (first) return;  // page-load leftover
+    let data;
+    try { data = JSON.parse(box.value); } catch (e) { return; }
+    const a = getAudio();
+    if (a) a.dataset.offset = String(data.offset || 0);
+  }, 300);
+
+  // MCP play-command relay: the backend timer mirrors the command file into
+  // #ll-mcp-play; when its value changes, switch happens server-side (radio
+  // update) — here we wait for the target song to render, then play (+seek).
+  let lastMcp = null;
+  setInterval(() => {
+    const box = document.querySelector('#ll-mcp-play textarea, #ll-mcp-play input');
+    if (!box || !box.value || box.value === lastMcp) return;
+    const first = lastMcp === null;
+    lastMcp = box.value;
+    if (first) return;  // page-load leftover — never replay
+    let data;
+    try { data = JSON.parse(box.value); } catch (e) { return; }
+    if (data.cmd !== 'play') return;
+    if (data.line != null) window.__llPendingLine = data.line;
+    let tries = 0;
+    const t = setInterval(() => {
+      const title = document.querySelector('.song-title-display');
+      const a = getAudio();
+      if (a && title && title.textContent.trim() === data.title) {
+        clearInterval(t);
+        if (data.line != null) {
+          const el = document.querySelector(
+            '#lyrics-scroll .lyric-line[data-index="' + data.line + '"]');
+          if (el && el.dataset.ts)
+            a.currentTime = Math.max(0, (parseFloat(el.dataset.ts) - getOffset(a)) / 1000);
+        }
+        a.play().catch(() => {});  // autoplay policy may block — harmless
+      } else if (++tries > 30) clearInterval(t);
+    }, 300);
+  }, 700);
+
   // new-song watcher: the audio block is re-rendered per song, so restore
   // toggle states, rebuild the waveform, reset the A-B loop, and (in radio
   // mode) play the spoken intro before the song itself
@@ -573,19 +740,66 @@ _HEAD_JS = """
                    (del.dataset.delTs || '') + '\\t' + Date.now());
       return;
     }
-    const word = e.target.closest('.cloud-word');
-    if (word) {
-      writeChannel('ll-word-pick', word.dataset.word + '\\t' + Date.now());
+    // 📺 B 站视频: collapse/expand (the iframe is always rendered now)
+    const vt = e.target.closest('[data-video-toggle]');
+    if (vt) {
+      const frame = document.querySelector('.bv-frame');
+      if (frame) {
+        const show = frame.style.display === 'none';
+        frame.style.display = show ? '' : 'none';
+        const a = getAudio();
+        if (a && show) a.pause();
+      }
       return;
     }
-    const emo = e.target.closest('[data-emo-pick]');
-    if (emo) {
-      writeChannel('ll-emo-pick', emo.dataset.emoPick + '\\t' + Date.now());
+    // 🎬 MV 彩蛋 ⏱ 锚点: switch to the song on the play tab (backend) and
+    // seek its video iframe to the stamp (here, via a bounded retry loop)
+    const mvs = e.target.closest('[data-mv-t]');
+    if (mvs) {
+      const bvid = mvs.dataset.mvBvid, t = mvs.dataset.mvT;
+      writeChannel('ll-mv-seek', mvs.dataset.mvLabel + '\\t' + Date.now());
+      let tries = 0;
+      const timer = setInterval(() => {
+        const frame = document.querySelector('.bv-frame');
+        const embed = frame && (frame.dataset.embed ||
+          (frame.querySelector('iframe') || {}).src || '');
+        if (frame && embed.indexOf(bvid) !== -1) {
+          clearInterval(timer);
+          const ifr = frame.querySelector('iframe');
+          if (ifr) ifr.src = (frame.dataset.embed || embed).split('&t=')[0]
+                             + '&t=' + t;
+          frame.style.display = '';
+          const a = getAudio();
+          if (a) a.pause();
+        } else if (++tries > 30) clearInterval(timer);
+      }, 300);
       return;
     }
-    const ov = e.target.closest('[data-ov-pick]');
-    if (ov) {
-      writeChannel('ll-ov-pick', ov.dataset.ovPick + '\\t' + Date.now());
+    // ✨ per-line annotation: the button is the consent gate — a native
+    // confirm makes the single LLM call explicit before anything is spent
+    const ga = e.target.closest('[data-gen-ann]');
+    if (ga) {
+      if (!confirm('将调用 1 次 LLM 为这句歌词生成 AI 批注，继续？')) return;
+      ga.textContent = '✨ 生成中…';
+      ga.disabled = true;
+      writeChannel('ll-gen-ann', ga.dataset.genAnn + '\\t' + Date.now());
+      return;
+    }
+    const bvu = e.target.closest('[data-bvid-unbind]');
+    if (bvu) {
+      if (!confirm('删除这首歌的视频绑定？（之后可重新搜索或手填）')) return;
+      writeChannel('ll-bvid-act', 'unbind	' + Date.now());
+      return;
+    }
+    const bvs = e.target.closest('[data-bvid-search]');
+    if (bvs) {
+      writeChannel('ll-bvid-act', 'search\\t' + Date.now());
+      return;
+    }
+    const bvp = e.target.closest('[data-bvid-pick]');
+    if (bvp) {
+      writeChannel('ll-bvid-act',
+                   'pick\\t' + bvp.dataset.bvidPick + '\\t' + Date.now());
       return;
     }
     const fav = e.target.closest('[data-fav]');
@@ -1216,6 +1430,7 @@ footer, .gradio-container footer { display: none !important; }
   background: var(--accent-soft); color: var(--text-primary);
 }
 .ll-dict-pop .dict-actions { margin-top: 10px; display: flex; gap: 8px; }
+.ll-dict-pop .dict-say { padding: 0 6px; }
 .ll-dict-pop .dict-btn {
   all: unset; cursor: pointer; padding: 5px 10px; border-radius: 8px;
   background: var(--bg-card-hover); font-size: .92em;
@@ -1231,6 +1446,68 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-phon { color: var(--text-secondary); font-weight: 400; font-size: .9em; }
 .wb-item .wb-meaning { font-size: .9em; color: var(--text-primary); }
 .wb-item .wb-src { font-size: .85em; color: var(--text-secondary); margin-top: 2px; }
+.wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
+  padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
+  line-height: 1.5; }
+.mv-ts.mv-seek { cursor: pointer; }
+.mv-ts.mv-seek:hover { color: var(--accent); }
+.lyric-line .lyric-trans { font-size: .82em;
+  color: var(--text-secondary); margin-top: 1px; }
+/* 点句批注卡 */
+.ann-card { padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-card); margin-bottom: 10px;
+  font-size: 13px; line-height: 1.6; }
+.ann-card .ann-summary { font-weight: 700; color: var(--text-primary);
+  margin-bottom: 6px; }
+.ann-card .ann-row { color: var(--text-primary); margin-top: 4px; }
+.ann-card .ann-row b { color: var(--text-secondary); font-weight: 600;
+  margin-right: 2px; }
+.ann-card .ann-rel { color: var(--text-secondary); }
+.ann-card.ann-empty { color: var(--text-secondary); display: flex;
+  align-items: center; gap: 10px; flex-wrap: wrap; }
+/* 📺 B 站视频模式 */
+.bv-frame { position: relative; width: 100%; padding-top: 56.25%;
+  margin-top: 10px; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--border); background: var(--bg-card); }
+.bv-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; }
+.bv-note { font-size: .85em; color: var(--text-secondary); margin-top: 6px; }
+.bv-bind { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+.bv-bind-hint { font-size: .8em; color: var(--text-secondary); }
+.bv-cand { padding: 10px 14px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-card); margin-top: 6px;
+  cursor: pointer; }
+.bv-cand:hover { border-color: var(--accent); }
+.bv-cand b { font-size: 14px; color: var(--text-primary); }
+.bv-cand-meta { display: block; font-size: 12px;
+  color: var(--text-secondary); margin-top: 2px; }
+/* ⌨️ 单词练习 */
+.ll-type-card { padding: 18px 20px; border: 1px solid var(--border);
+  border-radius: 14px; background: var(--bg-card); cursor: text;
+  max-width: 720px; margin: 0 auto; text-align: center; }
+.ll-type-card .tp-word { font-size: 34px; font-weight: 800;
+  letter-spacing: 3px; color: var(--karaoke-rest); margin-bottom: 10px; }
+.ll-type-card .tp-ch.ok { color: var(--accent); }
+.ll-type-card .ll-type-input { position: absolute; opacity: 0;
+  width: 1px; height: 1px; border: 0; padding: 0; }
+.ll-type-card .wb-meaning, .ll-type-card .wb-src, .ll-type-card .wb-ai {
+  margin-top: 6px; }
+.ll-type-card .tp-ime-hint { display: none; color: #cf222e;
+  font-size: .85em; margin-top: 4px; }
+.ll-type-card.tp-ime .tp-ime-hint { display: block; }
+.ll-type-card .tp-blurhint { font-size: .8em; color: var(--text-secondary);
+  margin-top: 10px; }
+.ll-type-card .tp-wline-word { background: var(--accent-soft);
+  border-radius: 4px; padding: 0 2px; }
+.ll-type-card.tp-blind .tp-ch { color: transparent;
+  border-bottom: 2px solid var(--karaoke-rest); }
+.ll-type-card.tp-blind .tp-ch.ok { color: var(--accent);
+  border-bottom-color: var(--accent); }
+.ll-type-card.tp-blind .tp-wline-word { background: var(--text-secondary);
+  color: transparent; border-radius: 4px; }
+.ll-type-card.tp-shake { animation: tp-shake .25s; }
+@keyframes tp-shake {
+  25% { transform: translateX(-5px); } 75% { transform: translateX(5px); }
+}
 .wb-item .wb-jump { cursor: pointer; }
 .wb-item .wb-jump:hover { color: var(--accent); text-decoration: underline; }
 .fav-item[data-cite-label] { cursor: pointer; }

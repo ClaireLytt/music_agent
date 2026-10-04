@@ -36,8 +36,12 @@ features = [
     "pydub>=0.25",
     "Pillow>=10.0",
 ]
+# MCP 服务器（stdio），接入 Claude Code / Claude Desktop
+mcp = [
+    "mcp>=2.0",
+]
 all = [
-    "lyric-agent[llm,ui,embeddings,features]",
+    "lyric-agent[llm,ui,embeddings,features,mcp]",
 ]
 dev = [
     "lyric-agent[all]",

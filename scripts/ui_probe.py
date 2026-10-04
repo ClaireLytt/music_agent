@@ -49,6 +49,9 @@ _BENIGN_CONSOLE = (
     "favicon",
     "manifest.json",
     "the server responded with a status of 404",  # gradio asset probes
+    "player.bilibili.com",       # bound-MV iframe noise is not an app bug
+    "bilibili.com",              # ditto (embed player's own asset chatter)
+    "bili-user-fingerprint",     # embed player's internal reporter errors
 )
 
 AUDIO_SONG = "北京昨夜下了雪"   # library song that ships with audio
@@ -366,32 +369,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     "evidence citation click -> song switch + line flash",
                     c_cite_jump)
 
-        def c_archaeology_guard():
-            # 考古报告 guard path (free): the cross-artist pseudo-entry is
-            # not a single artist, so generation must refuse politely
-            probe.tab("🕵️ 歌词宇宙")
-            pg.get_by_role("tab", name="🏺 考古报告").click()
-            pg.wait_for_timeout(400)
-            prev = pg.evaluate(
-                """() => { const b = document.querySelector('#ll-uni-artist input');
-                   return b ? b.value : ''; }""")
-            pg.locator("#ll-uni-artist input").click()
-            pg.wait_for_timeout(400)
-            pg.get_by_role("option",
-                           name="🌐 跨歌手引用（全部歌手）").click()
-            pg.get_by_role("button",
-                           name="🏺 生成考古报告（已有缓存则秒开）").click()
-            probe.wait_until(
-                lambda: "请先在上方选择一位具体的歌手"
-                in pg.locator("body").inner_text(),
-                msg="archaeology artist guard missing")
-            if prev:
-                pg.locator("#ll-uni-artist input").click()
-                pg.wait_for_timeout(400)
-                pg.get_by_role("option", name=prev, exact=True).click()
-        probe.check("archaeology_guard",
-                    "archaeology report refuses the cross-artist entry",
-                    c_archaeology_guard)
 
         def c_tour_toggle():
             # 🎧 导览 toggle ships with the player tools — audio songs only
@@ -486,15 +463,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("chat_guard", "chat without picked line -> guard",
                     c_chat_guard)
 
-        def c_debate_guard():
-            pg.get_by_role(
-                "button",
-                name="🎭 乐评人 vs 粉丝 · 双视角辩论这句歌词").click()
-            probe.wait_until(
-                lambda: "再发起双视角辩论" in pg.locator("body").inner_text(),
-                msg="debate without picked line: guard hint missing")
-        probe.check("debate_guard", "debate without picked line -> guard",
-                    c_debate_guard)
 
         def c_echo_explain_guard():
             probe.tab("🥚")
@@ -584,27 +552,32 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("seek_click", "lyric click seeks audio position",
                     c_seek_click)
 
-        # ── evolution tab ──
-        def c_evolution():
-            probe.tab("🗺️ 艺术家图谱")
-            # the tab now leads with an artist-agnostic album overview; the
-            # Taylor-only era chart lives in a collapsed accordion below
-            probe.wait_until(lambda: count(".ov-album") >= 1,
-                             msg="artist overview rendered no album cards")
-            must(pg.locator("#ll-overview-artist").count() == 1,
-                 "artist picker missing")
-            # a song chip jumps to the play tab with that song opened
-            chip = pg.locator(".ov-song").first
-            title = chip.inner_text().strip()
-            chip.click()
+        def c_mcp_channel():
+            # `lyric-agent mcp` play_song writes a command file; the UI's
+            # 1s timer must pick it up and switch the song. (Playback itself
+            # is not asserted — headless Chromium blocks autoplay.)
+            from lyric_agent.mcp_channel import write_mcp_command
+            pg.get_by_role("radio", name=PLAIN_SONG).check()
             probe.wait_until(
-                lambda: pg.get_by_role("tab", name="🎧 播放解读", exact=True)
-                .get_attribute("aria-selected") == "true"
-                and pg.locator(".song-title-display").inner_text().strip()
-                == title,
-                msg="overview chip did not open the song on the play tab")
-        probe.check("evolution", "artist overview renders + chip jumps",
-                    c_evolution)
+                lambda: pg.locator(".song-title-display").inner_text().strip()
+                == PLAIN_SONG, msg="could not open the starting song")
+            write_mcp_command("play", title=AUDIO_SONG,
+                              path=ROOT / "data" / "cache" / "mcp_command.json")
+            probe.wait_until(
+                lambda: pg.locator(".song-title-display").inner_text().strip()
+                == AUDIO_SONG,
+                timeout_s=15, msg="MCP play command did not switch the song")
+            must(pg.evaluate(
+                "(document.querySelector('#ll-mcp-play textarea, "
+                "#ll-mcp-play input') || {value: ''}).value") != "",
+                "ll-mcp-play relay box stayed empty")
+        probe.check("mcp_channel", "MCP command file switches the song",
+                    c_mcp_channel)
+
+        # ── evolution tab ──
+
+
+
 
         # ── echo map tab ──
         def c_map_focus():
@@ -704,60 +677,12 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_focus_pick)
 
         # ── insights tab ──
-        def c_insights():
-            probe.tab("📊 曲库洞察")
-            pg.wait_for_timeout(1000)
-            # sub-tab panels render lazily — visit each before counting
-            must(count(".daily-card") == 1, "daily quote missing")
-            probe.tab("☁️ 意象词云")
-            probe.wait_until(lambda: count(".cloud-word") >= 10,
-                             msg="word cloud too small")
-            probe.tab("🎭 情绪地图")
-            probe.wait_until(lambda: count(".emo-node") >= 1,
-                             msg="emotion map empty")
-        probe.check("insights", "insights tab (daily/cloud/emotion)",
-                    c_insights)
-
-        def c_word_click():
-            probe.tab("☁️ 意象词云")
-            pg.locator(".cloud-word").first.click()
-            pg.wait_for_timeout(6000)
-            must(count(".img-timeline") >= 1, "word click opened no timeline")
-        probe.check("word_click", "word cloud click -> imagery timeline",
-                    c_word_click)
-
-        def c_emo_click():
-            probe.tab("🎭 情绪地图")
-            pg.locator(".emo-node").first.click()
-            pg.wait_for_timeout(2500)
-            sel = pg.get_by_role("tab", name="🎧 播放解读") \
-                .get_attribute("aria-selected")
-            must(sel == "true", "emotion click did not jump to play tab")
-        probe.check("emo_click", "emotion map click jumps to play tab",
-                    c_emo_click)
 
 
-        def c_cloud_switch():
-            # the emo_click check intentionally navigated to the play tab;
-            # come back before touching insights controls
-            probe.tab("📊 曲库洞察")
-            probe.tab("☁️ 意象词云")
-            pg.locator("#ll-cloud-artist input").click()
-            pg.wait_for_timeout(400)
-            pg.get_by_role("option", name="🌍 全部歌手").click()
-            probe.wait_until(lambda: count(".cloud-word") >= 10,
-                             msg="word cloud empty after artist switch")
-        probe.check("cloud_switch", "word cloud artist switch re-renders",
-                    c_cloud_switch)
 
-        def c_story_guard():
-            probe.tab("📖 歌单故事线")
-            pg.get_by_role("button", name="✨ 生成故事线").click()
-            probe.wait_until(
-                lambda: "至少勾选 2 首歌" in pg.locator("body").inner_text(),
-                msg="storyline <2 songs guard missing")
-        probe.check("story_guard", "storyline with <2 songs -> guard",
-                    c_story_guard)
+
+
+
 
         # ── interactive tab ──
         def c_quiz():
@@ -807,47 +732,95 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("title_puzzle", "title puzzle question + submit",
                     c_title_puzzle)
 
-        def c_egg_quiz():
-            probe.tab("🥚 彩蛋猜猜乐")
-            pg.get_by_role("button", name="🥚 抽一题").click()
-            pg.wait_for_timeout(2500)
-            body = pg.locator("body").inner_text()
-            # either a question (radio options appear) or the no-echo guard
-            opts = count("input[type=radio]:visible")
-            must(opts >= 2 or "没有" in body or "至少" in body
-                 or "回声" in body,
-                 "egg quiz: neither question nor guard rendered")
-            # submit-before-draw guard is free; only exercise a real answer
-            # when a question actually drew
-            if opts >= 2:
-                pg.locator("input[type=radio]:visible").last.check()
-                pg.get_by_role("button", name="🥚 交卷").click()
-                probe.wait_until(
-                    lambda: "答对" in pg.locator("body").inner_text()
-                    or "不对" in pg.locator("body").inner_text(),
-                    msg="egg quiz verdict missing")
-        probe.check("egg_quiz", "echo-guessing quiz question + submit",
-                    c_egg_quiz)
+        def c_word_practice():
+            # typing drill renders a card (or the empty-book hint — the
+            # wordbook is gitignored and may be empty on a fresh machine)
+            probe.tab("🔤 歌曲寻词")
+            pg.get_by_role("button", name="⌨️ 开始 / 换一词").click()
+            probe.wait_until(
+                lambda: count(".ll-type-card") >= 1
+                or "单词本是空的" in pg.locator("body").inner_text(),
+                msg="practice rendered neither a card nor the empty hint")
+            if count(".ll-type-card") == 0:
+                return  # empty book: guard path verified
+            card = pg.locator(".ll-type-card").first
+            word = card.get_attribute("data-word")
+            # press_sequentially focuses the element itself — immune to the
+            # click→focus race that made this check flaky
+            # keystrokes occasionally get lost before the JS loop arms —
+            # a wrong key resets the whole word, so blind retyping is safe
+            for _ in range(3):
+                pg.locator(".ll-type-input").press_sequentially(word,
+                                                                delay=40)
+                pg.wait_for_timeout(700)
+                if "本轮 1 词" in pg.locator("body").inner_text():
+                    break
+            probe.wait_until(
+                lambda: "本轮 1 词" in pg.locator("body").inner_text(),
+                msg="completed word did not update the session stats")
+        probe.check("word_practice", "typing drill grades a typed word",
+                    c_word_practice)
 
-        def c_universe_present():
-            # universe/letter are LLM-priced AND the pair dropdown is
-            # pre-filled on load (clicking 写信 would actually spend), so
-            # assert the controls are present WITHOUT clicking them
-            probe.tab("🕵️ 歌词宇宙")
-            probe.tab("🕵️ 开始破案")
-            must(pg.get_by_role(
-                "button",
-                name="🕵️ 开始破案（AI 推理，约 10-30 秒）").count() == 1,
-                "detective button missing")
-            probe.tab("💌 隔空回信")
-            must(pg.locator("#ll-letter-pair").count() == 1,
-                 "letter pair picker missing")
-            must(pg.get_by_role("button", name="💌 写信",
-                                exact=True).count() == 1,
-                 "letter button missing")
-        probe.check("universe_present",
-                    "universe/letter controls present (LLM, not clicked)",
-                    c_universe_present)
+
+        def c_word_export():
+            probe.tab("🔤 歌曲寻词")
+            pg.get_by_role("button",
+                           name="📤 导出 qwerty-learner 词典").click()
+            probe.wait_until(
+                lambda: ("已生成" in pg.locator("body").inner_text()
+                         or "没有可导出" in pg.locator("body").inner_text()),
+                msg="export produced neither a file notice nor the empty hint")
+        probe.check("word_export", "qwerty dictionary export responds",
+                    c_word_export)
+
+        def c_annotation_card():
+            # clicking an annotated line surfaces the annotation card;
+            # an unannotated line offers the consent button (NOT clicked —
+            # it would spend an LLM call)
+            probe.tab("🎧 播放解读")
+            pg.get_by_role("radio", name=PLAIN_SONG).check()
+            probe.wait_until(lambda: count(".lyric-line") > 12,
+                             msg="cardigan lyrics did not render")
+            pg.locator('.lyric-line[data-index="12"]').click()
+            probe.wait_until(
+                lambda: count(".ann-card .ann-summary") >= 1,
+                msg="annotated line showed no annotation card")
+        probe.check("annotation_card", "line click surfaces its annotation",
+                    c_annotation_card)
+
+        def c_video_bind_ui():
+            # auto-bind is disabled for probe runs (BILI_AUTO_BIND=0); pick
+            # a still-unbound song from disk and assert the bind entry
+            # points render without any iframe. If the whole library is
+            # bound, fall back to asserting the manual accordion exists.
+            probe.tab("🎧 播放解读")
+            import json as _json
+            target = None
+            for d in sorted((ROOT / "data" / "songs").iterdir()):
+                mp = d / "metadata.json"
+                if not mp.exists():
+                    continue
+                try:
+                    meta = _json.loads(mp.read_text(encoding="utf-8"))
+                except ValueError:
+                    continue
+                if not meta.get("bvid"):
+                    target = meta.get("title", d.name)
+                    break
+            must(pg.get_by_text("📺 关联 B 站视频").count() >= 1,
+                 "manual bvid accordion missing")
+            if target is None:
+                return  # every song bound — nothing unbound to assert on
+            pg.get_by_role("radio", name=target, exact=True).first.check()
+            probe.wait_until(
+                lambda: count("[data-bvid-search]") >= 1,
+                msg=f"B站 MV search button missing on unbound song {target}")
+            must(count(".bv-frame") == 0,
+                 "iframe rendered without a bound bvid")
+        probe.check("video_bind_ui", "bilibili bind entry points render",
+                    c_video_bind_ui)
+
+
 
         def c_mv_eggs_present():
             probe.tab("🥚 彩蛋地图")
@@ -865,16 +838,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("mv_eggs_present", "MV eggs accordion present",
                     c_mv_eggs_present)
 
-        def c_identify_guard():
-            probe.tab("🎮 互动")
-            probe.tab("🎙️ 听歌识曲")
-            pg.get_by_role("button", name="🔍 识别").click()
-            pg.wait_for_timeout(2500)
-            body = pg.locator("body").inner_text()
-            must("请先录" in body or "无法识别" in body or "声纹" in body,
-                 "identify guard/result missing")
-        probe.check("identify_guard", "identify without recording -> guard",
-                    c_identify_guard)
 
         # ── add-song tab ──
         def c_catalog():
@@ -1019,7 +982,10 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         # ── settings tab ──
         def c_settings():
             probe.tab("⚙️ 设置")
-            must(count("input[type=password]") >= 1, "api key field missing")
+            probe.tab("🔑")  # 📊 用量页现在是默认首页
+            probe.wait_until(
+                lambda: count("input[type=password]") >= 1,
+                msg="api key field missing")
             probe.tab("🧠")  # sections live behind bottom icons now
             probe.wait_until(
                 lambda: "重建语料库索引" in pg.locator("body").inner_text(),
@@ -1071,7 +1037,9 @@ def main() -> int:
         base = f"http://127.0.0.1:{port}"
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         server_log = OUT_DIR / "server.log"
-        env = {**__import__("os").environ, "UI_PORT": str(port)}
+        # BILI_AUTO_BIND=0: no grey-API搜索 traffic from probe runs
+        env = {**__import__("os").environ, "UI_PORT": str(port),
+               "BILI_AUTO_BIND": "0"}
         with open(server_log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "lyric_agent.cli", "serve", "--no-browser"],

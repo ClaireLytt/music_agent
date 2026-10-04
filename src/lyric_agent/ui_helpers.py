@@ -5,6 +5,7 @@ every function stays unit-testable in isolation."""
 from __future__ import annotations
 
 import html
+import re
 import json
 import logging
 from pathlib import Path
@@ -59,6 +60,9 @@ def _discover_songs(songs_dir: str,
             "audio_type": audio.type, "audio_src": audio.path_or_url or "",
             # preview clips start mid-song; shift lyric sync by this many ms
             "audio_offset_ms": int(meta.get("audio_offset_ms", 0) or 0),
+            # bound bilibili video for the 📺 video playback mode
+            "bvid": meta.get("bvid", ""),
+            "bvid_no_auto": bool(meta.get("bvid_no_auto")),
             # Windows: st_ctime is directory creation time = when the song was added
             "added_ts": d.stat().st_ctime,
         })
@@ -427,13 +431,64 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
     )
 
 
-def _render_audio_html(song_info: dict, chorus_ts: int | None = None) -> str:
+_BV_NOTE = ('<div class="bv-note">📺 视频模式：歌词同步/卡拉OK不可用，'
+            '点句阅读与 AI 提问照常。</div>')
+
+
+def _render_video_html(song_info: dict, has_audio: bool,
+                       public: bool) -> str:
+    """📺 B 站视频区：官方嵌入播放器 + 绑定/候选 UI（非公开）。"""
+    from .bilibili import embed_url
+    bvid = song_info.get("bvid", "")
+    unbind = ('<button class="ptool" data-bvid-unbind="1" '
+              'title="删除绑定并重新选择视频">🗑 换一个视频</button>'
+              if not public else "")
+    parts = []
+    if bvid:
+        if has_audio:
+            # video always shown alongside the audio player (user choice);
+            # the 📺 button only collapses/expands it
+            parts.append(
+                '<button class="ptool" data-video-toggle="1">'
+                '📺 收起/展开 MV</button>' + unbind +
+                f'<div class="bv-frame" '
+                f'data-embed="{_esc(embed_url(bvid))}">'
+                f'<iframe allowfullscreen scrolling="no" frameborder="0" '
+                f'src="{_esc(embed_url(bvid))}"></iframe></div>')
+        else:
+            parts.append(
+                f'<div class="bv-frame" data-embed="{_esc(embed_url(bvid))}">'
+                f'<iframe allowfullscreen scrolling="no" frameborder="0" '
+                f'src="{_esc(embed_url(bvid))}"></iframe></div>'
+                + _BV_NOTE + unbind)
+    elif not public:
+        parts.append(
+            '<div class="bv-bind"><button class="ptool" '
+            'data-bvid-search="1">🔍 搜索 B 站 MV</button>'
+            '<span class="bv-bind-hint">或在下方「📺 关联 B 站视频」'
+            '手风琴里粘 BV 号</span></div>')
+        for c in song_info.get("bvid_cands", []):
+            parts.append(
+                f'<div class="bv-cand" data-bvid-pick="{_esc(c["bvid"])}">'
+                f'<b>{_esc(c["title"])}</b>'
+                f'<span class="bv-cand-meta">UP主 {_esc(c["author"])} · '
+                f'{_esc(c["duration"])} · {_esc(c["bvid"])}'
+                '（点击绑定）</span></div>')
+    return "".join(parts)
+
+
+def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
+                       public: bool = False) -> str:
     a_type, src = song_info["audio_type"], song_info["audio_src"]
     offset = song_info.get("audio_offset_ms", 0)
     hint = ('<div class="preview-hint">🎧 官方试听片段 · 歌词已自动对齐</div>'
             if offset else "")
     if a_type not in ("local", "url"):
-        return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>'
+        video = _render_video_html(song_info, has_audio=False,
+                                   public=public)
+        if song_info.get("bvid"):
+            return video  # bound video replaces the no-audio banner
+        return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>' + video
     url = _file_url(src) if a_type == "local" else src
     # cached radio intro (电台串场语音), if generated for this song
     from .radio import intro_audio_path
@@ -448,6 +503,7 @@ def _render_audio_html(song_info: dict, chorus_ts: int | None = None) -> str:
         f'data-offset="{offset}"{intro} '
         f'src="{_esc(url)}" style="width:100%"></audio>'
         + _player_tools(song_info, chorus_ts) + hint
+        + _render_video_html(song_info, has_audio=True, public=public)
     )
 
 
@@ -557,8 +613,22 @@ def _render_echo_html(results: list[dict], artist: str) -> str:
     return '<div class="echo-list">' + "".join(cards) + "</div>"
 
 
-def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
+def load_translation(song_dir: str) -> dict[int, str]:
+    """data/songs/<歌>/translation.json → {line_index: 中文}；无则 {}。"""
+    p = Path(song_dir) / "translation.json"
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        return {int(k): v for k, v in raw.get("lines", {}).items() if v}
+    except (OSError, ValueError):
+        return {}
+
+
+def _render_lyrics_html(song_data: dict, song_info: dict,
+                        public: bool = False,
+                        show_trans: bool = False) -> str:
     lines = song_data["timed_lines"]
+    trans = (load_translation(song_info["dir"])
+             if show_trans and song_info.get("dir") else {})
 
     artist = song_info["artist"]
     album = song_info["album"]
@@ -579,15 +649,19 @@ def _render_lyrics_html(song_data: dict, song_info: dict) -> str:
             color = _RHYME_COLORS[group % len(_RHYME_COLORS)]
             mark = (f'<span class="rhyme-mark" style="background:{color}" '
                     f'title="韵脚组 {group + 1}"></span>')
+        zh = trans.get(ln.line_index, "")
+        zh_html = (f'<div class="lyric-trans">{_esc(zh)}</div>' if zh else "")
         parts.append(
             f'<div class="lyric-line" data-index="{ln.line_index}" '
             f'data-ts="{ln.timestamp_ms}">'
-            f'<span class="lyric-text">{_esc(ln.text)}</span>{mark}</div>'
+            f'<span class="lyric-text">{_esc(ln.text)}</span>{mark}'
+            f'{zh_html}</div>'
         )
 
     return (
         header_html
-        + _render_audio_html(song_info, song_data.get("chorus_ts"))
+        + _render_audio_html(song_info, song_data.get("chorus_ts"),
+                             public=public)
         + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
           '🖱️ <b>双击英文单词</b>查词义/收藏生词 · '
           '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'
@@ -626,15 +700,104 @@ def render_wordbook(entries: list[dict],
             src_html = f'<div class="wb-src">「{_esc(src)}」</div>'
         else:
             src_html = ""
+        ai = (e.get("ai", "") or "").strip()
+        ai_html = (f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(
+            "\n", "<br>") if ai else "")
         items.append(
             f'<div class="wb-item">'
             f'<span class="wb-del" data-wb="del:{_esc(word)}" '
             f'title="移出单词本">✕</span>'
             f'<div class="wb-word">{_esc(word)} {phon_html}</div>'
             f'<div class="wb-meaning">{_esc(meaning)}</div>'
-            f'{src_html}</div>'
+            f'{src_html}{ai_html}</div>'
         )
     return f'<div class="wb-list">{"".join(items)}</div>'
+
+
+_ANN_HINT = ('<div class="chat-empty">点一句歌词，这里展示它的'
+             ' AI 批注。</div>')
+
+_ANN_ROWS = [  # (attr, emoji, label)
+    ("metaphor_analysis", "🎭", "修辞"),
+    ("allusions", "📜", "用典"),
+    ("wordplay", "🃏", "文字游戏"),
+    ("cultural_context", "🌍", "文化背景"),
+    ("taylor_swift_context", "📀", "创作背景"),
+]
+
+
+def render_annotation_card(ann, line_index: int,
+                           can_generate: bool) -> str:
+    """点句后的批注卡。ann 为 None 时给空态——非公开模式附一个需要用户
+    点击确认的「生成本句批注」按钮（按钮即授权，不点永不调 LLM）。"""
+    if ann is None or not getattr(ann, "summary", ""):
+        btn = (f'<button class="dict-btn" data-gen-ann="{line_index}">'
+               '✨ 为本句生成 AI 批注（调用 1 次 LLM）</button>'
+               if can_generate else "")
+        return (f'<div class="ann-card ann-empty">这句还没有 AI 批注。'
+                f'{btn}</div>')
+    parts = [f'<div class="ann-card">'
+             f'<div class="ann-summary">📖 {_esc(ann.summary)}</div>']
+    for attr, emoji, label in _ANN_ROWS:
+        v = getattr(ann, attr, None)
+        if v:
+            parts.append(f'<div class="ann-row">{emoji} '
+                         f'<b>{label}</b> {_esc(v)}</div>')
+    tone = getattr(ann, "emotional_tone", "") or ""
+    if tone and tone != "unknown":
+        parts.append(f'<div class="ann-row">💗 <b>情绪</b> {_esc(tone)}</div>')
+    related = getattr(ann, "related_lines", None) or []
+    for r in related[:2]:
+        song = getattr(r, "song", "") or ""
+        line = getattr(r, "line", "") or ""
+        if song and line:
+            parts.append(f'<div class="ann-row ann-rel">🔗 '
+                         f'《{_esc(song)}》“{_esc(line)}”</div>')
+    parts.append('</div>')
+    return "".join(parts)
+
+
+def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
+    """⌨️ 单词练习 card. The JS keystroke loop (ui_assets) reads data-word /
+    data-mp3 / data-nonce and colors the .tp-ch spans; the hidden input
+    receives focus so the player's space/arrow shortcuts stay exempt."""
+    word = entry.get("word", "")
+    chars = "".join(f'<span class="tp-ch" data-ch="{_esc(c.lower())}">'
+                    f'{_esc(c)}</span>' for c in word)
+    phon = entry.get("phonetic", "")
+    phon_html = f'<span class="wb-phon">/{_esc(phon)}/</span>' if phon else ""
+    say = ('<button class="ptool" data-ll-say="1" title="重播发音">🔊</button>'
+           if mp3_url else "")
+    eye = ('<button class="ptool" data-tp-eye="1" '
+           'title="切换 显示单词 / 盲打模式">👁</button>')
+    meaning = (entry.get("translation", "") or "").replace("\\n", "；")
+    rows = []
+    if meaning:
+        rows.append(f'<div class="wb-meaning">{_esc(meaning)}</div>')
+    if entry.get("line"):
+        # 目标单词嵌在原句里高亮；盲打模式下由 CSS 遮住
+        src = re.sub(re.escape(_esc(word)),
+                     lambda m: f'<span class="tp-wline-word">{m.group(0)}'
+                               '</span>',
+                     _esc(entry["line"]), count=1, flags=re.IGNORECASE)
+        rows.append(f'<div class="wb-src">「{src}」'
+                    f'·《{_esc(entry.get("song", ""))}》</div>')
+    ai = (entry.get("ai", "") or "").strip()
+    if ai:
+        rows.append(f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(
+            "\n", "<br>"))
+    return (  # 默认盲打（tp-blind 烘焙进首帧，杜绝"闪现全词"）；
+        # 用户点 👁 或 localStorage 记忆为显示时由 JS 摘除
+        f'<div class="ll-type-card tp-blind" '
+        f'data-word="{_esc(word.lower())}" '
+        f'data-mp3="{_esc(mp3_url)}" data-nonce="{_esc(nonce)}">'
+        f'<div class="tp-word">{chars} {phon_html} {say} {eye}</div>'
+        f'<input class="ll-type-input" autocomplete="off" '
+        f'autocapitalize="off" spellcheck="false">'
+        f'<div class="tp-ime-hint">请切换到英文输入法</div>'
+        f'{"".join(rows)}'
+        f'<div class="tp-blurhint">💡 打错整词重来；点卡片可继续输入</div>'
+        f'</div>')
 
 
 # ── Insights renderers (曲库洞察) ─────────────────────────

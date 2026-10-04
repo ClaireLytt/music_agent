@@ -18,7 +18,7 @@ jobs:
         # sentence-transformers（torch，~2GB）在单测中被 monkeypatch，无需安装
         run: |
           pip install -e .
-          pip install numpy scipy jieba pypinyin pronouncing pytest pyflakes
+          pip install numpy scipy jieba pypinyin pronouncing pytest pyflakes mcp openai
       - name: Lint
         run: python -m pyflakes src/lyric_agent scripts/self_test.py scripts/ui_probe.py scripts/ui_agent.py tests
       - name: Unit tests
