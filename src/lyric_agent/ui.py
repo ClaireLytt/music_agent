@@ -1510,8 +1510,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                 mp3 = synthesize_word(entry["word"])
                 url = _file_url(mp3) if mp3 else ""
                 state["word"] = entry["word"]
+                from .review import word_examples
+                examples = word_examples(entry["word"],
+                                         exclude_song=entry.get("song", ""))
                 return (state,
-                        render_practice_card(entry, url, uuid.uuid4().hex),
+                        render_practice_card(entry, url, uuid.uuid4().hex,
+                                             examples=examples),
                         _review_stats_line(state))
 
             def on_review_start(state):

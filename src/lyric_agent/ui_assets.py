@@ -767,6 +767,28 @@ _HEAD_JS = """
       writeChannel('ll-gen-ann', ga.dataset.genAnn + '\\t' + Date.now());
       return;
     }
+    const tj = e.target.closest('[data-tp-jump]');
+    if (tj) {
+      // 打字卡出处歌词 -> 切到播放页并闪烁那一句；挂一个返回按钮
+      for (const b of document.querySelectorAll('button[role="tab"]'))
+        if (b.textContent.includes('播放解读')) { b.click(); break; }
+      window.__llPendingLine = parseInt(tj.dataset.tpLine || '-1', 10);
+      writeChannel('ll-cite-jump',
+                   tj.dataset.tpJump + '\\t' + tj.dataset.tpLine
+                   + '\\t' + Date.now());
+      if (!document.getElementById('ll-back-typing')) {
+        const back = document.createElement('button');
+        back.id = 'll-back-typing';
+        back.textContent = '↩ 回到打字练习';
+        back.addEventListener('click', () => {
+          for (const b of document.querySelectorAll('button[role="tab"]'))
+            if (b.textContent.includes('歌曲寻词')) { b.click(); break; }
+          back.remove();
+        });
+        document.body.appendChild(back);
+      }
+      return;
+    }
     const es = e.target.closest('[data-echo-story]');
     if (es) {
       if (!confirm('将调用 1 次 LLM 把本歌的呼应讲成一段彩蛋故事，继续？')) return;
@@ -1600,14 +1622,25 @@ footer, .gradio-container footer { display: none !important; }
 .ll-type-card .ll-type-input { position: absolute; opacity: 0;
   width: 1px; height: 1px; border: 0; padding: 0; }
 .ll-type-card .wb-meaning, .ll-type-card .wb-src, .ll-type-card .wb-ai {
-  margin-top: 6px; font-size: 1.05em; }
+  margin-top: 8px; font-size: 1.3em; line-height: 1.7; }
 .ll-type-card .tp-ime-hint { display: none; color: #cf222e;
   font-size: .85em; margin-top: 4px; }
 .ll-type-card.tp-ime .tp-ime-hint { display: block; }
-.ll-type-card .tp-blurhint { font-size: .95em; color: var(--text-secondary);
+.ll-type-card .tp-blurhint { font-size: 1.05em; color: var(--text-secondary);
   margin-top: 10px; }
 .ll-type-card .tp-wline-word { background: var(--accent-soft);
   border-radius: 4px; padding: 0 2px; }
+.ll-type-card .wb-src[data-tp-jump] { cursor: pointer; }
+.ll-type-card .wb-src[data-tp-jump]:hover { color: var(--accent); }
+.ll-type-card .wb-example { margin-top: 6px; font-size: 1.15em;
+  line-height: 1.6; color: var(--text-secondary); }
+#ll-back-typing {
+  position: fixed; z-index: 1280; right: 16px; bottom: 60px;
+  padding: 8px 16px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--bg-card);
+  color: var(--accent); font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .15); }
+#ll-back-typing:hover { background: var(--accent); color: #fff; }
 .ll-type-card.tp-blind .tp-ch { color: transparent;
   border-bottom: 2px solid var(--karaoke-rest); }
 .ll-type-card.tp-blind .tp-ch.ok { color: var(--accent);

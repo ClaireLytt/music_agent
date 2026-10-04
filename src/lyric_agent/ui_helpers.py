@@ -778,10 +778,22 @@ def render_annotation_card(ann, line_index: int,
     return "".join(parts)
 
 
-def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
+def _mask_word(text: str, word: str) -> str:
+    """Escape text and wrap each occurrence of word in the blind-mode mask
+    span (tp-wline-word) so blind practice never leaks the answer."""
+    return re.sub(re.escape(_esc(word)),
+                  lambda m: f'<span class="tp-wline-word">{m.group(0)}'
+                            '</span>',
+                  _esc(text), flags=re.IGNORECASE)
+
+
+def render_practice_card(entry: dict, mp3_url: str, nonce: str,
+                         examples: list[str] | None = None) -> str:
     """⌨️ 单词练习 card. The JS keystroke loop (ui_assets) reads data-word /
     data-mp3 / data-nonce and colors the .tp-ch spans; the hidden input
-    receives focus so the player's space/arrow shortcuts stay exempt."""
+    receives focus so the player's space/arrow shortcuts stay exempt.
+
+    examples: 零 LLM 真例句（词典 API/曲库，review.word_examples）。"""
     word = entry.get("word", "")
     chars = "".join(f'<span class="tp-ch" data-ch="{_esc(c.lower())}">'
                     f'{_esc(c)}</span>' for c in word)
@@ -797,12 +809,18 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
         rows.append(f'<div class="wb-meaning">{_esc(meaning)}</div>')
     if entry.get("line"):
         # 目标单词嵌在原句里高亮；盲打模式下由 CSS 遮住
-        src = re.sub(re.escape(_esc(word)),
-                     lambda m: f'<span class="tp-wline-word">{m.group(0)}'
-                               '</span>',
-                     _esc(entry["line"]), count=1, flags=re.IGNORECASE)
-        rows.append(f'<div class="wb-src">「{src}」'
+        src = _mask_word(entry["line"], word)
+        # 条目带定位信息时整行可点：跳到那首歌的那一句（JS 委托）
+        label = entry.get("label", "")
+        line_idx = entry.get("line_index", -1)
+        jump = (f' data-tp-jump="{_esc(label)}" data-tp-line="{line_idx}" '
+                'title="点击去歌里听这句"'
+                if label and line_idx >= 0 else "")
+        rows.append(f'<div class="wb-src"{jump}>「{src}」'
                     f'·《{_esc(entry.get("song", ""))}》</div>')
+    for ex in (examples or [])[:3]:
+        rows.append(f'<div class="wb-example">📚 {_mask_word(ex, word)}'
+                    '</div>')
     ai = (entry.get("ai", "") or "").strip()
     if ai:
         rows.append(f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(

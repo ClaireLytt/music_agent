@@ -7,6 +7,7 @@ keystroke loop in ui_assets; everything in this module is zero-LLM.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -115,6 +116,88 @@ def export_anki(book: list[dict]) -> str:
         lines.append(f"{_anki_field(front)}\t"
                      + "<br>".join(p for p in back if p))
     return "\n".join(lines) + "\n"
+
+
+_EXAMPLES_CACHE = Path("data/cache/word_examples.json")
+_CORPUS_PATH = Path("data/corpus/discography.jsonl")
+
+
+def _examples_from_api(word: str, limit: int) -> list[str]:
+    import urllib.parse
+    import urllib.request
+
+    url = ("https://api.dictionaryapi.dev/api/v2/entries/en/"
+           + urllib.parse.quote(word))
+    with urllib.request.urlopen(url, timeout=3) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    out = []
+    for entry in data if isinstance(data, list) else []:
+        for m in entry.get("meanings", []):
+            for d in m.get("definitions", []):
+                ex = (d.get("example") or "").strip()
+                if ex and ex not in out:
+                    out.append(ex)
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def _examples_from_corpus(word: str, exclude_song: str, limit: int) -> list[str]:
+    pat = re.compile(rf"\b{re.escape(word)}\b", re.IGNORECASE)
+    out = []
+    with _CORPUS_PATH.open(encoding="utf-8") as f:
+        for raw in f:
+            try:
+                song = json.loads(raw)
+            except ValueError:
+                continue
+            if song.get("title", "") == exclude_song:
+                continue
+            for line in song.get("lyrics_lines", []):
+                if pat.search(line):
+                    out.append(f"{line} ——《{song.get('title', '')}》")
+                    break  # 每首歌最多取一句
+            if len(out) >= limit:
+                break
+    return out
+
+
+def word_examples(word: str, exclude_song: str = "",
+                  limit: int = 3) -> list[str]:
+    """零 LLM 真例句：词典 API（dictionaryapi.dev，免费无 key）优先，
+    失败/为空退回曲库其他歌的歌词句；全失败返回 []，绝不抛。
+    结果（含空结果）落盘缓存，离线/限流只打一次。
+    LL_WORD_EXAMPLES=0 彻底关闭（探针环境零外网请求）。"""
+    import os
+
+    word = (word or "").strip().lower()
+    if not word or os.getenv("LL_WORD_EXAMPLES", "1") == "0":
+        return []
+    try:
+        cache = json.loads(_EXAMPLES_CACHE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    if word in cache:
+        return cache[word][:limit]
+    examples: list[str] = []
+    try:
+        examples = _examples_from_api(word, limit)
+    except Exception:
+        logger.info("dictionary API unavailable for %r", word)
+    if not examples:
+        try:
+            examples = _examples_from_corpus(word, exclude_song, 2)
+        except OSError:
+            pass
+    try:
+        cache[word] = examples
+        _EXAMPLES_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        _EXAMPLES_CACHE.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=1),
+            encoding="utf-8")
+    except OSError:
+        pass
+    return examples
 
 
 def synthesize_word(word: str, voice: str = TTS_VOICE) -> Path | None:

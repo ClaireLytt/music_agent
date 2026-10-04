@@ -1052,7 +1052,8 @@ def main() -> int:
         # BILI_AUTO_BIND=0: no grey-API搜索 traffic from probe runs
         env = {**__import__("os").environ, "UI_PORT": str(port),
                "BILI_AUTO_BIND": "0",
-               "LL_CORPUS_REBUILD": "0"}
+               "LL_CORPUS_REBUILD": "0",
+               "LL_WORD_EXAMPLES": "0"}
         with open(server_log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "lyric_agent.cli", "serve", "--no-browser"],

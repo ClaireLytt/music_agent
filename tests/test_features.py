@@ -931,3 +931,53 @@ def test_echo_card_comment_and_word(tmp_path):
         learn_word="rain", learn_gloss="n. 雨")
     from pathlib import Path
     assert Path(path).exists() and Path(path).stat().st_size > 10000
+
+
+def test_word_examples_sources(tmp_path, monkeypatch):
+    import json as J
+
+    from lyric_agent import review as rv
+
+    monkeypatch.setattr(rv, "_EXAMPLES_CACHE", tmp_path / "ex.json")
+    corpus = tmp_path / "corpus.jsonl"
+    corpus.write_text(
+        J.dumps({"title": "SongX",
+                 "lyrics_lines": ["the rain falls hard", "other line"]})
+        + "\n"
+        + J.dumps({"title": "Home", "lyrics_lines": ["rain on me"]}) + "\n",
+        encoding="utf-8")
+    monkeypatch.setattr(rv, "_CORPUS_PATH", corpus)
+    # API 成功
+    monkeypatch.setattr(rv, "_examples_from_api",
+                        lambda w, n: ["It began to rain."])
+    assert rv.word_examples("Rain") == ["It began to rain."]
+    # 缓存命中（API 改成会炸也不该被调用）
+    monkeypatch.setattr(rv, "_examples_from_api", lambda w, n: 1 / 0)
+    assert rv.word_examples("rain") == ["It began to rain."]
+    # API 失败 -> 语料退回（排除出处歌），空结果也缓存
+    (tmp_path / "ex.json").unlink()
+    out = rv.word_examples("rain", exclude_song="Home")
+    assert out and "SongX" in out[0] and "Home" not in "".join(out)
+    # 全失败 -> []
+    monkeypatch.setattr(rv, "_CORPUS_PATH", tmp_path / "nope.jsonl")
+    assert rv.word_examples("zzzneverseen") == []
+    # kill switch
+    monkeypatch.setenv("LL_WORD_EXAMPLES", "0")
+    assert rv.word_examples("rain") == []
+
+
+def test_practice_card_jump_and_examples():
+    from lyric_agent.ui_helpers import render_practice_card
+
+    entry = {"word": "rain", "translation": "n. 雨",
+             "line": "the Rain falls", "song": "SongX",
+             "label": "SongX — Artist", "line_index": 7}
+    html = render_practice_card(entry, "", "n1",
+                                examples=["Dancing in the rain."])
+    assert 'data-tp-jump="SongX' in html and 'data-tp-line="7"' in html
+    # 例句里的目标词也要被盲打遮罩
+    assert '<span class="tp-wline-word">rain</span>.' in html
+    # 没有定位信息 -> 不可点
+    entry2 = dict(entry, label="", line_index=-1)
+    assert "data-tp-jump" not in render_practice_card(entry2, "", "n2")
+
