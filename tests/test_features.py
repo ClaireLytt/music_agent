@@ -982,3 +982,59 @@ def test_practice_card_jump_and_examples():
     entry2 = dict(entry, label="", line_index=-1)
     assert "data-tp-jump" not in render_practice_card(entry2, "", "n2")
 
+
+def test_parse_fanlore_defensive():
+    from lyric_agent.fanlore import parse_fanlore
+
+    assert parse_fanlore(None).known is False
+    assert parse_fanlore("garbage").known is False
+    f = parse_fanlore({
+        "known": True, "hook": " 一句话 ", "summary": "s", "caveat": "c",
+        "clues": [
+            {"type": "official", "title": "t", "body": "b",
+             "quote_a": {"song": "A", "line": "la"}},
+            {"type": "alien_source", "body": "b2"},   # 未知来源 → 最弱档
+            {"type": "fan_theory"},                    # 没 body → 丢弃
+            "not-a-dict",
+        ],
+        "chain": [{"song": "A", "beat": "x"}, {"song": "", "beat": "y"},
+                  {"beat": "z"}, 42],
+    })
+    assert f.known and f.hook == "一句话"
+    assert [c.type for c in f.clues] == ["official", "fan_theory"]
+    assert f.clues[0].quote_a == ("A", "la") and f.clues[0].quote_b is None
+    assert f.chain == [("A", "x")]
+
+
+def test_render_fanlore_html():
+    from lyric_agent.fanlore import Clue, Fanlore, render_fanlore_html
+
+    # known=False → 诚实空态
+    html = render_fanlore_html(Fanlore(known=False, caveat="太冷门"),
+                               "SongX")
+    assert "太冷门" in html and "lore-clue" not in html
+
+    def verifier(line, song_hint):
+        if line == "the rain falls":
+            return {"song_title": "SongA", "line_index": 3,
+                    "line_text": "the rain falls"}
+        return None
+
+    f = Fanlore(
+        known=True, hook="一句话看懂", summary="总结",
+        clues=[Clue(type="lyric_parallel", title="对上了", body="正文",
+                    quote_a=("SongA", "the rain falls"),
+                    quote_b=("SongB", "made up line")),
+               Clue(type="fan_theory", body="理论正文")],
+        chain=[("SongA", "第一站"), ("NotInLib", "第二站")])
+    html = render_fanlore_html(f, "SongX", verifier=verifier,
+                               label_of={"SongA": "SongA — Artist"})
+    # 验证命中 → 可点跳转；未命中 → ⚠️
+    assert 'data-cite-label="SongA — Artist"' in html
+    assert "⚠️ 未在曲库验证" in html
+    # fan_theory 自动带非官方标注
+    assert "粉丝理论，非官方" in html
+    # 剧情链：库内可点、库外灰显
+    assert "lore-pill-out" in html and html.count("data-lore-vote") == 3
+    assert "考据由 AI 整理" in html
+

@@ -874,6 +874,10 @@ _HEAD_JS = """
     }
     const cite = e.target.closest('[data-cite-label]');
     if (cite) {
+      // 从歌迷考据页跳转时顺带切回播放页（证据卡本就在播放页，无影响）
+      if (cite.closest('.lore-page'))
+        for (const b of document.querySelectorAll('button[role="tab"]'))
+          if (b.textContent.includes('播放解读')) { b.click(); break; }
       const lineNo = parseInt(cite.dataset.citeLine || '-1', 10);
       const cur = document.querySelector('#ll-songs input[type=radio]:checked');
       if (cur && cur.value === cite.dataset.citeLabel) {
@@ -896,37 +900,18 @@ _HEAD_JS = """
                    + '\\t' + Date.now());
       return;
     }
-    if (e.target.closest('details.egg-more')) return;  // expand, not pick
-    const fp = e.target.closest('[data-focus-pick]');
-    if (fp) {
-      writeChannel('ll-focus-pick', fp.dataset.focusPick + '\\t' + Date.now());
+    const lv = e.target.closest('[data-lore-vote]');
+    if (lv) {
+      // 考据页投票：纯前端，localStorage 记一次（每歌一票，仅本机）
+      const key = 'll_lore_vote_' + (lv.dataset.loreSong || '');
+      let voted = '';
+      try { voted = localStorage.getItem(key) || ''; } catch (err) {}
+      if (voted) return;
+      try { localStorage.setItem(key, lv.dataset.loreVote); } catch (err) {}
+      lv.classList.add('lore-voted');
+      lv.textContent += ' ✓';
+      return;
     }
-  }, true);
-
-  // 彩蛋地图 network view: hovering a song dims unrelated edges and nodes
-  // so its connections stand out (focus view has no data-ega edges, so
-  // the toggles below never fire there)
-  document.addEventListener('mouseover', (e) => {
-    const svg = e.target.closest('.egg-svg');
-    if (!svg || !svg.querySelector('.egg-edge[data-ega]')) return;
-    const g = e.target.closest('[data-focus-pick]');
-    const song = g ? g.dataset.focusPick : null;
-    const keep = new Set(song ? [song] : []);
-    svg.querySelectorAll('.egg-edge[data-ega]').forEach(p => {
-      const on = !song || p.dataset.ega === song || p.dataset.egb === song;
-      p.classList.toggle('egg-dim', !on);
-      p.classList.toggle('egg-lit', !!song && on);
-      if (song && on) { keep.add(p.dataset.ega); keep.add(p.dataset.egb); }
-    });
-    svg.querySelectorAll('[data-focus-pick]').forEach(nd => {
-      nd.classList.toggle('egg-dim', !!song && !keep.has(nd.dataset.focusPick));
-    });
-  }, true);
-  document.addEventListener('mouseout', (e) => {
-    const svg = e.target.closest('.egg-svg');
-    if (!svg || svg.contains(e.relatedTarget)) return;
-    svg.querySelectorAll('.egg-dim, .egg-lit').forEach(
-      el => el.classList.remove('egg-dim', 'egg-lit'));
   }, true);
 
   // current playback position → hidden channel (used by 听歌笔记)
@@ -1055,7 +1040,7 @@ _HEAD_JS = """
       text: '🎚 播放器工具：跳副歌、A-B 循环、韵脚标色；'
             + '💫 回声时刻开着时，唱到有呼应的歌词会自动弹出回声卡。' },
     { sel: 'button[role="tab"]',
-      text: '🗂 顶部页签：🔤 歌曲寻词练打字背单词，🥚 彩蛋地图看歌词互文，'
+      text: '🗂 顶部页签：🔤 歌曲寻词练打字背单词，🕵️ 歌迷考据看 AI 整理的歌曲故事，'
             + '➕ 添加歌曲自动配歌词和 MV，⚙️ 设置里填 API Key 看用量。' },
     { sel: null,
       text: '✅ 就这些！随时点<b>左下角 ❓</b> 重新打开本指引。祝听歌愉快～' },
@@ -1636,6 +1621,54 @@ footer, .gradio-container footer { display: none !important; }
   color: var(--text-secondary); font-size: 15px;
   box-shadow: 0 4px 14px rgba(15, 23, 42, .15); }
 #ll-onboard-btn:hover { color: var(--accent); border-color: var(--accent); }
+/* 🕵️ 歌迷考据 */
+.lore-page { max-width: 760px; }
+.lore-head { font-size: 18px; font-weight: 800; margin: 8px 0; }
+.lore-hook { padding: 12px 16px; border-left: 4px solid var(--accent);
+  background: var(--accent-soft); border-radius: 0 10px 10px 0;
+  font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+.lore-sec { font-weight: 700; margin: 16px 0 8px; }
+.lore-clue { padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-card); margin-bottom: 10px;
+  line-height: 1.75; }
+.lore-badge { display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 999px; margin-bottom: 6px; }
+.lore-badge.lore-official { background: #dafbe1; color: #116329; }
+.lore-badge.lore-parallel { background: var(--accent-soft);
+  color: var(--accent); }
+.lore-badge.lore-theory { background: #fff1e5; color: #953800; }
+.lore-clue-title { font-weight: 700; margin: 2px 0 4px; }
+.lore-clue-body { color: var(--text-primary); }
+.lore-quote { margin-top: 8px; padding: 8px 12px; border-radius: 8px;
+  background: var(--bg-main); font-style: italic; }
+.lore-quote.ev-ok { cursor: pointer; }
+.lore-quote.ev-ok:hover { background: var(--bg-card-hover); }
+.lore-quote-src { font-style: normal; font-size: 12px; margin-left: 8px;
+  color: var(--text-secondary); }
+.lore-theory-note { margin-top: 6px; font-size: 11.5px;
+  color: var(--text-secondary); }
+.lore-chain { margin: 6px 0 10px; line-height: 2.2; }
+.lore-pill { display: inline-block; padding: 3px 12px; border-radius: 999px;
+  border: 1px solid var(--accent); color: var(--accent); cursor: pointer;
+  font-size: 12.5px; margin: 0 2px; }
+.lore-pill:hover { background: var(--accent); color: #fff; }
+.lore-pill.lore-pill-out { border-color: var(--border);
+  color: var(--text-secondary); cursor: default; }
+.lore-pill.lore-pill-out:hover { background: transparent;
+  color: var(--text-secondary); }
+.lore-beat { font-size: 12.5px; color: var(--text-secondary);
+  margin: 2px 0; }
+.lore-vote { margin-top: 10px; font-size: 13px; }
+.lore-vote .ptool { margin-left: 8px; }
+.lore-vote .lore-voted { border-color: var(--accent);
+  color: var(--accent); }
+.lore-summary { margin-top: 14px; padding: 12px 16px; border-radius: 12px;
+  background: var(--accent-soft); line-height: 1.8; }
+.lore-caveat { margin-top: 8px; font-size: 12px;
+  color: var(--text-secondary); }
+.lore-disclaim { margin-top: 14px; font-size: 11.5px;
+  color: var(--text-secondary); border-top: 1px dashed var(--border);
+  padding-top: 8px; }
 /* 点句批注卡 */
 .ann-card { padding: 12px 14px; border: 1px solid var(--border);
   border-radius: 12px; background: var(--bg-card); margin-bottom: 10px;

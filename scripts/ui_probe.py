@@ -595,22 +595,21 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
 
 
-        # ── echo map tab ──
-        def c_map_focus():
-            probe.tab("🥚 彩蛋地图")
-            pg.wait_for_timeout(1500)
-            must(count(".egg-focus") == 1, "focus star not rendered")
-            must(count(".egg-pair") >= 1, "no quote cards under focus view")
-        probe.check("map_focus", "echo map default focus view", c_map_focus)
-
-        def c_map_network():
-            pg.get_by_role("radio", name="🕸️ 整体网络").check()
-            pg.wait_for_timeout(2500)
-            must(count(".egg-edge") >= 1, "network view has no edges")
-            pg.get_by_role("radio", name="⭐ 单曲聚焦（简明）").check()
-            pg.wait_for_timeout(1500)
-        probe.check("map_network", "echo map network view toggle",
-                    c_map_network)
+        # ── 歌迷考据 tab ──
+        def c_fanlore():
+            probe.tab("🕵️ 歌迷考据")
+            pg.wait_for_timeout(1000)
+            must(pg.locator("#ll-lore-song").count() == 1,
+                 "fanlore song picker missing")
+            # LLM-priced button asserted present but NOT clicked
+            must(pg.get_by_role(
+                "button",
+                name="🕵️ 生成考据故事（调用 1 次 LLM，之后永久缓存）"
+            ).count() == 1, "fanlore generate button missing")
+            body = pg.locator("body").inner_text()
+            must("考据" in body, "fanlore intro text missing")
+        probe.check("fanlore", "fanlore tab picker + guarded button",
+                    c_fanlore)
 
         def c_imagery():
             probe.tab("🔍 意象追踪")
@@ -621,86 +620,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("imagery", "imagery trace search", c_imagery)
 
 
-        def c_map_cross():
-            probe.tab("🗺️ 呼应地图")
-            pg.locator("#ll-map-artist input").click()
-            pg.wait_for_timeout(400)
-            pg.get_by_role("option", name="🌐 跨歌手引用（全部歌手）").click()
-            probe.wait_until(
-                lambda: "跨歌手" in pg.locator("body").inner_text()
-                and count(".egg-svg") >= 1,
-                msg="cross-artist mode did not render")
-            # back to the default artist for the following checks
-            pg.locator("#ll-map-artist input").click()
-            pg.wait_for_timeout(400)
-            pg.get_by_role("option", name="Taylor Swift", exact=True).click()
-            # wait until the single-artist graph actually replaced the
-            # cross-artist one (cross-mode node keys carry a " · artist"
-            # suffix) — a fixed sleep raced the re-render under load and
-            # left focus_pick clicking the stale cross-artist SVG
-            probe.wait_until(
-                lambda: count("g.egg-clickable") >= 1
-                and " · " not in (pg.locator("g.egg-clickable").first
-                                  .get_attribute("data-focus-pick") or " · "),
-                msg="single-artist map did not come back after cross mode")
-        probe.check("map_cross", "cross-artist reference mode", c_map_cross)
 
-        def c_focus_pick():
-            probe.wait_until(lambda: count(".egg-focus") == 1,
-                             msg="focus view not rendered before pick")
-            # a queued re-render can occasionally swallow the first click
-            # (artist switch and node click landing in the same tick); one
-            # bounded retry absorbs that — a real regression fails twice
-            last = ""
-            for attempt in (1, 2, 3):
-                artist_val = pg.locator("#ll-map-artist input").input_value()
-                if attempt > 1 and " · " in (
-                        pg.locator("g.egg-clickable").first
-                        .get_attribute("data-focus-pick") or ""):
-                    # cross-artist DOM although the input displays a single
-                    # artist: the option click likely never fired .input —
-                    # re-select the artist to resync, keep the evidence
-                    pg.locator("#ll-map-artist input").click()
-                    pg.wait_for_timeout(400)
-                    pg.get_by_role("option", name=artist_val,
-                                   exact=True).click()
-                    probe.wait_until(
-                        lambda: " · " not in (
-                            pg.locator("g.egg-clickable").first
-                            .get_attribute("data-focus-pick") or " · "),
-                        msg="re-select did not restore the artist map")
-                target = pg.locator("g.egg-clickable").first \
-                    .get_attribute("data-focus-pick")
-                last = target or ""
-                pg.locator("g.egg-clickable").first.click()
-                try:
-                    probe.wait_until(
-                        lambda: ("《" + target + "》的彩蛋网络")
-                        in pg.locator(".egg-headline").inner_text(),
-                        timeout_s=12.0, msg="no refocus")
-                    if attempt > 1:
-                        print(f"  [focus_pick] self-healed on attempt "
-                              f"{attempt} (artist input was "
-                              f"{artist_val!r}, DOM was stale)")
-                    return
-                except AssertionError:
-                    if attempt == 3:
-                        raise AssertionError(
-                            "no refocus to " + repr(last)
-                            + f" | artist input={artist_val!r} | headline="
-                            + pg.locator(".egg-headline").inner_text()[:80])
-        probe.check("focus_pick", "map node click refocuses the star view",
-                    c_focus_pick)
-
-        # ── insights tab ──
-
-
-
-
-
-
-
-        # ── interactive tab ──
         def c_quiz():
             probe.tab("🎮 互动")
             probe.tab("🎯 歌词竞猜")
@@ -839,7 +759,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
 
         def c_mv_eggs_present():
-            probe.tab("🥚 彩蛋地图")
+            probe.tab("🕵️ 歌迷考据")
             probe.tab("🎬 MV 彩蛋")
             pg.wait_for_timeout(600)
             must(pg.locator("#ll-mv-song").count() == 1,

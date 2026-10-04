@@ -87,6 +87,7 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _save_chat_history,
     _save_notes,
 )
+from .fanlore import FANLORE_EMPTY
 from .mv_eggs import MV_CSS, MV_EMPTY
 from .ui_assets import _CSS, _HEAD_JS
 
@@ -708,55 +709,43 @@ def create_app(settings: Settings) -> gr.Blocks:
                         elem_classes=["ll-hidden"], show_label=False,
                         container=False)
 
-            # ══ 页签 3: 彩蛋地图 ══
-            with gr.Tab("🥚 彩蛋地图"):
+            # ══ 页签 3: 歌迷考据 ══
+            with gr.Tab("🕵️ 歌迷考据"):
                 gr.Markdown(
-                    "「彩蛋」= 歌手在不同歌曲里埋下的互相呼应的歌词——"
-                    "同一句话、同一个意象在两首歌里遥相呼应。这个页签把所选歌手的"
-                    "**全部曲库歌曲**两两比对，自动找出这些呼应。"
-                    "默认「⭐ 单曲聚焦」：以一首歌为中心，下方卡片逐对列出呼应歌词；"
-                    "「🕸️ 整体网络」看全貌。歌手选「🌐 跨歌手引用」则只看"
-                    "**不同歌手之间**的呼应（引用/致敬）。"
+                    "像看粉丝解析视频一样看一首歌：AI 把**官方信息**、曲库"
+                    "检索出的**歌词呼应**和**粉丝理论**整理成一页考据故事。"
+                    "每条线索都带来源标签；歌词引用经曲库程序验证"
+                    "（✅ 可点击跳转，⚠️ 表示未验证）。"
                 )
                 with gr.Tabs():
-                    with gr.Tab("🗺️ 呼应地图"):
-                        with gr.Row():
-                            map_artist = gr.Dropdown(
-                                choices=[], value=None, label="选择歌手",
-                                # choices arrive via app.load; custom values
-                                # keep direct API calls (self_test) from
-                                # tripping server-side checks
-                                allow_custom_value=True, scale=2,
-                                elem_id="ll-map-artist")
-                            map_focus = gr.Dropdown(
-                                choices=[], value=None,
-                                label="聚焦歌曲（按呼应数排序）",
-                                allow_custom_value=True, scale=3,
-                                elem_id="ll-map-focus")
-                        map_view = gr.Radio(
-                            choices=[("⭐ 单曲聚焦（简明）", "focus"),
-                                     ("🕸️ 整体网络", "net")],
-                            value="focus", show_label=False)
-                        echo_map_html = gr.HTML("")
-                        # JS -> backend: clicked song on the map (refocus)
-                        focus_pick_box = gr.Textbox(
-                            value="", visible=True, elem_id="ll-focus-pick",
-                            elem_classes=["ll-hidden"], show_label=False,
-                            container=False)
-                        map_explain_btn = gr.Button(
-                            "✨ 让 AI 解读这张彩蛋网络", size="sm")
-                        map_explain_out = gr.Markdown(
-                            "", elem_classes=["echo-explain"])
+                    with gr.Tab("🕵️ 考据故事") as lore_tab:
+                        lore_song_dd = gr.Dropdown(
+                            choices=song_choices(), value=None,
+                            label="选择歌曲", allow_custom_value=True,
+                            elem_id="ll-lore-song")
+                        lore_html = gr.HTML(FANLORE_EMPTY)
+                        if not public:
+                            lore_btn = gr.Button(
+                                "🕵️ 生成考据故事（调用 1 次 LLM，"
+                                "之后永久缓存）", size="sm")
+                        # library may grow while the app runs
+                        lore_tab.select(
+                            lambda: gr.Dropdown(choices=song_choices()),
+                            None, [lore_song_dd])
                     with gr.Tab("🔍 意象追踪"):
                         gr.Markdown(
                             "输入一个意象或母题（如：雨、scarf、童年、月光），"
                             "看它在所选范围的曲库里如何反复出现与演变"
                             "（按专辑分组）。")
                         with gr.Row():
+                            imagery_artist = gr.Dropdown(
+                                choices=[], value=None, label="歌手范围",
+                                allow_custom_value=True, scale=2,
+                                elem_id="ll-imagery-artist")
                             imagery_box = gr.Textbox(
                                 show_label=False,
                                 placeholder="输入意象，如：雨 / scarf / 童年",
-                                scale=4, container=False)
+                                scale=3, container=False)
                             imagery_btn = gr.Button("追踪", scale=1,
                                                     variant="primary")
                         imagery_html = gr.HTML("")
@@ -1143,207 +1132,103 @@ def create_app(settings: Settings) -> gr.Blocks:
         # dropdown sentinel for the cross-artist (references between artists) mode
         _CROSS_ARTIST_CHOICE = "🌐 跨歌手引用（全部歌手）"
 
-        _GRAPH_CACHE_DIR = Path("data/cache/echo_graphs")
+        # ── 🕵️ 歌迷考据 ──
 
-        def _graph_cache_key(choice: str) -> list:
-            corpus_p = Path(settings.corpus_dir) / "discography.jsonl"
-            emb_p = Path(settings.corpus_dir) / "embeddings.npy"
-            return [
-                corpus_p.stat().st_mtime if corpus_p.exists() else 0,
-                emb_p.stat().st_mtime if emb_p.exists() else 0,
-                settings.embedding_model,
-                settings.echo_min_similarity,
-                settings.echo_min_similarity_cjk,
-                settings.echo_map_max_nodes,
-                sorted(s["title"] for s in ctx["songs"]),
-                choice,
-            ]
+        def _render_lore(info: dict) -> str:
+            from .fanlore import (load_fanlore, parse_fanlore,
+                                  render_fanlore_html)
+            cached = load_fanlore(info["dir"])
+            if cached is None:
+                return (FANLORE_EMPTY if not public else
+                        '<div class="chat-empty">该歌曲还没有考据'
+                        '（公开版不提供现场生成）。</div>')
+            return render_fanlore_html(
+                parse_fanlore(cached), info.get("title", ""),
+                verifier=_quote_verifier(), label_of=_label_of())
 
-        def _map_graph(choice: str):
-            """Build (or fetch cached) EchoGraph + rendered HTML for a choice.
+        def on_lore_song(choice: str):
+            info = find_song(choice) if choice else {}
+            if not info.get("dir"):
+                return FANLORE_EMPTY
+            return _render_lore(info)
 
-            Two cache layers: per-session memory, then disk — the
-            cross-artist graph costs 10-20s to build, and the disk layer
-            (echo-scan pattern: mtimes + model + thresholds in the key)
-            survives server restarts."""
-            index = _echo_index()
-            if index is None:
-                return None, _ECHO_NO_INDEX
-            cache = ctx.setdefault("echo_graphs", {})
-            if choice not in cache:
-                from .intertextuality.echo_map import (
-                    build_echo_graph, graph_from_dict, graph_to_dict,
-                    render_echo_map_html)
-                key = _graph_cache_key(choice)
-                slug = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", choice)
-                disk = _GRAPH_CACHE_DIR / f"{slug}.json"
-                graph = None
+        lore_song_dd.change(on_lore_song, [lore_song_dd], [lore_html])
+
+        if not public:
+            def on_gen_lore(choice: str, user_cfg):
+                from .fanlore import (fanlore_messages, load_fanlore,
+                                      parse_fanlore, render_fanlore_html,
+                                      save_fanlore)
+                info = find_song(choice) if choice else {}
+                if not info.get("dir"):
+                    yield '<div class="chat-empty">⚠️ 请先选择一首歌。</div>'
+                    return
+                if load_fanlore(info["dir"]) is not None:
+                    yield _render_lore(info)   # 已有缓存：零调用直接展示
+                    return
+                req = _request_settings(user_cfg)
+                if not req.api_key:
+                    yield ('<div class="chat-empty">⚠️ 未配置 API Key，'
+                           '无法生成。请到「⚙️ 设置」页签填写。</div>')
+                    return
+                yield ('<div class="chat-empty">🕵️ AI 正在整理这首歌的'
+                       '官方信息、歌词呼应与粉丝理论（慢的模型可能要一两'
+                       '分钟，生成后永久缓存，请勿刷新）……</div>')
+                # 曲库呼应 = 喂给模型的硬证据
+                payload, _ov = build_echo_map(info)
                 try:
-                    saved = json.loads(disk.read_text(encoding="utf-8"))
-                    if saved.get("key") == key:
-                        graph = graph_from_dict(saved["graph"])
-                except (OSError, ValueError, KeyError, TypeError):
-                    graph = None
-                if graph is None:
-                    embeddings, corpus = index
-                    artist = (None if choice == _CROSS_ARTIST_CHOICE
-                              else choice)
-                    graph = build_echo_graph(
-                        embeddings, corpus, artist,
-                        min_similarity=settings.echo_min_similarity,
-                        min_similarity_cjk=settings.echo_min_similarity_cjk,
-                        max_nodes=settings.echo_map_max_nodes,
-                        library_titles={s["title"] for s in ctx["songs"]},
-                    )
-                    try:
-                        _GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-                        disk.write_text(
-                            json.dumps({"key": key,
-                                        "graph": graph_to_dict(graph)},
-                                       ensure_ascii=False),
-                            encoding="utf-8")
-                    except OSError:
-                        logger.warning("echo graph cache write failed",
-                                       exc_info=True)
-                cache[choice] = (graph, render_echo_map_html(graph))
-            return cache[choice]
+                    lines = (json.loads(payload).get("lines", [])
+                             if payload else [])
+                except ValueError:
+                    lines = []
+                data = _load_song_data(info["dir"])
+                by_idx = {ln.line_index: ln.text
+                          for ln in data["timed_lines"]}
+                pairs = [(by_idx.get(o["i"], ""), o["song"],
+                          o.get("target", ""))
+                         for o in sorted(lines,
+                                         key=lambda o: -o.get("sim", 0))[:5]]
+                from .intertextuality.search import artist_matches
+                titles = [s["title"] for s in ctx["songs"]
+                          if artist_matches(info.get("artist", ""),
+                                            s.get("artist", ""))]
+                system, user_msg = fanlore_messages(
+                    info.get("title", ""), info.get("artist", ""),
+                    info.get("album", ""), info.get("year"),
+                    echo_pairs=pairs, library_titles=titles)
+                from .llm import LLMClient
+                try:
+                    verdict = LLMClient(req).generate_json(system, user_msg)
+                except Exception as exc:
+                    logger.exception("fanlore generation failed")
+                    yield (f'<div class="chat-empty">⚠️ 生成失败：'
+                           f'{_esc(str(exc)[:150])}</div>')
+                    return
+                save_fanlore(info["dir"], verdict, req.model_name)
+                yield render_fanlore_html(
+                    parse_fanlore(verdict), info.get("title", ""),
+                    verifier=_quote_verifier(), label_of=_label_of())
 
-        def _render_map(artist: str, view: str, focus: str) -> str:
-            graph, net_html = _map_graph(artist)
-            if graph is None or view == "net":
-                return net_html
-            from .intertextuality.echo_map import render_focus_html
-            return render_focus_html(graph, focus or "")
+            lore_btn.click(on_gen_lore, [lore_song_dd, user_llm],
+                           [lore_html])
 
-        def _focus_dd(graph, preferred: str | None = None):
-            """Focus dropdown update + effective focus value for a graph."""
-            if graph is None:
-                return gr.Dropdown(choices=[], value=None), ""
-            from .intertextuality.echo_map import focus_choices
-            songs = focus_choices(graph)
-            value = preferred if preferred in songs else \
-                (songs[0] if songs else None)
-            return gr.Dropdown(choices=songs, value=value), value or ""
+        # ── 意象追踪 ──
 
-        def on_map_artist(artist: str, view: str):
-            if not artist:
-                return gr.skip(), "", ""
-            graph, _net = _map_graph(artist)
-            dd, focus = _focus_dd(graph)
-            # switching scope also resets the AI interpretation
-            return dd, _render_map(artist, view, focus), ""
-
-        def on_map_view(view: str, artist: str, focus: str):
-            return (gr.Dropdown(visible=view == "focus"),
-                    _render_map(artist, view, focus))
-
-        def on_map_focus(focus: str, artist: str, view: str) -> str:
-            return _render_map(artist, view, focus)
-
-        def init_echo_map(choice: str):
-            """Populate the dropdowns; default to the current song's artist
-            and, when possible, focus on the current song itself."""
+        def init_imagery_artists(choice: str):
+            """歌手范围下拉：默认当前歌的歌手（原 map_artist 的职责）。"""
             artists = _corpus_artists()
             if not artists:
-                return (gr.Dropdown(choices=[], value=None),
-                        gr.Dropdown(choices=[], value=None), _ECHO_NO_INDEX)
+                return gr.Dropdown(choices=[], value=None)
             from .intertextuality.search import artist_matches
             info = find_song(choice) if ctx["songs"] else {}
             current = info.get("artist", "")
             value = next(
-                (a for a in artists if current and artist_matches(a, current)),
-                artists[0])
-            graph, _net = _map_graph(value)
-            dd, focus = _focus_dd(graph, preferred=info.get("title"))
-            all_choices = artists + [_CROSS_ARTIST_CHOICE]
-            return (gr.Dropdown(choices=all_choices, value=value),
-                    dd, _render_map(value, "focus", focus))
+                (a for a in artists
+                 if current and artist_matches(a, current)), artists[0])
+            return gr.Dropdown(choices=artists + [_CROSS_ARTIST_CHOICE],
+                               value=value)
 
-        def on_focus_pick(payload: str, artist: str):
-            """Map-node click: refocus on that song (and switch to focus view)."""
-            song = (payload or "").split("\t")[0].strip()
-            if not song or not artist:
-                return gr.skip(), gr.skip(), gr.skip()
-            graph, _net = _map_graph(artist)
-            if graph is None:
-                return gr.skip(), gr.skip(), gr.skip()
-            from .intertextuality.echo_map import focus_choices
-            songs = focus_choices(graph)
-            if song not in songs:
-                return gr.skip(), gr.skip(), gr.skip()
-            # visible=True: the click may arrive from the network view,
-            # where the focus dropdown is hidden
-            return (gr.Dropdown(choices=songs, value=song, visible=True),
-                    gr.Radio(value="focus"),
-                    _render_map(artist, "focus", song))
-
-        # .change (not .input): .input silently drops events for some
-        # components in this gradio build. init_echo_map's programmatic
-        # updates DO re-trigger these handlers now; on_map_artist recomputes
-        # the same default focus it was given, so the net render is identical
-        # shared concurrency_id: these four all repaint echo_map_html.
-        # Without it gradio may run them in parallel, and a slow render
-        # (first cross-artist build) can finish AFTER a fast one and paint
-        # a stale graph over the fresh one.
-        map_artist.change(on_map_artist, [map_artist, map_view],
-                         [map_focus, echo_map_html, map_explain_out],
-                         concurrency_id="echo-map")
-        map_view.change(on_map_view, [map_view, map_artist, map_focus],
-                       [map_focus, echo_map_html],
-                       concurrency_id="echo-map")
-        map_focus.change(on_map_focus, [map_focus, map_artist, map_view],
-                        [echo_map_html],
-                        concurrency_id="echo-map")
-        focus_pick_box.change(on_focus_pick, [focus_pick_box, map_artist],
-                              [map_focus, map_view, echo_map_html],
-                              concurrency_id="echo-map")
-        app.load(init_echo_map, [song_radio],
-                 [map_artist, map_focus, echo_map_html])
-
-        def on_map_explain(artist: str, user_cfg):
-            """LLM interpretation of the strongest pairs on the current map."""
-            if not artist:
-                yield "⚠️ 请先选择歌手。"
-                return
-            graph, _html = _map_graph(artist)
-            if graph is None or not graph.edges:
-                yield "⚠️ 当前范围没有可解读的彩蛋呼应。"
-                return
-            req_settings = _request_settings(user_cfg)
-            if public and not req_settings.api_key:
-                yield _PUBLIC_KEY_HINT
-                return
-            yield "🤔 AI 正在解读这张彩蛋网络……"
-            pair_lines = "\n".join(
-                f"- 《{e.song_a}》↔《{e.song_b}》（{e.count} 处呼应）："
-                f"“{e.example.line_a}” ↔ “{e.example.line_b}”"
-                f"（相似度 {e.example.similarity}）"
-                for e in graph.edges[:8]
-            )
-            scope = graph.artist or "多位歌手之间（跨歌手引用）"
-            user_msg = (
-                f"检索范围：{scope}\n"
-                f"以下是曲库中呼应最强的歌曲对及代表歌词：\n{pair_lines}\n\n"
-                "请从歌词创作的角度解读这张互文网络：哪些是真正有意味的呼应"
-                "（重复意象、母题、自我引用或跨歌手致敬），哪些只是字面撞车？"
-                "指出 2-3 条最值得听众注意的线索，用简体中文，200 字以内。"
-            )
-            from .llm import LLMClient
-            try:
-                resp = LLMClient(req_settings).generate(
-                    system_prompt=("你是精通歌词文本分析的音乐评论人，"
-                                   "用简体中文回答，简洁自然。"),
-                    user_message=user_msg,
-                )
-                yield (resp.reply_text or "").strip() or "⚠️ AI 未返回内容，请重试。"
-            except Exception as exc:
-                logger.exception("Map explain failed")
-                yield f"⚠️ LLM 调用失败：{str(exc)[:200]}"
-
-        map_explain_btn.click(on_map_explain, [map_artist, user_llm],
-                              [map_explain_out])
-
-        # ── 意象追踪 ──
+        app.load(init_imagery_artists, [song_radio], [imagery_artist])
 
         def on_imagery(query: str, artist: str) -> str:
             index = _echo_index()
@@ -1374,8 +1259,10 @@ def create_app(settings: Settings) -> gr.Blocks:
             return render_imagery_timeline(
                 query, hits, album_order=album_order, artist=scope or "")
 
-        imagery_btn.click(on_imagery, [imagery_box, map_artist], [imagery_html])
-        imagery_box.submit(on_imagery, [imagery_box, map_artist], [imagery_html])
+        imagery_btn.click(on_imagery, [imagery_box, imagery_artist],
+                          [imagery_html])
+        imagery_box.submit(on_imagery, [imagery_box, imagery_artist],
+                           [imagery_html])
 
         # ── 歌词竞猜 ──
 
