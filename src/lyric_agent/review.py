@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 import re
 import time
 from pathlib import Path
@@ -39,20 +38,11 @@ def order_words(book: list[dict]) -> list[dict]:
                                        e.get("word", "").lower()))
 
 
-def pick_word(book: list[dict], rng: random.Random | None = None,
-              exclude: str = "") -> dict | None:
-    """Next word to practice: random among the top-3 priorities so a single
-    hard word never locks in; `exclude` skips the word just shown."""
-    pool = [e for e in book if e.get("word")]
-    if exclude:
-        rest = [e for e in pool
-                if e["word"].lower() != exclude.lower()]
-        pool = rest or pool  # a one-word book still practices that word
-    if not pool:
-        return None
-    ordered = order_words(pool)
-    rng = rng or random
-    return rng.choice(ordered[:min(3, len(ordered))])
+def round_queue(book: list[dict]) -> list[str]:
+    """One practice round = every collected word exactly once, in priority
+    order (wrong-heavy first, then never-practiced, then least-recent).
+    No repeats inside a round; the next round reorders on fresh stats."""
+    return [e["word"] for e in order_words(book) if e.get("word")]
 
 
 def record_result(word: str, correct: bool,

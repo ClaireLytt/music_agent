@@ -549,15 +549,10 @@ def test_review_order_and_pick(tmp_path, monkeypatch):
     # 错误率最高 > 未练过(ts=0) > 久未练 > 刚练熟
     assert ordered == ["hard", "old", "stale", "fresh"]
 
-    import random
-    rng = random.Random(7)
-    picks = {rv.pick_word(book, rng)["word"] for _ in range(20)}
-    assert picks <= {"hard", "old", "stale"}          # top-3 之内随机
-    only = [{"word": "solo"}]
-    assert rv.pick_word(only, rng, exclude="solo")["word"] == "solo"
-    assert rv.pick_word([], rng) is None
-
-
+    q = rv.round_queue(book)
+    assert q == ["hard", "old", "stale", "fresh"]   # 整轮一人一次、按优先级
+    assert len(q) == len(set(q))                    # 轮内零重复
+    assert rv.round_queue([]) == []
 def test_review_record_persists(tmp_path, monkeypatch):
     from lyric_agent import dictionary as d
     from lyric_agent import review as rv

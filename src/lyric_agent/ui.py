@@ -661,7 +661,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                         "练对的字母会亮起；错得多的词会更频繁出现。")
                     review_state = gr.State(
                         {"word": "", "words": 0, "perfect": 0,
-                         "chars": 0, "ms": 0})
+                         "chars": 0, "ms": 0, "queue": []})
                     review_html = gr.HTML("")
                     review_stats_md = gr.Markdown("")
                     with gr.Row():
@@ -1399,8 +1399,24 @@ def create_app(settings: Settings) -> gr.Blocks:
                 return " ｜ ".join(parts)
 
             def _review_next(state, exclude: str = ""):
-                from .review import pick_word, synthesize_word
-                entry = pick_word(load_wordbook(), exclude=exclude)
+                from .review import round_queue, synthesize_word
+                book = load_wordbook()
+                titles = {e.get("word", "").lower() for e in book}
+                # 本轮队列：收藏的词各打一遍、按优先级排序；打完重排开下一轮
+                queue = [w for w in state.get("queue", [])
+                         if w.lower() in titles]
+                if not queue:
+                    queue = round_queue(book)
+                    if exclude and len(queue) > 1 \
+                            and queue[0].lower() == exclude.lower():
+                        queue.append(queue.pop(0))  # 新轮首词避开刚打完的
+                entry = None
+                if queue:
+                    word = queue.pop(0)
+                    entry = next((e for e in book
+                                  if e.get("word", "").lower()
+                                  == word.lower()), None)
+                state["queue"] = queue
                 if entry is None:
                     state["word"] = ""
                     return (state,
