@@ -998,20 +998,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                             rebuild_btn = gr.Button(
                                 "🔨 重建语料库索引（含新添加的歌曲）")
                             rebuild_status = gr.Markdown("")
-                        with gr.Tab("🧪"):
-                            gr.Markdown(
-                                "### 🧪 UI 自检（开发者）\n"
-                                "启动一个**独立的**巡检服务器实例，"
-                                "用真实浏览器逐页签走查 22+ 项交互"
-                                "（含 JS 报错与服务端异常收集），约 2-3 分钟。"
-                                "发现问题后可在终端运行 "
-                                "`python scripts/ui_agent.py` 进入自动修复闭环"
-                                "（改代码需重启，故修复环节不在网页内进行）。"
-                            )
-                            probe_btn = gr.Button("🧪 运行 UI 巡检")
-                            probe_out = gr.Markdown("")
-                            probe_table = gr.HTML("")
-
         # ── Handlers ──
 
         def _collections_for(title: str) -> tuple:
@@ -2830,64 +2816,6 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         if not public:
             rebuild_btn.click(on_rebuild, [emb_model_dd], [rebuild_status])
-
-        # ── UI 自检（开发者） ──
-
-        def on_ui_probe():
-            import subprocess
-            import sys as _sys
-            root = Path(__file__).resolve().parents[2]
-            script = root / "scripts" / "ui_probe.py"
-            if not script.exists():
-                yield "⚠️ 未找到 scripts/ui_probe.py（需在源码仓库内运行）。", ""
-                return
-            import importlib.util
-            if importlib.util.find_spec("playwright") is None:
-                yield ("⚠️ 需要 playwright：`pip install playwright && "
-                       "playwright install chromium`"), ""
-                return
-            yield "⏳ 正在启动独立巡检服务器并打开无头浏览器（约 2-3 分钟）……", ""
-            proc = subprocess.Popen(
-                [_sys.executable, str(script)], cwd=str(root),
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace")
-            done = failed = 0
-            for line in proc.stdout:
-                line = line.strip()
-                if line.startswith(("[PASS]", "[FAIL]")):
-                    done += 1
-                    failed += line.startswith("[FAIL]")
-                    yield (f"⏳ 已完成 {done} 项（失败 {failed}）—— "
-                           f"`{line[:90]}`"), gr.skip()
-            proc.wait()
-            report_path = root / "data" / "ui_probe" / "report.json"
-            if not report_path.exists():
-                yield "⚠️ 巡检未产出报告，请查看终端输出。", ""
-                return
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            rows = []
-            for c in report["checks"]:
-                mark = "✅" if c["ok"] else "❌"
-                detail = _esc(c["detail"][:160]) if not c["ok"] else ""
-                rows.append(
-                    f'<tr><td>{mark}</td><td>{_esc(c["id"])}</td>'
-                    f'<td>{_esc(c["name"])}</td>'
-                    f'<td class="probe-detail">{detail}</td></tr>')
-            table = (
-                '<table class="probe-table"><tr><th></th><th>ID</th>'
-                '<th>检查项</th><th>失败详情</th></tr>'
-                + "".join(rows) + "</table>")
-            if report["failed"]:
-                summary = (f"❌ 巡检完成：{report['passed']} 通过 / "
-                           f"**{report['failed']} 失败**。失败截图在 "
-                           "`data/ui_probe/`；在终端运行 "
-                           "`python scripts/ui_agent.py` 可进入自动修复闭环。")
-            else:
-                summary = f"✅ 巡检完成：{report['passed']} 项全部通过。"
-            yield summary, table
-
-        if not public:
-            probe_btn.click(on_ui_probe, None, [probe_out, probe_table])
 
         # ── 设置 ──
 
