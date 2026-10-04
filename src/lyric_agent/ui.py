@@ -1062,14 +1062,17 @@ def create_app(settings: Settings) -> gr.Blocks:
             """Consent-gated: 把本歌最强的几处呼应讲成一段粉丝解说
             （只基于歌词本身，严禁编造创作背景），缓存后永久展示。"""
             if not (trigger or "").strip() or not ctx["songs"]:
-                return gr.skip()
+                yield gr.skip()
+                return
             info = find_song(choice)
             if not info.get("dir"):
-                return gr.skip()
+                yield gr.skip()
+                return
             req = _request_settings(user_cfg)
             if not req.api_key:
                 gr.Warning("需要 API Key 才能生成彩蛋故事（⚙️ 设置）。")
-                return gr.skip()
+                yield gr.skip()
+                return
             payload, overview = build_echo_map(info)
             try:
                 lines = json.loads(payload).get("lines", []) if payload else []
@@ -1077,7 +1080,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                 lines = []
             if not lines:
                 gr.Warning("这首歌没有可讲的呼应。")
-                return gr.skip()
+                yield gr.skip()
+                return
+            from .ui_helpers import render_echo_story
+            yield ('<div class="echo-story">⏳ AI 正在把这些呼应写成'
+                   '一段解说（慢的模型可能要一两分钟，生成后永久缓存，'
+                   '请勿刷新）……</div>' + overview)
             data = _load_song_data(info["dir"])
             by_idx = {ln.line_index: ln.text for ln in data["timed_lines"]}
             top = sorted(lines, key=lambda o: -o.get("sim", 0))[:5]
@@ -1106,9 +1114,9 @@ def create_app(settings: Settings) -> gr.Blocks:
             except Exception as exc:
                 logger.exception("echo story failed")
                 gr.Warning(f"生成失败：{str(exc)[:120]}")
-                return gr.skip()
-            from .ui_helpers import render_echo_story
-            return render_echo_story(story, False) + overview
+                yield render_echo_story("", True) + overview
+                return
+            yield render_echo_story(story, False) + overview
 
         echo_story_box.change(on_echo_story,
                               [echo_story_box, song_radio, user_llm],
