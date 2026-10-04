@@ -122,6 +122,26 @@ _EXAMPLES_CACHE = Path("data/cache/word_examples.json")
 _CORPUS_PATH = Path("data/corpus/discography.jsonl")
 
 
+def _examples_from_youdao(word: str, limit: int) -> list[str]:
+    """有道 jsonapi 的中英双语例句（国内可达、覆盖率高）。"""
+    import urllib.parse
+    import urllib.request
+
+    url = "https://dict.youdao.com/jsonapi?q=" + urllib.parse.quote(word)
+    with urllib.request.urlopen(url, timeout=3) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    pairs = (data.get("blng_sents_part") or {}).get("sentence-pair") or []
+    out = []
+    for p in pairs:
+        en = (p.get("sentence") or "").strip()
+        zh = (p.get("sentence-translation") or "").strip()
+        if en:
+            out.append(f"{en} {zh}".strip())
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _examples_from_api(word: str, limit: int) -> list[str]:
     import urllib.parse
     import urllib.request
@@ -164,8 +184,8 @@ def _examples_from_corpus(word: str, exclude_song: str, limit: int) -> list[str]
 
 def word_examples(word: str, exclude_song: str = "",
                   limit: int = 3) -> list[str]:
-    """零 LLM 真例句：词典 API（dictionaryapi.dev，免费无 key）优先，
-    失败/为空退回曲库其他歌的歌词句；全失败返回 []，绝不抛。
+    """零 LLM 真例句：有道 jsonapi（中英双语）优先，退 dictionaryapi.dev，
+    再退曲库其他歌的歌词句；全失败返回 []，绝不抛。
     结果（含空结果）落盘缓存，离线/限流只打一次。
     LL_WORD_EXAMPLES=0 彻底关闭（探针环境零外网请求）。"""
     import os
@@ -181,9 +201,14 @@ def word_examples(word: str, exclude_song: str = "",
         return cache[word][:limit]
     examples: list[str] = []
     try:
-        examples = _examples_from_api(word, limit)
+        examples = _examples_from_youdao(word, limit)
     except Exception:
-        logger.info("dictionary API unavailable for %r", word)
+        logger.info("youdao jsonapi unavailable for %r", word)
+    if not examples:
+        try:
+            examples = _examples_from_api(word, limit)
+        except Exception:
+            logger.info("dictionary API unavailable for %r", word)
     if not examples:
         try:
             examples = _examples_from_corpus(word, exclude_song, 2)

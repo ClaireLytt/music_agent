@@ -65,8 +65,7 @@ _HEAD_JS = """
 // popover anchored at the selection with the offline dictionary meaning,
 // an optional AI in-context explanation and a ⭐ wordbook button
 (function() {
-  let lastQuery = '';
-  let saved = null;  // {word, line, song} of the open popover
+  // 多卡并存：每张弹卡用 dataset.q 认领自己的后端结果，互不干扰
   let lastSpoken = '';  // the data.q already auto-pronounced
   // pronunciation à la qwerty-learner: youdao dictvoice, client-side only
   const voiceUrl = (w) =>
@@ -75,14 +74,22 @@ _HEAD_JS = """
   function sayWord(w) {
     if (w) new Audio(voiceUrl(w)).play().catch(() => {});
   }
-  function closePop() {
+  function closeAll() {
     document.querySelectorAll('.ll-dict-pop').forEach((p) => p.remove());
+  }
+  function wireClose(pop) {
+    const x = pop.querySelector('.dict-close');
+    if (x) x.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pop.remove();
+    });
   }
   // 弹卡可拖动：按住卡片空白处（按钮除外）移动
   function makeDraggable(pop) {
     let sx = 0, sy = 0, px = 0, py = 0, moved = false;
     pop.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('button')) return;
+      // 按钮/✕ 不作为拖动起点（pointer capture 会吞掉它们的 click）
+      if (e.target.closest('button, .dict-close')) return;
       sx = e.clientX; sy = e.clientY; moved = false;
       const r = pop.getBoundingClientRect();
       px = r.left; py = r.top;
@@ -110,23 +117,29 @@ _HEAD_JS = """
     box.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   }
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.ll-dict-pop')) closePop();
-  }, true);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAll();
+  });
   document.addEventListener('dblclick', (e) => {
     const lineEl = e.target.closest('.lyric-line');
     if (!lineEl) return;
     const sel = window.getSelection();
     const word = (sel ? sel.toString() : '').trim();
     if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}$/.test(word)) return;
-    closePop();
+    const pops = document.querySelectorAll('.ll-dict-pop');
+    if (pops.length >= 4) pops[0].remove();   // 最多同屏 4 张，顶掉最旧的
     const line = (lineEl.querySelector('.lyric-text') || lineEl).textContent.trim();
     const titleEl = document.querySelector('.song-title-display');
     const song = titleEl ? titleEl.textContent.trim() : '';
-    saved = { word: word, line: line, song: song };
     const pop = document.createElement('div');
     pop.className = 'll-dict-pop';
-    pop.innerHTML = '<div class="dict-body">⏳ 查询中…</div>';
+    pop.dataset.word = word;
+    pop.dataset.line = line;
+    pop.dataset.song = song;
+    pop.innerHTML = '<div class="dict-word">' + word
+      + ' <span class="dict-close" title="关闭">✕</span></div>'
+      + '<div class="dict-body">⏳ 查询中…</div>';
+    wireClose(pop);
     let rect = lineEl.getBoundingClientRect();
     try {
       const r = sel.getRangeAt(0).getBoundingClientRect();
@@ -136,17 +149,17 @@ _HEAD_JS = """
     pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 160) + 'px';
     document.body.appendChild(pop);
     makeDraggable(pop);
-    lastQuery = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
-    sendChannel('ll-dict-pick', lastQuery);
+    pop.dataset.q = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
+    sendChannel('ll-dict-pick', pop.dataset.q);
   });
-  function render(data) {
-    const pop = document.querySelector('.ll-dict-pop');
-    if (!pop || !saved) return;
+  function render(pop, data) {
+    if (!pop) return;
     const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
     let html = '<div class="dict-word">' + esc(data.word);
     if (data.phonetic) html += ' <span class="dict-phon">/' + esc(data.phonetic) + '/</span>';
     html += ' <button class="dict-btn dict-say" data-dict-say '
-          + 'title="重播发音">🔊</button></div>';
+          + 'title="重播发音">🔊</button>'
+          + ' <span class="dict-close" title="关闭">✕</span></div>';
     if (data.found) {
       html += '<div class="dict-body">'
         + esc(data.translation).split('\\n').join('<br>') + '</div>';
@@ -160,18 +173,20 @@ _HEAD_JS = """
     if (!data.ai) html += '<button class="dict-btn" data-dict-ai>✨ AI 语境解释</button>';
     html += '</div>';
     pop.innerHTML = html;
+    wireClose(pop);
     const favBtn = pop.querySelector('[data-dict-fav]');
     if (favBtn) favBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      sendChannel('ll-wb-act', 'add:' + saved.word + '\\t' + saved.line
-                  + '\\t' + saved.song + '\\t' + Date.now());
+      sendChannel('ll-wb-act', 'add:' + pop.dataset.word + '\\t'
+                  + pop.dataset.line + '\\t' + pop.dataset.song
+                  + '\\t' + Date.now());
       favBtn.textContent = '✓ 已收藏';
       favBtn.disabled = true;
     });
     const sayBtn = pop.querySelector('[data-dict-say]');
     if (sayBtn) sayBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      sayWord(saved.word);
+      sayWord(pop.dataset.word);
     });
     // auto-pronounce once per lookup (the AI reply re-renders the same q)
     if (data.q !== lastSpoken) {
@@ -183,20 +198,33 @@ _HEAD_JS = """
       e.stopPropagation();
       aiBtn.textContent = '✨ 生成中…';
       aiBtn.disabled = true;
-      lastQuery = saved.word + '\\t' + saved.line + '\\t' + saved.song
-                  + '\\t' + Date.now();
-      sendChannel('ll-dict-ai', lastQuery);
+      pop.dataset.q = pop.dataset.word + '\\t' + pop.dataset.line + '\\t'
+                      + pop.dataset.song + '\\t' + Date.now();
+      sendChannel('ll-dict-ai', pop.dataset.q);
     });
   }
   let lastSeen = '';
   setInterval(() => {
+    // 卡在「查询中」的卡片重发查询：共享输出通道上，快速连查时
+    // 前一个结果可能被后一个覆盖而没被轮询看到（查询是本地词典，重发零成本）
+    for (const p of document.querySelectorAll('.ll-dict-pop')) {
+      if (!p.querySelector('.dict-actions')
+          && Date.now() - Number(p.dataset.q.split('\\t').pop()) > 3000
+          && Number(p.dataset.retries || 0) < 3) {
+        p.dataset.retries = Number(p.dataset.retries || 0) + 1;
+        p.dataset.q = p.dataset.word + '\\t' + p.dataset.line + '\\t'
+                      + p.dataset.song + '\\t' + Date.now();
+        sendChannel('ll-dict-pick', p.dataset.q);
+      }
+    }
     const box = document.querySelector('#ll-dict-out textarea, #ll-dict-out input');
     if (!box || !box.value || box.value === lastSeen) return;
     lastSeen = box.value;
     let data;
     try { data = JSON.parse(box.value); } catch (err) { return; }
-    if (data.q !== lastQuery) return;  // stale result for a previous word
-    render(data);
+    // 把结果路由给认领这个 q 的那张卡；没有就是已关闭/过期
+    for (const p of document.querySelectorAll('.ll-dict-pop'))
+      if (p.dataset.q === data.q) { render(p, data); return; }
   }, 300);
 })();
 // ⌨️ 单词练习: qwerty-learner-style keystroke loop. The backend renders a
@@ -269,6 +297,12 @@ _HEAD_JS = """
       return;
     }
     c.classList.remove('tp-ime');
+    if (e.key === 'Enter') {                    // 跳过这个词，直接换下一个
+      e.preventDefault();
+      for (const b of document.querySelectorAll('button'))
+        if (b.textContent.includes('开始 / 换一词')) { b.click(); break; }
+      return;
+    }
     if (e.key === 'Tab') {                      // 盲打模式偷看一眼（0.2 秒）
       e.preventDefault();
       if (c.classList.contains('tp-blind')) {
@@ -780,6 +814,20 @@ _HEAD_JS = """
         const back = document.createElement('button');
         back.id = 'll-back-typing';
         back.textContent = '↩ 回到打字练习';
+        // 歌词区会随切歌整体重渲染，所以按钮挂在 body 上、
+        // 用定时器把它钉在歌词容器右上角（歌词不可见时隐藏）
+        const anchor = setInterval(() => {
+          if (!back.isConnected) { clearInterval(anchor); return; }
+          const lc = document.getElementById('lyrics-container');
+          if (!lc || lc.offsetParent === null) {
+            back.style.display = 'none';
+            return;
+          }
+          const r = lc.getBoundingClientRect();
+          back.style.display = 'block';
+          back.style.left = (r.right - back.offsetWidth - 12) + 'px';
+          back.style.top = (r.top + 10) + 'px';
+        }, 300);
         back.addEventListener('click', () => {
           for (const b of document.querySelectorAll('button[role="tab"]'))
             if (b.textContent.includes('歌曲寻词')) { b.click(); break; }
@@ -1525,6 +1573,9 @@ footer, .gradio-container footer { display: none !important; }
   cursor: move; user-select: none; touch-action: none;
 }
 .ll-dict-pop .dict-word { font-weight: 700; margin-bottom: 4px; }
+.ll-dict-pop .dict-close { float: right; cursor: pointer; padding: 0 4px;
+  color: var(--text-secondary); font-weight: 400; }
+.ll-dict-pop .dict-close:hover { color: var(--text-primary); }
 .ll-dict-pop .dict-phon { color: var(--text-secondary); font-weight: 400; }
 .ll-dict-pop .dict-body { color: var(--text-primary); max-height: 150px; overflow-y: auto; }
 .ll-dict-pop .dict-miss { color: var(--text-secondary); }
@@ -1635,7 +1686,7 @@ footer, .gradio-container footer { display: none !important; }
 .ll-type-card .wb-example { margin-top: 6px; font-size: 1.15em;
   line-height: 1.6; color: var(--text-secondary); }
 #ll-back-typing {
-  position: fixed; z-index: 1280; right: 16px; bottom: 60px;
+  position: fixed; z-index: 1280;
   padding: 8px 16px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--accent); background: var(--bg-card);
   color: var(--accent); font-size: 13px; font-weight: 600;

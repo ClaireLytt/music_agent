@@ -947,14 +947,15 @@ def test_word_examples_sources(tmp_path, monkeypatch):
         + J.dumps({"title": "Home", "lyrics_lines": ["rain on me"]}) + "\n",
         encoding="utf-8")
     monkeypatch.setattr(rv, "_CORPUS_PATH", corpus)
-    # API 成功
-    monkeypatch.setattr(rv, "_examples_from_api",
+    # 有道成功（后备 API 不该被调用）
+    monkeypatch.setattr(rv, "_examples_from_youdao",
                         lambda w, n: ["It began to rain."])
-    assert rv.word_examples("Rain") == ["It began to rain."]
-    # 缓存命中（API 改成会炸也不该被调用）
     monkeypatch.setattr(rv, "_examples_from_api", lambda w, n: 1 / 0)
+    assert rv.word_examples("Rain") == ["It began to rain."]
+    # 缓存命中（两个 API 改成会炸也不该被调用）
+    monkeypatch.setattr(rv, "_examples_from_youdao", lambda w, n: 1 / 0)
     assert rv.word_examples("rain") == ["It began to rain."]
-    # API 失败 -> 语料退回（排除出处歌），空结果也缓存
+    # 两个 API 都失败 -> 语料退回（排除出处歌），空结果也缓存
     (tmp_path / "ex.json").unlink()
     out = rv.word_examples("rain", exclude_song="Home")
     assert out and "SongX" in out[0] and "Home" not in "".join(out)

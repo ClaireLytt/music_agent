@@ -323,6 +323,10 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 msg="translator popover did not render a result")
             if count("[data-dict-fav]"):
                 pg.locator("[data-dict-fav]").click()
+                # 多卡并存后弹卡不再因外部点击关闭——用 ✕ 收掉
+                pg.locator(".ll-dict-pop .dict-close").first.click()
+                probe.wait_until(lambda: count(".ll-dict-pop") == 0,
+                                 msg="dict popover did not close via ✕")
                 probe.tab("⭐")
                 probe.wait_until(lambda: count(".wb-item") >= 1,
                                  msg="word not added to wordbook")
