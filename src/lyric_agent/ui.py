@@ -413,8 +413,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                                                 ".ogg", ".m4a"])
                                 audio_up_status = gr.Markdown("")
                             trans_btn = gr.Button(
-                                "🀄 中文翻译对照（英文歌·首次生成调用 LLM，"
-                                "之后永久缓存，可再点关闭）", size="sm")
+                                "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
+                                "之后永久缓存）", size="sm")
                             with gr.Accordion("🎚 歌词时间校准", open=False):
                                 gr.Markdown(
                                     "歌词快/慢半拍时微调（正值 = 歌词提前）。"
@@ -1616,20 +1616,25 @@ def create_app(settings: Settings) -> gr.Blocks:
             # ── 🀄 中文翻译对照（用户点按钮才生成/显示；译文永久缓存）──
             trans_state = gr.State("")   # 当前开着翻译的歌名，"" = 关
 
+            _TRANS_SHOW = ("🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
+                           "之后永久缓存）")
+            _TRANS_HIDE = "🙈 隐藏中文翻译"
+
             def on_trans_toggle(cur: str, choice: str, user_cfg):
                 info = find_song(choice)
                 if not info.get("dir"):
-                    return cur, gr.skip()
+                    return cur, gr.skip(), gr.skip()
                 data = _load_song_data(info["dir"])
                 title = info.get("title", "")
                 if cur == title:   # 已开 → 关
-                    return "", _render_lyrics_html(data, info, public=public)
+                    return ("", _render_lyrics_html(data, info, public=public),
+                            gr.Button(value=_TRANS_SHOW))
                 from .ui_helpers import load_translation
                 if not load_translation(info["dir"]):
                     req = _request_settings(user_cfg)
                     if not req.api_key:
                         gr.Warning("需要 API Key 才能生成翻译（⚙️ 设置）。")
-                        return cur, gr.skip()
+                        return cur, gr.skip(), gr.skip()
                     gr.Info("🀄 正在生成整首中文翻译……")
                     lines = data["timed_lines"]
                     out: dict[str, str] = {}
@@ -1655,13 +1660,15 @@ def create_app(settings: Settings) -> gr.Blocks:
                     except Exception as exc:
                         logger.exception("translation failed")
                         gr.Warning(f"翻译失败：{str(exc)[:120]}")
-                        return cur, gr.skip()
-                return title, _render_lyrics_html(data, info, public=public,
-                                                  show_trans=True)
+                        return cur, gr.skip(), gr.skip()
+                return (title,
+                        _render_lyrics_html(data, info, public=public,
+                                            show_trans=True),
+                        gr.Button(value=_TRANS_HIDE))
 
             trans_btn.click(on_trans_toggle,
                             [trans_state, song_radio, user_llm],
-                            [trans_state, lyrics_html])
+                            [trans_state, lyrics_html, trans_btn])
 
             # ── 🎚 歌词时间校准 ──
             def on_offset_preview(v):
