@@ -114,9 +114,9 @@ def parse_mv(data) -> MvEggs:
 def load_mv(song_dir: str | Path, model: str | None = None):
     """Saved raw verdict for this song, or None.
 
-    Verdicts are cached per model: switching the LLM invalidates the
-    cache so a better model gets to re-answer. Legacy files (saved
-    before the model key existed) stay valid for any model.
+    The cache is model-agnostic: whichever model answered first, the
+    verdict is reused (regenerate by deleting mv_eggs.json in the song
+    dir). The model arg is kept for caller compatibility.
     """
     try:
         p = Path(song_dir) / MV_FILENAME
@@ -127,8 +127,6 @@ def load_mv(song_dir: str | Path, model: str | None = None):
         logger.exception("Failed reading %s in %s", MV_FILENAME, song_dir)
         return None
     if isinstance(raw, dict) and "payload" in raw and "model" in raw:
-        if model and raw["model"] != model:
-            return None
         return raw["payload"]
     return raw  # legacy format
 
