@@ -1146,71 +1146,109 @@ def create_app(settings: Settings) -> gr.Blocks:
                 parse_fanlore(cached), info.get("title", ""),
                 verifier=_quote_verifier(), label_of=_label_of())
 
+        # 生成放后台线程 + 定时器轮询取结果：长 LLM 调用的最后一个 yield
+        # 在长连接上经常送不到（SSE 断/用户刷新），同步阻塞还会在重启时
+        # 白白丢掉整次调用（CLAUDE.md「长耗时 LLM 调用的交付铁律」）
+        _LORE_WAIT = ('<div class="chat-empty">🕵️ AI 正在整理这首歌的'
+                      '官方信息、歌词呼应与粉丝理论——生成在服务器后台'
+                      '进行，切歌/刷新页面都不会中断；慢的模型可能要一两'
+                      '分钟，完成后本页自动显示结果。</div>')
+
+        def _lore_state(song_dir: str) -> dict | None:
+            return (ctx.get("lore_inflight") or {}).get(song_dir)
+
         def on_lore_song(choice: str):
             info = find_song(choice) if choice else {}
             if not info.get("dir"):
                 return FANLORE_EMPTY
+            st = _lore_state(info["dir"])
+            if st and st.get("status") == "running":
+                return _LORE_WAIT
             return _render_lore(info)
 
         lore_song_dd.change(on_lore_song, [lore_song_dd], [lore_html])
 
         if not public:
-            def on_gen_lore(choice: str, user_cfg):
-                from .fanlore import (fanlore_messages, load_fanlore,
-                                      parse_fanlore, render_fanlore_html,
-                                      save_fanlore)
-                info = find_song(choice) if choice else {}
-                if not info.get("dir"):
-                    yield '<div class="chat-empty">⚠️ 请先选择一首歌。</div>'
-                    return
-                if load_fanlore(info["dir"]) is not None:
-                    yield _render_lore(info)   # 已有缓存：零调用直接展示
-                    return
-                req = _request_settings(user_cfg)
-                if not req.api_key:
-                    yield ('<div class="chat-empty">⚠️ 未配置 API Key，'
-                           '无法生成。请到「⚙️ 设置」页签填写。</div>')
-                    return
-                yield ('<div class="chat-empty">🕵️ AI 正在整理这首歌的'
-                       '官方信息、歌词呼应与粉丝理论（慢的模型可能要一两'
-                       '分钟，生成后永久缓存，请勿刷新）……</div>')
-                # 曲库呼应 = 喂给模型的硬证据
-                payload, _ov = build_echo_map(info)
+            def _lore_generate_bg(info: dict, req) -> None:
+                """Daemon-thread worker: LLM call + disk cache; the timer
+                below delivers the result to whoever is looking."""
+                from .fanlore import fanlore_messages, save_fanlore
+                flight = ctx.setdefault("lore_inflight", {})
                 try:
-                    lines = (json.loads(payload).get("lines", [])
-                             if payload else [])
-                except ValueError:
-                    lines = []
-                data = _load_song_data(info["dir"])
-                by_idx = {ln.line_index: ln.text
-                          for ln in data["timed_lines"]}
-                pairs = [(by_idx.get(o["i"], ""), o["song"],
-                          o.get("target", ""))
-                         for o in sorted(lines,
-                                         key=lambda o: -o.get("sim", 0))[:5]]
-                from .intertextuality.search import artist_matches
-                titles = [s["title"] for s in ctx["songs"]
-                          if artist_matches(info.get("artist", ""),
-                                            s.get("artist", ""))]
-                system, user_msg = fanlore_messages(
-                    info.get("title", ""), info.get("artist", ""),
-                    info.get("album", ""), info.get("year"),
-                    echo_pairs=pairs, library_titles=titles)
-                from .llm import LLMClient
-                try:
+                    # 曲库呼应 = 喂给模型的硬证据
+                    payload, _ov = build_echo_map(info)
+                    try:
+                        lines = (json.loads(payload).get("lines", [])
+                                 if payload else [])
+                    except ValueError:
+                        lines = []
+                    data = _load_song_data(info["dir"])
+                    by_idx = {ln.line_index: ln.text
+                              for ln in data["timed_lines"]}
+                    pairs = [(by_idx.get(o["i"], ""), o["song"],
+                              o.get("target", ""))
+                             for o in sorted(
+                                 lines,
+                                 key=lambda o: -o.get("sim", 0))[:5]]
+                    from .intertextuality.search import artist_matches
+                    titles = [s["title"] for s in ctx["songs"]
+                              if artist_matches(info.get("artist", ""),
+                                                s.get("artist", ""))]
+                    system, user_msg = fanlore_messages(
+                        info.get("title", ""), info.get("artist", ""),
+                        info.get("album", ""), info.get("year"),
+                        echo_pairs=pairs, library_titles=titles)
+                    from .llm import LLMClient
                     verdict = LLMClient(req).generate_json(system, user_msg)
+                    save_fanlore(info["dir"], verdict, req.model_name)
+                    flight[info["dir"]] = {"status": "done"}
                 except Exception as exc:
                     logger.exception("fanlore generation failed")
-                    yield (f'<div class="chat-empty">⚠️ 生成失败：'
-                           f'{_esc(str(exc)[:150])}</div>')
-                    return
-                save_fanlore(info["dir"], verdict, req.model_name)
-                yield render_fanlore_html(
-                    parse_fanlore(verdict), info.get("title", ""),
-                    verifier=_quote_verifier(), label_of=_label_of())
+                    flight[info["dir"]] = {"status": "error",
+                                           "msg": str(exc)[:150]}
+
+            def on_gen_lore(choice: str, user_cfg):
+                from .fanlore import load_fanlore
+                info = find_song(choice) if choice else {}
+                if not info.get("dir"):
+                    return '<div class="chat-empty">⚠️ 请先选择一首歌。</div>'
+                if load_fanlore(info["dir"]) is not None:
+                    return _render_lore(info)   # 已有缓存：零调用直接展示
+                st = _lore_state(info["dir"])
+                if st and st.get("status") == "running":
+                    return _LORE_WAIT           # 已在生成，别重复起线程
+                req = _request_settings(user_cfg)
+                if not req.api_key:
+                    return ('<div class="chat-empty">⚠️ 未配置 API Key，'
+                            '无法生成。请到「⚙️ 设置」页签填写。</div>')
+                ctx.setdefault("lore_inflight", {})[info["dir"]] = \
+                    {"status": "running"}
+                threading.Thread(target=_lore_generate_bg,
+                                 args=(dict(info), req), daemon=True,
+                                 name="ll-fanlore").start()
+                return _LORE_WAIT
 
             lore_btn.click(on_gen_lore, [lore_song_dd, user_llm],
                            [lore_html])
+
+            # 轮询交付：只在状态翻转（done/error）时各刷一次 UI
+            lore_timer = gr.Timer(2.0)
+
+            def on_lore_tick(choice: str):
+                info = find_song(choice) if choice else {}
+                st = _lore_state(info.get("dir", ""))
+                if not info.get("dir") or not st:
+                    return gr.skip()
+                if st.get("status") == "done":
+                    ctx["lore_inflight"].pop(info["dir"], None)
+                    return _render_lore(info)
+                if st.get("status") == "error":
+                    ctx["lore_inflight"].pop(info["dir"], None)
+                    return (f'<div class="chat-empty">⚠️ 生成失败：'
+                            f'{_esc(st.get("msg", ""))}</div>')
+                return gr.skip()
+
+            lore_timer.tick(on_lore_tick, [lore_song_dd], [lore_html])
 
         # ── 意象追踪 ──
 

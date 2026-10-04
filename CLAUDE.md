@@ -83,3 +83,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **UI styling** is token-centric: edit `:root` variables and component rules
   in src/lyric_agent/ui_assets.py; SVG palettes live as Python constants in
   echo_map.py / universe.py and must match the theme's light/dark basis.
+- **长耗时 LLM 调用的交付铁律**（同一坑已踩四次：查词弹卡、整歌翻译、
+  彩蛋故事、歌迷考据）。症状：点了生成按钮，token 花了/调用挂着，页面却
+  永远停在"生成中"；用户等不及刷新或重启 serve，同步阻塞的调用随之被杀，
+  整次调用作废。根因：在 Gradio handler 里同步阻塞调 LLM，结果交付依赖
+  长连接上的最后一个 yield——超过约 1 分钟 SSE 常已断。规范（新的
+  LLM 生成功能一律照此，样板见 ui.py 的 on_gen_lore/_lore_generate_bg/
+  on_lore_tick）：① 调用放后台 daemon 线程，先 save 落盘缓存；② ctx 记
+  per-目标 in-flight 状态（running/done/error）；③ gr.Timer 轮询，状态
+  翻转时刷一次 UI；④ 切歌/重进页面时读缓存 + in-flight 状态恢复 ⏳，
+  绝不把"能否看到结果"押在那条长连接上。
