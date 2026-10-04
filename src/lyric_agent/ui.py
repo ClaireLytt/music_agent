@@ -896,18 +896,48 @@ def create_app(settings: Settings) -> gr.Blocks:
                             tot = u.get("total", {})
                             if not tot.get("calls"):
                                 return "还没有任何 LLM 调用记录。"
+                            # 单价表（服务商/中转价格差异大，不内置猜测）：
+                            # data/cache/llm_prices.json
+                            # {"模型名": {"in": 元/百万输入, "out": 元/百万输出}}
+                            try:
+                                prices = json.loads(Path(
+                                    "data/cache/llm_prices.json"
+                                ).read_text(encoding="utf-8"))
+                            except (OSError, ValueError):
+                                prices = {}
+
+                            def _cost(model, b):
+                                p = prices.get(model)
+                                if not p:
+                                    return "—"
+                                yuan = (b.get("input_tokens", 0)
+                                        * p.get("in", 0)
+                                        + b.get("output_tokens", 0)
+                                        * p.get("out", 0)) / 1_000_000
+                                return f"¥{yuan:.4f}"
+
                             day = time.strftime("%Y-%m-%d")
                             today = u.get("days", {}).get(day, {})
-                            rows = ["| | 调用次数 | 输入 tokens | 输出 tokens |",
-                                    "|---|---|---|---|"]
+                            rows = ["| | 调用 | 输入 tokens | 输出 tokens | 费用 |",
+                                    "|---|---|---|---|---|"]
                             for label, b in (("今天", today), ("累计", tot)):
                                 rows.append(
                                     f"| {label} | {b.get('calls', 0)} | "
                                     f"{b.get('input_tokens', 0):,} | "
-                                    f"{b.get('output_tokens', 0):,} |")
-                            model = u.get("last_model", "")
-                            if model:
-                                rows.append(f"\n最近使用模型：`{model}`")
+                                    f"{b.get('output_tokens', 0):,} | — |")
+                            for model, b in sorted(
+                                    u.get("models", {}).items()):
+                                rows.append(
+                                    f"| `{model}` | {b.get('calls', 0)} | "
+                                    f"{b.get('input_tokens', 0):,} | "
+                                    f"{b.get('output_tokens', 0):,} | "
+                                    f"{_cost(model, b)} |")
+                            if not prices:
+                                rows.append(
+                                    "\n💡 想看金额：把你服务商的单价填进 "
+                                    "`data/cache/llm_prices.json`，格式 "
+                                    '`{"模型名": {"in": 元/百万输入, '
+                                    '"out": 元/百万输出}}`。')
                             return "\n".join(rows)
 
                         usage_refresh_btn.click(on_usage_refresh, None,

@@ -55,12 +55,18 @@ class LLMClient:
                 "Supported: 'anthropic', 'openai'"
             )
 
+    # 全局风格约束：不同模型话痨程度差异大（grok 精简 vs deepseek 铺陈），
+    # 统一写死在入口，所有功能（批注/翻译/问答/解释）一致生效
+    _CONCISE_RULE = ("\n\n[回答风格] 精简直接：不要铺垫、不要重复问题、"
+                     "不要免责声明和客套结尾，长度取能说清楚的下限。")
+
     def generate(
         self,
         system_prompt: str,
         user_message: str,
         on_text_delta: Callable[[str], None] | None = None,
     ) -> LLMResponse:
+        system_prompt = (system_prompt or "") + self._CONCISE_RULE
         messages = [{"role": "user", "content": user_message}]
         if self.provider == "anthropic":
             fn = self._call_anthropic_stream if on_text_delta else self._call_anthropic
@@ -325,7 +331,8 @@ def _record_usage(model: str, usage: dict) -> None:
             except (OSError, ValueError):
                 data = {"total": {}, "days": {}}
             for bucket in (data.setdefault("total", {}),
-                           data.setdefault("days", {}).setdefault(day, {})):
+                           data.setdefault("days", {}).setdefault(day, {}),
+                           data.setdefault("models", {}).setdefault(model, {})):
                 bucket["calls"] = bucket.get("calls", 0) + 1
                 bucket["input_tokens"] = bucket.get("input_tokens", 0) + tin
                 bucket["output_tokens"] = bucket.get("output_tokens", 0) + tout

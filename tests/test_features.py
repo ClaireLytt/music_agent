@@ -884,4 +884,11 @@ def test_llm_usage_accounting(monkeypatch, tmp_path):
     assert out.reply_text == "ok"
     u = llm.load_usage()
     assert u["total"] == {"calls": 1, "input_tokens": 3, "output_tokens": 5}
+    assert u["models"]["m-test"]["output_tokens"] == 5   # 按模型分桶
     assert u["last_model"] == "m-test"
+    # 全局精简规则注入到 system prompt（挂在 generate 入口）
+    seen = {}
+    monkeypatch.setattr(c, "_call_openai",
+                        lambda sp, msgs: seen.update(sp=sp) or resp)
+    c.generate("你是测试", "hi")
+    assert seen["sp"].startswith("你是测试") and "精简直接" in seen["sp"]
