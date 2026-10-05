@@ -196,10 +196,9 @@ def load_fanlore(song_dir: str | Path):
 
 def save_fanlore(song_dir: str | Path, data, model: str = "") -> None:
     try:
-        (Path(song_dir) / FANLORE_FILENAME).write_text(
-            json.dumps({"model": model, "payload": data},
-                       ensure_ascii=False, indent=2),
-            encoding="utf-8")
+        from .jsonio import write_json_atomic
+        write_json_atomic(Path(song_dir) / FANLORE_FILENAME,
+                          {"model": model, "payload": data}, indent=2)
     except OSError:
         logger.exception("Failed saving %s in %s", FANLORE_FILENAME, song_dir)
 

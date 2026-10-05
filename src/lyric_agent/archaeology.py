@@ -112,10 +112,9 @@ def load_report(reports_dir: str | Path, artist: str, model: str) -> dict | None
 
 def save_report(reports_dir: str | Path, artist: str, model: str,
                 data: dict) -> None:
-    p = report_path(reports_dir, artist, model)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(data, ensure_ascii=False, indent=2),
-                 encoding="utf-8")
+    from .jsonio import write_json_atomic
+    write_json_atomic(report_path(reports_dir, artist, model), data,
+                      indent=2)
 
 
 # ── LLM prompt ──────────────────────────────────────────────
@@ -158,9 +157,7 @@ def parse_report(raw: str) -> dict | None:
 
 # ── rendering ───────────────────────────────────────────────
 
-def _esc(text: str) -> str:
-    return (str(text).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))
+from .evidence import cite_jump_attrs, esc_html as _esc  # noqa: E402
 
 
 def render_report(artist: str, motifs: list[dict], narrative: dict,
@@ -188,9 +185,7 @@ def render_report(artist: str, motifs: list[dict], narrative: dict,
             hit = verifier(h["text"], h["song"]) if verifier else None
             if hit:
                 label = label_of.get(hit["song_title"], "")
-                jump = (f' data-cite-label="{_esc(label)}" '
-                        f'data-cite-line="{hit["line_index"]}"'
-                        if label else "")
+                jump = cite_jump_attrs(label, hit["line_index"])
                 parts.append(
                     f'<div class="arch-hit ev-ok"{jump}>✅ '
                     f'“{_esc(hit["line_text"])}”'

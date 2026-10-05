@@ -117,6 +117,32 @@ def save_wordbook(entries: list[dict]) -> None:
         json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _entry_from_lookup(word: str, translation: str = "",
+                       phonetic: str = "", **extra) -> dict:
+    """标准单词本条目：词典规范词形打底，调用方字段覆盖。
+    add_word / import_words 共用，保证两条插入路径的条目形状一致。"""
+    hit = lookup(word) or {"word": word, "phonetic": "", "translation": ""}
+    return {"word": hit["word"],
+            "phonetic": (phonetic or "").strip() or hit.get("phonetic", ""),
+            "translation": (translation or "").strip()
+            or hit.get("translation", ""),
+            "line": "", "song": "", "label": "", "line_index": -1,
+            "ai": "", **extra}
+
+
+def update_entry(word: str, mutate) -> list[dict]:
+    """找到词条并就地修改（mutate(entry)），保存后返回单词本；
+    词不存在时静默跳过——wordbook 变更的唯一通道。"""
+    book = load_wordbook()
+    key = (word or "").lower()
+    for e in book:
+        if e.get("word", "").lower() == key:
+            mutate(e)
+            save_wordbook(book)
+            break
+    return book
+
+
 def add_word(word: str, line: str = "", song: str = "",
              label: str = "", line_index: int = -1,
              ai: str = "") -> list[dict]:
@@ -126,16 +152,16 @@ def add_word(word: str, line: str = "", song: str = "",
     in-context AI explanation generated in the popup (kept with the entry).
     Re-collecting an existing entry backfills a missing ai explanation."""
     book = load_wordbook()
-    hit = lookup(word) or {"word": word, "phonetic": "", "translation": ""}
-    key = hit["word"].lower()
+    entry = _entry_from_lookup(word, line=line, song=song,
+                               label=label, line_index=line_index, ai=ai)
+    key = entry["word"].lower()
     for e in book:
         if e.get("word", "").lower() == key:
             if ai and not e.get("ai"):
-                e["ai"] = ai
-                save_wordbook(book)
+                return update_entry(e["word"],
+                                    lambda x: x.update(ai=ai))
             return book
-    book.append({**hit, "line": line, "song": song,
-                 "label": label, "line_index": line_index, "ai": ai})
+    book.append(entry)
     save_wordbook(book)
     return book
 
@@ -215,22 +241,15 @@ def import_words(rows: list[dict], group: str) -> tuple[int, int]:
                 or word.lower() in have):
             skipped += 1
             continue
-        hit = lookup(word) or {}
-        stored = hit.get("word", word)
-        if stored.lower() in have:   # 词典规范化后的词形也要查重
+        entry = _entry_from_lookup(
+            word, translation=r.get("translation") or "",
+            phonetic=r.get("phonetic") or "", group=group)
+        if entry["word"].lower() in have:   # 词典规范化后的词形也要查重
             skipped += 1
             continue
-        book.append({
-            "word": stored,
-            "phonetic": (r.get("phonetic") or "").strip()
-            or hit.get("phonetic", ""),
-            "translation": (r.get("translation") or "").strip()
-            or hit.get("translation", ""),
-            "line": "", "song": "", "label": "", "line_index": -1,
-            "ai": "", "group": group,
-        })
+        book.append(entry)
         have.add(word.lower())
-        have.add(stored.lower())
+        have.add(entry["word"].lower())
         added += 1
     if added:
         save_wordbook(book)
@@ -246,17 +265,12 @@ def word_groups(book: list[dict] | None = None) -> list[str]:
 
 def set_note(word: str, note: str) -> list[dict]:
     """写/改/清空某个词的个人笔记，返回更新后的单词本。"""
-    book = load_wordbook()
-    key = (word or "").lower()
-    for e in book:
-        if e.get("word", "").lower() == key:
-            if (note or "").strip():
-                e["note"] = note.strip()
-            else:
-                e.pop("note", None)
-            save_wordbook(book)
-            break
-    return book
+    def _mutate(e: dict) -> None:
+        if (note or "").strip():
+            e["note"] = note.strip()
+        else:
+            e.pop("note", None)
+    return update_entry(word, _mutate)
 
 
 def remove_word(word: str) -> list[dict]:

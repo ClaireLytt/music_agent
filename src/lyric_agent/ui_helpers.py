@@ -4,7 +4,6 @@ every function stays unit-testable in isolation."""
 
 from __future__ import annotations
 
-import html
 import re
 import json
 import logging
@@ -29,8 +28,7 @@ _NO_AUDIO_HINT = (
 )
 
 
-def _esc(text: str) -> str:
-    return html.escape(str(text))
+from .evidence import esc_html as _esc  # noqa: E402 — 渲染共用转义
 
 
 # ── Song loading ──────────────────────────────────────────
@@ -944,3 +942,8 @@ def _render_emotion_map(emotions: list) -> str:
     )
 
 
+
+
+# 跨模块共享 API（ui.py / mcp_server.py / cli.py 共用）——公开名
+discover_songs = _discover_songs
+load_song_data = _load_song_data

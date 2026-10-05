@@ -13,7 +13,6 @@ import re
 import time
 from pathlib import Path
 
-from .dictionary import load_wordbook, save_wordbook
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +48,16 @@ def round_queue(book: list[dict]) -> list[str]:
 def record_result(word: str, correct: bool,
                   now: float | None = None) -> list[dict]:
     """Persist one attempt (correct = completed with zero mistakes)."""
-    book = load_wordbook()
-    key = word.lower()
-    for e in book:
-        if e.get("word", "").lower() == key:
-            r = e.get("review") or {}
-            r["correct" if correct else "wrong"] = (
-                r.get("correct" if correct else "wrong", 0) + 1)
-            r["last_ts"] = now if now is not None else time.time()
-            e["review"] = r
-            save_wordbook(book)
-            break
-    return book
+    from .dictionary import update_entry
+
+    def _mutate(e: dict) -> None:
+        r = e.get("review") or {}
+        r["correct" if correct else "wrong"] = (
+            r.get("correct" if correct else "wrong", 0) + 1)
+        r["last_ts"] = now if now is not None else time.time()
+        e["review"] = r
+
+    return update_entry(word, _mutate)
 
 
 def book_stats(book: list[dict]) -> dict:
@@ -125,11 +122,11 @@ _CORPUS_PATH = Path("data/corpus/discography.jsonl")
 def _examples_from_youdao(word: str, limit: int) -> list[str]:
     """有道 jsonapi 的中英双语例句（国内可达、覆盖率高）。"""
     import urllib.parse
-    import urllib.request
+
+    from .jsonio import http_get_json
 
     url = "https://dict.youdao.com/jsonapi?q=" + urllib.parse.quote(word)
-    with urllib.request.urlopen(url, timeout=3) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    data = http_get_json(url, timeout=3)
     pairs = (data.get("blng_sents_part") or {}).get("sentence-pair") or []
     out = []
     for p in pairs:
@@ -144,12 +141,12 @@ def _examples_from_youdao(word: str, limit: int) -> list[str]:
 
 def _examples_from_api(word: str, limit: int) -> list[str]:
     import urllib.parse
-    import urllib.request
+
+    from .jsonio import http_get_json
 
     url = ("https://api.dictionaryapi.dev/api/v2/entries/en/"
            + urllib.parse.quote(word))
-    with urllib.request.urlopen(url, timeout=3) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    data = http_get_json(url, timeout=3)
     out = []
     for entry in data if isinstance(data, list) else []:
         for m in entry.get("meanings", []):

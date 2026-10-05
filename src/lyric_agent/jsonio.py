@@ -34,3 +34,14 @@ def write_json_atomic(path: str | Path, obj, indent: int = 1) -> None:
         except OSError:
             pass
         raise
+
+
+def http_get_json(url: str, headers: dict | None = None,
+                  timeout: int = 10):
+    """GET url and parse the body as JSON (shared fetcher: bilibili 搜索、
+    例句词典等都走这里，UA/超时/错误策略只维护一处)。Raises on failure."""
+    import urllib.request
+
+    req = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))

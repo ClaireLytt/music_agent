@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import html as html_lib
-import json
 import logging
 import re
 import time
@@ -68,9 +67,8 @@ def embed_url(bvid: str) -> str:
 
 
 def _get_json(url: str, headers: dict) -> dict:
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    from .jsonio import http_get_json
+    return http_get_json(url, headers)
 
 
 def _mixin_key(img_key: str, sub_key: str) -> str:

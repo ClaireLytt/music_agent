@@ -41,10 +41,10 @@ def _settings():
 def _songs() -> list[dict]:
     if "songs" not in _ctx:
         from .config import HACKATHON_PLAYLIST_SOURCE
-        from .ui_helpers import _discover_songs
+        from .ui_helpers import discover_songs
         s = _settings()
         exclude = {HACKATHON_PLAYLIST_SOURCE} if s.public_mode else None
-        _ctx["songs"] = _discover_songs(s.songs_dir, exclude_sources=exclude)
+        _ctx["songs"] = discover_songs(s.songs_dir, exclude_sources=exclude)
     return _ctx["songs"]
 
 
@@ -124,8 +124,8 @@ def get_annotation(title: str, line_index: int) -> dict:
     song = _match_song(title)
     if song is None:
         return _err(f"未找到歌曲：{title}")
-    from .ui_helpers import _load_song_data
-    data = _load_song_data(song["dir"])
+    from .ui_helpers import load_song_data
+    data = load_song_data(song["dir"])
     ann = (data.get("annotations") or {}).get(line_index)
     if ann is None:
         return {"error": f"《{song['title']}》第 {line_index} 行没有批注"
