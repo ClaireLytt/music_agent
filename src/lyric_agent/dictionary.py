@@ -256,6 +256,19 @@ def import_words(rows: list[dict], group: str) -> tuple[int, int]:
     return added, skipped
 
 
+def delete_group(group: str) -> int:
+    """删除某个导入分组的全部单词，返回删除数量。"""
+    group = (group or "").strip()
+    if not group:
+        return 0
+    book = load_wordbook()
+    kept = [e for e in book if e.get("group") != group]
+    removed = len(book) - len(kept)
+    if removed:
+        save_wordbook(kept)
+    return removed
+
+
 def word_groups(book: list[dict] | None = None) -> list[str]:
     """单词本里出现过的分组名（导入时自定义），排序稳定。"""
     book = load_wordbook() if book is None else book

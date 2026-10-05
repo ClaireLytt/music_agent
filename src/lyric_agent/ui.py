@@ -643,56 +643,58 @@ def create_app(settings: Settings) -> gr.Blocks:
             if not public:
                 with gr.Tab("🔤 歌曲寻词") as review_tab:
                     gr.Markdown(
-                        "打字练收藏的单词（qwerty-learner 式）：看释义"
-                        "和出处歌词盲打单词，**打错一个键整词重来**，"
-                        "练对的字母会亮起；错得多的词会更频繁出现。")
+                        "💡 打错整词重来 · Tab 偷看单词 · Enter 跳过换词 · "
+                        "点卡片可继续输入；错得多的词会更频繁出现。")
+                    with gr.Row():
+                        review_group_dd = gr.Dropdown(
+                            choices=["全部", "📖 歌词收藏"], value="全部",
+                            label="练习范围", allow_custom_value=True,
+                            scale=4, elem_id="ll-review-group")
+                        review_start_btn = gr.Button(
+                            "⌨️ 开始 / 换一词", size="sm", scale=1,
+                            min_width=130)
                     review_state = gr.State(
                         {"word": "", "words": 0, "perfect": 0,
                          "chars": 0, "ms": 0, "queue": [], "group": "全部"})
                     review_html = gr.HTML("")
                     review_stats_md = gr.Markdown("")
-                    with gr.Row():
-                        review_group_dd = gr.Dropdown(
-                            choices=["全部", "📖 歌词收藏"], value="全部",
-                            label="练习范围", allow_custom_value=True,
-                            scale=1, elem_id="ll-review-group")
-                        review_start_btn = gr.Button(
-                            "⌨️ 开始 / 换一词", variant="primary",
-                            scale=1)
-                        review_export_btn = gr.Button(
-                            "📤 导出 qwerty-learner 词典", scale=1)
-                        anki_export_btn = gr.Button(
-                            "🗂️ 导出 Anki 牌组", scale=1)
-                    review_download = gr.DownloadButton(
-                        "⬇️ 下载词典 JSON", visible=False)
-                    anki_download = gr.DownloadButton(
-                        "⬇️ 下载 Anki TSV", visible=False)
-                    review_export_status = gr.Markdown("")
-                    # JS -> backend: word done ("word\tmistakes\tms\tts")
+                    # JS -> backend: word done ("word	mistakes	ms	ts")
                     review_done_box = gr.Textbox(
                         value="", visible=True,
                         elem_id="ll-review-done",
                         elem_classes=["ll-hidden"], show_label=False,
                         container=False)
-                    if not public:
-                        with gr.Accordion("📥 导入单词表（CSV / Excel）",
-                                          open=False):
-                            gr.Markdown(
-                                "把你在其他词典 App 导出的单词表导进来，"
-                                "按**分组**单独练：第 1 列单词，第 2 列"
-                                "释义、第 3 列音标均可省（带不带表头都"
-                                "行，缺释义会自动查本地词典补全）。"
-                                "Excel 直接传 .xlsx，或另存为 CSV。")
-                            with gr.Row():
-                                import_file = gr.File(
-                                    label="选择 .csv / .tsv / .txt / .xlsx",
-                                    file_types=[".csv", ".tsv", ".txt",
-                                                ".xlsx"])
-                                import_group_box = gr.Textbox(
-                                    label="分组名（留空 = 文件名）")
+                    with gr.Accordion("⋯ 导入 / 导出 / 分组管理",
+                                      open=False, elem_id="ll-review-more"):
+                        gr.Markdown(
+                            "**📥 导入单词表**：第 1 列单词，第 2 列释义、"
+                            "第 3 列音标均可省（带不带表头都行，缺释义"
+                            "自动查本地词典补全）。Excel 直接传 .xlsx，"
+                            "或另存为 CSV。")
+                        with gr.Row():
+                            import_file = gr.File(
+                                label="选择 .csv / .tsv / .txt / .xlsx",
+                                file_types=[".csv", ".tsv", ".txt",
+                                            ".xlsx"])
+                            import_group_box = gr.Textbox(
+                                label="分组名（留空 = 文件名）")
+                        with gr.Row():
                             import_btn = gr.Button("📥 导入到单词本",
-                                                   variant="primary")
-                            import_status = gr.Markdown("")
+                                                   size="sm", scale=1)
+                            group_del_btn = gr.Button(
+                                "🗑 删除当前分组", size="sm", scale=1)
+                        import_status = gr.Markdown("")
+                        with gr.Row():
+                            review_export_btn = gr.Button(
+                                "📤 导出 qwerty-learner 词典",
+                                size="sm", scale=1)
+                            anki_export_btn = gr.Button(
+                                "🗂️ 导出 Anki 牌组", size="sm", scale=1)
+                        review_download = gr.DownloadButton(
+                            "⬇️ 下载词典 JSON", visible=False)
+                        anki_download = gr.DownloadButton(
+                            "⬇️ 下载 Anki TSV", visible=False)
+                        review_export_status = gr.Markdown("")
 
             # ══ 页签 3: 歌迷考据 ══
             with gr.Tab("🕵️ 歌迷考据") as lore_tab:
@@ -1432,6 +1434,30 @@ def create_app(settings: Settings) -> gr.Blocks:
                              [import_file, import_group_box, review_state],
                              [import_status, review_group_dd,
                               review_state, review_html, review_stats_md])
+
+            def on_delete_group(group: str, state):
+                from .dictionary import delete_group
+                if not (group or "").strip() or group in ("全部",
+                                                          "📖 歌词收藏"):
+                    gr.Warning("先在「练习范围」选中一个导入的分组。")
+                    return (gr.skip(), gr.skip(), gr.skip(),
+                            gr.skip(), gr.skip())
+                n = delete_group(group)
+                if not n:
+                    gr.Warning(f"分组「{group}」没有单词。")
+                    return (gr.skip(), gr.skip(), gr.skip(),
+                            gr.skip(), gr.skip())
+                gr.Info(f"🗑 已删除分组「{group}」的 {n} 个单词。")
+                state, card, stats = _review_next(state, group="全部")
+                return (f"🗑 已删除分组「{group}」（{n} 个词）。",
+                        gr.Dropdown(choices=_group_choices(), value="全部"),
+                        state, card, stats)
+
+            group_del_btn.click(on_delete_group,
+                                [review_group_dd, review_state],
+                                [import_status, review_group_dd,
+                                 review_state, review_html,
+                                 review_stats_md])
 
             review_start_btn.click(on_review_start,
                                    [review_state, review_group_dd],

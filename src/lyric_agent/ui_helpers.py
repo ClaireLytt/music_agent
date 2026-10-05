@@ -806,8 +806,6 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str,
         f'<div class="tp-ime-hint">请切换到英文输入法</div>'
         f'<div class="tp-donehint">🎉 完成！按 Enter 下一个词</div>'
         f'{"".join(rows)}'
-        f'<div class="tp-blurhint">💡 打错整词重来 · Tab 偷看单词 · '
-        f'Enter 跳过换词 · 点卡片可继续输入</div>'
         f'</div>')
 
 

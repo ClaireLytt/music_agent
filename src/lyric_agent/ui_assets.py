@@ -1629,8 +1629,6 @@ footer, .gradio-container footer { display: none !important; }
 .ll-type-card .tp-donehint { display: none; color: var(--accent);
   font-weight: 700; font-size: 1.1em; margin-top: 8px; }
 .ll-type-card.tp-done .tp-donehint { display: block; }
-.ll-type-card .tp-blurhint { font-size: 1.05em; color: var(--text-secondary);
-  margin-top: 10px; }
 .ll-type-card .tp-wline-word { background: var(--accent-soft);
   border-radius: 4px; padding: 0 2px; }
 .ll-type-card .wb-src[data-tp-jump] { cursor: pointer; }

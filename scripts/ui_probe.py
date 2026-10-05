@@ -625,7 +625,8 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             csv_path.write_text(
                 "word,translation\nzzprobeword,探针词\n",
                 encoding="utf-8")
-            pg.get_by_text("📥 导入单词表", exact=False).first.click()
+            pg.get_by_text("⋯ 导入 / 导出 / 分组管理",
+                           exact=False).first.click()   # 展开 ⋯ 面板
             pg.wait_for_timeout(600)
             pg.locator('input[type="file"]').last.set_input_files(
                 str(csv_path))
@@ -652,6 +653,12 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
         def c_word_export():
             probe.tab("🔤 歌曲寻词")
+            if pg.get_by_role("button",
+                              name="📤 导出 qwerty-learner 词典"
+                              ).first.is_visible() is False:
+                pg.get_by_text("⋯ 导入 / 导出 / 分组管理",
+                               exact=False).first.click()
+                pg.wait_for_timeout(600)
             pg.get_by_role("button",
                            name="📤 导出 qwerty-learner 词典").click()
             probe.wait_until(
