@@ -1041,3 +1041,51 @@ def test_render_fanlore_html():
     assert "lore-pill-out" in html and html.count("data-lore-vote") == 3
     assert "考据由 AI 整理" in html
 
+
+def test_parse_wordlist_file(tmp_path):
+    from lyric_agent.dictionary import parse_wordlist_file
+
+    # 带表头 + 乱序列
+    f = tmp_path / "a.csv"
+    f.write_text("释义,word,音标\n雨,rain,reɪn\n雪,snow,\n",
+                 encoding="utf-8")
+    rows = parse_wordlist_file(str(f))
+    assert rows[0] == {"word": "rain", "translation": "雨",
+                       "phonetic": "reɪn"}
+    assert rows[1]["word"] == "snow"
+    # 无表头 TSV：按位置
+    f2 = tmp_path / "b.tsv"
+    f2.write_text("storm\t风暴\nwind\n", encoding="utf-8")
+    rows2 = parse_wordlist_file(str(f2))
+    assert rows2[0] == {"word": "storm", "translation": "风暴",
+                        "phonetic": ""}
+    assert rows2[1]["word"] == "wind"
+    # 空行被丢弃
+    f3 = tmp_path / "c.csv"
+    f3.write_text("word\n\nrain\n", encoding="utf-8")
+    assert len(parse_wordlist_file(str(f3))) == 1
+
+
+def test_import_words_and_groups(tmp_path, monkeypatch):
+    from lyric_agent import dictionary as d
+
+    monkeypatch.setattr(d, "_WORDBOOK_PATH", tmp_path / "wb.json")
+    added, skipped = d.import_words(
+        [{"word": "rain", "translation": "", "phonetic": ""},
+         {"word": "RAIN"},          # 重复 → 跳过
+         {"word": "123"},           # 不含字母 → 跳过
+         {"word": ""},              # 空 → 跳过
+         {"word": "snow", "translation": "自定义释义"}],
+        group="四级核心")
+    assert (added, skipped) == (2, 3)
+    book = d.load_wordbook()
+    assert all(e["group"] == "四级核心" for e in book)
+    # 缺释义的查了本地词典；自带释义的保留原文
+    rain = next(e for e in book if e["word"].lower() == "rain")
+    assert rain["translation"]
+    snow = next(e for e in book if e["word"].lower() == "snow")
+    assert snow["translation"] == "自定义释义"
+    assert d.word_groups() == ["四级核心"]
+    # 再导入同词到别的组 → 仍跳过（单词本按词唯一）
+    assert d.import_words([{"word": "rain"}], "另一组") == (0, 1)
+

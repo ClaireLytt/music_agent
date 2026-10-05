@@ -678,17 +678,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                             container=False)
 
             if not public:
-                with gr.Tab("🔤 歌曲寻词"):
+                with gr.Tab("🔤 歌曲寻词") as review_tab:
                     gr.Markdown(
                         "打字练收藏的单词（qwerty-learner 式）：看释义"
                         "和出处歌词盲打单词，**打错一个键整词重来**，"
                         "练对的字母会亮起；错得多的词会更频繁出现。")
                     review_state = gr.State(
                         {"word": "", "words": 0, "perfect": 0,
-                         "chars": 0, "ms": 0, "queue": []})
+                         "chars": 0, "ms": 0, "queue": [], "group": "全部"})
                     review_html = gr.HTML("")
                     review_stats_md = gr.Markdown("")
                     with gr.Row():
+                        review_group_dd = gr.Dropdown(
+                            choices=["全部", "📖 歌词收藏"], value="全部",
+                            label="练习范围", allow_custom_value=True,
+                            scale=1, elem_id="ll-review-group")
                         review_start_btn = gr.Button(
                             "⌨️ 开始 / 换一词", variant="primary",
                             scale=1)
@@ -707,6 +711,25 @@ def create_app(settings: Settings) -> gr.Blocks:
                         elem_id="ll-review-done",
                         elem_classes=["ll-hidden"], show_label=False,
                         container=False)
+                    if not public:
+                        with gr.Accordion("📥 导入单词表（CSV / Excel）",
+                                          open=False):
+                            gr.Markdown(
+                                "把你在其他词典 App 导出的单词表导进来，"
+                                "按**分组**单独练：第 1 列单词，第 2 列"
+                                "释义、第 3 列音标均可省（带不带表头都"
+                                "行，缺释义会自动查本地词典补全）。"
+                                "Excel 直接传 .xlsx，或另存为 CSV。")
+                            with gr.Row():
+                                import_file = gr.File(
+                                    label="选择 .csv / .tsv / .txt / .xlsx",
+                                    file_types=[".csv", ".tsv", ".txt",
+                                                ".xlsx"])
+                                import_group_box = gr.Textbox(
+                                    label="分组名（留空 = 文件名）")
+                            import_btn = gr.Button("📥 导入到单词本",
+                                                   variant="primary")
+                            import_status = gr.Markdown("")
 
             # ══ 页签 3: 歌迷考据 ══
             with gr.Tab("🕵️ 歌迷考据") as lore_tab:
@@ -716,15 +739,31 @@ def create_app(settings: Settings) -> gr.Blocks:
                     "每条线索都带来源标签；歌词引用经曲库程序验证"
                     "（✅ 可点击跳转，⚠️ 表示未验证）。"
                 )
-                lore_song_dd = gr.Dropdown(
-                    choices=song_choices(), value=None,
-                    label="选择歌曲", allow_custom_value=True,
-                    elem_id="ll-lore-song")
-                lore_html = gr.HTML(FANLORE_EMPTY)
-                if not public:
-                    lore_btn = gr.Button(
-                        "🕵️ 生成考据故事（调用 1 次 LLM，"
-                        "之后永久缓存）", size="sm")
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        lore_song_dd = gr.Dropdown(
+                            choices=song_choices(), value=None,
+                            label="选择歌曲", allow_custom_value=True,
+                            elem_id="ll-lore-song")
+                        lore_html = gr.HTML(FANLORE_EMPTY)
+                        if not public:
+                            lore_btn = gr.Button(
+                                "🕵️ 生成考据故事（调用 1 次 LLM，"
+                                "之后永久缓存）", size="sm")
+                    with gr.Column(scale=1, elem_id="ll-lore-chat"):
+                        gr.HTML('<div class="side-panel-title">'
+                                '💬 AI 助手</div>')
+                        _LORE_CHAT_HINT = ('<div class="chat-empty">考据页'
+                                           '哪里看不懂，随时在这里问——'
+                                           'AI 会结合本页内容回答。</div>')
+                        lore_chat_state = gr.State(None)
+                        lore_chat_html = gr.HTML(_LORE_CHAT_HINT)
+                        with gr.Row():
+                            lore_chat_input = gr.Textbox(
+                                placeholder="针对本页考据提问 ...",
+                                show_label=False, scale=4, container=False)
+                            lore_chat_send = gr.Button(
+                                "提问", scale=1, variant="primary")
                 # library may grow while the app runs
                 lore_tab.select(
                     lambda: gr.Dropdown(choices=song_choices()),
@@ -1089,15 +1128,82 @@ def create_app(settings: Settings) -> gr.Blocks:
             return (ctx.get("lore_inflight") or {}).get(song_dir)
 
         def on_lore_song(choice: str):
+            # 切歌：换内容 + 重置右侧助手会话
             info = find_song(choice) if choice else {}
             if not info.get("dir"):
-                return FANLORE_EMPTY
+                return FANLORE_EMPTY, None, _LORE_CHAT_HINT
             st = _lore_state(info["dir"])
-            if st and st.get("status") == "running":
-                return _LORE_WAIT
-            return _render_lore(info)
+            html = (_LORE_WAIT if st and st.get("status") == "running"
+                    else _render_lore(info))
+            return html, None, _LORE_CHAT_HINT
 
-        lore_song_dd.change(on_lore_song, [lore_song_dd], [lore_html])
+        lore_song_dd.change(on_lore_song, [lore_song_dd],
+                            [lore_html, lore_chat_state, lore_chat_html])
+
+        def _lore_session(choice: str):
+            """助手会话：把本页考据内容作为上下文（无考据时退回歌名）。"""
+            info = find_song(choice) if choice else {}
+            if not info.get("dir"):
+                return None
+            from .fanlore import load_fanlore, parse_fanlore
+            cached = load_fanlore(info["dir"])
+            ctx_txt = ""
+            if cached is not None:
+                f = parse_fanlore(cached)
+                bits = []
+                if f.hook:
+                    bits.append(f"一句话看懂：{f.hook}")
+                bits += [f"线索[{c.type}]{c.title}：{c.body}"
+                         for c in f.clues]
+                if f.chain:
+                    bits.append("剧情推测链：" + " → ".join(
+                        f"《{s}》（{b}）" for s, b in f.chain))
+                if f.summary:
+                    bits.append(f"总结：{f.summary}")
+                ctx_txt = ("用户正在看的考据页内容：\n"
+                           + "\n".join(bits))[:1500]
+            return DebateSession(
+                lyric_line="（用户在看这首歌的考据页，可能就页面任何内容提问）",
+                song_title=info.get("title", ""),
+                artist=info.get("artist", ""),
+                annotation_context=ctx_txt)
+
+        def on_lore_chat(session, user_text: str, choice: str, user_cfg):
+            text = (user_text or "").strip()
+            if not text:
+                yield session, gr.skip(), user_text
+                return
+            if session is None:
+                session = _lore_session(choice)
+            if session is None:
+                yield (None, '<div class="chat-empty">请先选择一首歌。</div>',
+                       user_text)
+                return
+            req_settings = _request_settings(user_cfg)
+            if public and not req_settings.api_key:
+                yield (session, _render_chat(session, live=_PUBLIC_KEY_HINT),
+                       user_text)
+                return
+            session.history.append({"speaker": "user", "text": text})
+            partial = ""
+            for delta in ai_speak(req_settings, session, "assistant",
+                                  user_prompt=text):
+                partial += delta
+                yield session, _render_chat(session, live=partial), ""
+            if partial and session.history \
+                    and session.history[-1]["speaker"] == "user":
+                session.history.append({"speaker": "🤖 AI 助手",
+                                        "text": partial})
+            yield session, _render_chat(session), ""
+
+        lore_chat_send.click(
+            on_lore_chat,
+            [lore_chat_state, lore_chat_input, lore_song_dd, user_llm],
+            [lore_chat_state, lore_chat_html, lore_chat_input])
+        lore_chat_input.submit(
+            on_lore_chat,
+            [lore_chat_state, lore_chat_input, lore_song_dd, user_llm],
+            [lore_chat_state, lore_chat_html, lore_chat_input])
 
         if not public:
             def _lore_generate_bg(info: dict, req) -> None:
@@ -1315,9 +1421,17 @@ def create_app(settings: Settings) -> gr.Blocks:
                              f"{s['mastered']} 熟练")
                 return " ｜ ".join(parts)
 
-            def _review_next(state, exclude: str = ""):
+            def _review_next(state, exclude: str = "",
+                             group: str = "全部"):
                 from .review import round_queue, synthesize_word
                 book = load_wordbook()
+                if group == "📖 歌词收藏":
+                    book = [e for e in book if not e.get("group")]
+                elif group and group != "全部":
+                    book = [e for e in book if e.get("group") == group]
+                if state.get("group") != group:   # 换范围 → 重开一轮
+                    state["group"] = group
+                    state["queue"] = []
                 titles = {e.get("word", "").lower() for e in book}
                 # 本轮队列：收藏的词各打一遍、按优先级排序；打完重排开下一轮
                 queue = [w for w in state.get("queue", [])
@@ -1336,10 +1450,13 @@ def create_app(settings: Settings) -> gr.Blocks:
                 state["queue"] = queue
                 if entry is None:
                     state["word"] = ""
+                    hint = ("这个分组没有单词。" if group not in ("全部",)
+                            else "单词本是空的——先去「🎧 播放解读」双击"
+                            "歌词里的英文单词收藏几个，或在下方导入"
+                            "单词表。")
                     return (state,
-                            '<div class="chat-empty">单词本是空的——先去'
-                            '「🎧 播放解读」双击歌词里的英文单词收藏几个。'
-                            '</div>', _review_stats_line(state))
+                            f'<div class="chat-empty">{hint}</div>',
+                            _review_stats_line(state))
                 mp3 = synthesize_word(entry["word"])
                 url = _file_url(mp3) if mp3 else ""
                 state["word"] = entry["word"]
@@ -1351,10 +1468,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                                              examples=examples),
                         _review_stats_line(state))
 
-            def on_review_start(state):
-                return _review_next(state, exclude=state.get("word", ""))
+            def on_review_start(state, group: str):
+                return _review_next(state, exclude=state.get("word", ""),
+                                    group=group or "全部")
 
-            def on_review_done(payload: str, state):
+            def on_review_done(payload: str, state, group: str):
                 parts = (payload or "").split("\t")
                 if len(parts) < 3:
                     return gr.skip(), gr.skip(), gr.skip()
@@ -1371,7 +1489,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                     state["ms"] += max(0, int(ms))
                 except ValueError:
                     pass
-                return _review_next(state, exclude=word)
+                return _review_next(state, exclude=word,
+                                    group=group or "全部")
 
             def on_review_export():
                 from .review import export_qwerty
@@ -1389,11 +1508,60 @@ def create_app(settings: Settings) -> gr.Blocks:
                         "qwerty-learner 的 `public/dicts/` 并在 "
                         "`resources/dictionary.ts` 注册即可使用。")
 
-            review_start_btn.click(on_review_start, [review_state],
+            def _group_choices() -> list[str]:
+                from .dictionary import word_groups
+                return ["全部", "📖 歌词收藏"] + word_groups()
+
+            def on_review_tab_select(group: str):
+                choices = _group_choices()
+                return gr.Dropdown(
+                    choices=choices,
+                    value=group if group in choices else "全部")
+
+            review_tab.select(on_review_tab_select, [review_group_dd],
+                              [review_group_dd])
+
+            def on_import_words(file, group_name: str, state):
+                from .dictionary import import_words, parse_wordlist_file
+                if not file:
+                    return ("⚠️ 请先选择一个单词表文件。",
+                            gr.skip(), gr.skip(), gr.skip(), gr.skip())
+                group = (group_name or "").strip() or Path(file).stem
+                try:
+                    rows = parse_wordlist_file(file)
+                except ValueError as exc:
+                    return (f"⚠️ {exc}", gr.skip(), gr.skip(),
+                            gr.skip(), gr.skip())
+                except Exception:
+                    logger.exception("wordlist parse failed")
+                    return ("⚠️ 文件解析失败——请确认是 CSV/TSV/XLSX，"
+                            "第 1 列为单词。", gr.skip(), gr.skip(),
+                            gr.skip(), gr.skip())
+                added, skipped = import_words(rows, group)
+                if not added:
+                    return (f"⚠️ 没有新词可导入（跳过 {skipped} 行："
+                            "空词/非英文/已在单词本）。",
+                            gr.skip(), gr.skip(), gr.skip(), gr.skip())
+                # 导入成功：切到该分组并立刻发一张练习卡
+                state, card, stats = _review_next(state, group=group)
+                return (f"✅ 已导入 **{added}** 个词到分组「{group}」"
+                        f"（跳过 {skipped} 行）。已切到该分组，"
+                        "直接开打！",
+                        gr.Dropdown(choices=_group_choices(), value=group),
+                        state, card, stats)
+
+            import_btn.click(on_import_words,
+                             [import_file, import_group_box, review_state],
+                             [import_status, review_group_dd,
+                              review_state, review_html, review_stats_md])
+
+            review_start_btn.click(on_review_start,
+                                   [review_state, review_group_dd],
                                    [review_state, review_html,
                                     review_stats_md])
             review_done_box.change(on_review_done,
-                                   [review_done_box, review_state],
+                                   [review_done_box, review_state,
+                                    review_group_dd],
                                    [review_state, review_html,
                                     review_stats_md])
             review_export_btn.click(on_review_export, None,

@@ -140,6 +140,105 @@ def add_word(word: str, line: str = "", song: str = "",
     return book
 
 
+def parse_wordlist_file(path: str) -> list[dict]:
+    """解析用户从其他词典导出的单词表（.csv/.tsv/.txt/.xlsx）。
+
+    返回 [{word, translation, phonetic}]。列识别：有表头时按名字匹配
+    （word/单词、translation/释义/meaning/翻译、phonetic/音标），无表头
+    按位置（第 1 列词、第 2 列释义、第 3 列音标）。xlsx 需要 openpyxl，
+    缺了就抛 ValueError 提示另存为 CSV。"""
+    import csv
+    from pathlib import Path as _P
+
+    p = _P(path)
+    if p.suffix.lower() == ".xlsx":
+        try:
+            import openpyxl
+        except ImportError:
+            raise ValueError("读取 Excel 需要 openpyxl（pip install "
+                             "openpyxl），或把文件另存为 CSV 再导入。")
+        ws = openpyxl.load_workbook(p, read_only=True).active
+        raw = [["" if c is None else str(c) for c in row]
+               for row in ws.iter_rows(values_only=True)]
+    else:
+        try:
+            text = p.read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            text = p.read_text(encoding="gbk", errors="replace")
+        sample = text[:2048]
+        try:
+            dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
+        except csv.Error:
+            dialect = csv.excel_tab if "\t" in sample else csv.excel
+        raw = [row for row in csv.reader(text.splitlines(), dialect)]
+
+    raw = [r for r in raw if any((c or "").strip() for c in r)]
+    if not raw:
+        return []
+    # 表头识别与列映射
+    _W = {"word", "单词", "词", "term", "headword", "name"}
+    _T = {"translation", "trans", "释义", "意思", "meaning", "翻译",
+          "解释", "definition"}
+    _P2 = {"phonetic", "音标", "发音", "ipa"}
+    head = [(c or "").strip().lower() for c in raw[0]]
+    col = {"word": 0, "translation": 1, "phonetic": 2}
+    rows = raw
+    if any(h in _W for h in head):
+        for i, h in enumerate(head):
+            if h in _W:
+                col["word"] = i
+            elif h in _T:
+                col["translation"] = i
+            elif h in _P2:
+                col["phonetic"] = i
+        rows = raw[1:]
+
+    def cell(r: list, i: int) -> str:
+        return (r[i] or "").strip() if i < len(r) else ""
+
+    return [{"word": cell(r, col["word"]),
+             "translation": cell(r, col["translation"]),
+             "phonetic": cell(r, col["phonetic"])} for r in rows]
+
+
+def import_words(rows: list[dict], group: str) -> tuple[int, int]:
+    """把解析出的单词表并入单词本（带分组）。返回 (新增, 跳过)。
+
+    跳过：空词/不含字母/已在单词本。缺释义/音标时查本地词典补全。"""
+    book = load_wordbook()
+    have = {e.get("word", "").lower() for e in book}
+    added = skipped = 0
+    for r in rows:
+        word = (r.get("word") or "").strip()
+        if (not word or len(word) > 48
+                or not any(c.isalpha() for c in word)
+                or word.lower() in have):
+            skipped += 1
+            continue
+        hit = lookup(word) or {}
+        book.append({
+            "word": hit.get("word", word),
+            "phonetic": (r.get("phonetic") or "").strip()
+            or hit.get("phonetic", ""),
+            "translation": (r.get("translation") or "").strip()
+            or hit.get("translation", ""),
+            "line": "", "song": "", "label": "", "line_index": -1,
+            "ai": "", "group": group,
+        })
+        have.add(word.lower())
+        added += 1
+    if added:
+        save_wordbook(book)
+    return added, skipped
+
+
+def word_groups(book: list[dict] | None = None) -> list[str]:
+    """单词本里出现过的分组名（导入时自定义），排序稳定。"""
+    book = load_wordbook() if book is None else book
+    return sorted({(e.get("group") or "").strip()
+                   for e in book} - {""}, key=str.lower)
+
+
 def remove_word(word: str) -> list[dict]:
     book = [e for e in load_wordbook()
             if e.get("word", "").lower() != (word or "").lower()]

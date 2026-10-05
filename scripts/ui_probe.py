@@ -610,6 +610,10 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             ).count() == 1, "fanlore generate button missing")
             body = pg.locator("body").inner_text()
             must("考据" in body, "fanlore intro text missing")
+            # 右侧 AI 助手（提问按钮存在即可，不真的花 LLM）
+            must(pg.locator("#ll-lore-chat").count() == 1
+                 and "AI 助手" in pg.locator("#ll-lore-chat").inner_text(),
+                 "lore chat panel missing")
         probe.check("fanlore", "fanlore tab picker + guarded button",
                     c_fanlore)
 
@@ -691,6 +695,39 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("word_practice", "typing drill grades a typed word",
                     c_word_practice)
 
+
+        def c_word_import():
+            # CSV 导入 -> 新分组 + 立刻出卡（净零：随后删除导入的词）
+            probe.tab("🔤 歌曲寻词")
+            import tempfile
+            csv_path = Path(tempfile.gettempdir()) / "ll_probe_words.csv"
+            csv_path.write_text(
+                "word,translation\nzzprobeword,探针词\n",
+                encoding="utf-8")
+            pg.get_by_text("📥 导入单词表", exact=False).first.click()
+            pg.wait_for_timeout(600)
+            pg.locator('input[type="file"]').last.set_input_files(
+                str(csv_path))
+            pg.wait_for_timeout(1200)
+            pg.get_by_role("button", name="📥 导入到单词本").click()
+            probe.wait_until(
+                lambda: "已导入" in pg.locator("body").inner_text(),
+                msg="import did not report success")
+            probe.wait_until(
+                lambda: count(".ll-type-card") >= 1
+                and (pg.locator(".ll-type-card").first
+                     .get_attribute("data-word")) == "zzprobeword",
+                msg="imported word did not become the practice card")
+            # cleanup: remove the probe word from the wordbook
+            pg.evaluate(
+                "() => {const b=document.querySelector('#ll-wb-act textarea,"
+                "#ll-wb-act input'); if(b){b.value='del:zzprobeword\\t'"
+                "+Date.now(); b.dispatchEvent(new Event('input',"
+                "{bubbles:true}));}}")
+            pg.wait_for_timeout(1500)
+            csv_path.unlink(missing_ok=True)
+        probe.check("word_import", "CSV import -> group + practice card",
+                    c_word_import)
 
         def c_word_export():
             probe.tab("🔤 歌曲寻词")
