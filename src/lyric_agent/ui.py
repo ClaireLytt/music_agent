@@ -109,7 +109,9 @@ def create_app(settings: Settings) -> gr.Blocks:
         # never expose it on a public deployment
         songs = _discover_songs(
             settings.songs_dir,
-            exclude_sources={HACKATHON_PLAYLIST_SOURCE} if public else None)
+            exclude_sources={HACKATHON_PLAYLIST_SOURCE} if public else None,
+            # 产品定位：英文歌学英语——中文歌默认隐藏（数据保留）
+            exclude_cjk=os.getenv("LL_SHOW_CJK", "") != "1")
         ctx["songs"] = songs
         searcher = LyricsSearcher(songs, model_name=settings.embedding_model,
                                   corpus_dir=settings.corpus_dir)
@@ -395,7 +397,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             storage_key="lyric_lens_llm")
         gr.HTML(
             '<div class="app-header"><h1>🔍 歌词透镜</h1>'
-            '<p>点一句歌词，问懂一句歌词</p></div>'
+            '<p>听英文歌，点一句歌词问懂它，把生词练会带走</p></div>'
         )
         # backend -> JS: the login role ("admin"/"viewer"); _HEAD_JS hides
         # the management tabs for non-admins (gradio 6 ignores Tab
@@ -411,10 +413,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                     # ── 左栏: 歌曲 + 搜索 ──
                     with gr.Column(scale=1, min_width=230):
                         choices = song_choices()
-                        # 黄金路径：默认落在主打歌《晴天》（不在库时回退第一首）
+                        # 黄金路径：默认落在主打歌 cardigan（不在库时回退第一首）
                         default_choice = next(
                             (c for c in choices
-                             if c == "晴天" or c.startswith("晴天 — ")),
+                             if c == "cardigan"
+                             or c.startswith("cardigan — ")),
                             choices[0] if choices else None,
                         )
                         with gr.Accordion(
@@ -702,47 +705,45 @@ def create_app(settings: Settings) -> gr.Blocks:
                         elem_classes=["ll-hidden"], show_label=False,
                         container=False)
 
-            # ══ 页签 3: 歌迷考据 ══
-            with gr.Tab("🕵️ 歌迷考据") as lore_tab:
-                gr.Markdown(
-                    "像看粉丝解析视频一样看一首歌：AI 把**官方信息**、曲库"
-                    "检索出的**歌词呼应**和**基于歌词的 AI 推测**整理成一页考据故事。"
-                    "每条线索都带来源标签；歌词引用经曲库程序验证"
-                    "（✅ 可点击跳转，⚠️ 表示未验证）。"
-                )
-                with gr.Row():
-                    with gr.Column(scale=3):
-                        lore_song_dd = gr.Dropdown(
-                            choices=song_choices(), value=None,
-                            label="选择歌曲", allow_custom_value=True,
-                            elem_id="ll-lore-song")
-                        lore_html = gr.HTML(FANLORE_EMPTY)
-                        if not public:
-                            lore_btn = gr.Button(
-                                "🕵️ 生成考据故事（调用 1 次 LLM，"
-                                "之后永久缓存）", size="sm")
-                    with gr.Column(scale=1, elem_id="ll-lore-chat"):
-                        gr.HTML('<div class="side-panel-title">'
-                                '💬 AI 助手</div>')
-                        _LORE_CHAT_HINT = ('<div class="chat-empty">考据页'
-                                           '哪里看不懂，随时在这里问——'
-                                           'AI 会结合本页内容回答。</div>')
-                        lore_chat_state = gr.State(None)
-                        lore_chat_html = gr.HTML(_LORE_CHAT_HINT)
-                        with gr.Row():
-                            lore_chat_input = gr.Textbox(
-                                placeholder="针对本页考据提问 ...",
-                                show_label=False, scale=4, container=False)
-                            lore_chat_send = gr.Button(
-                                "提问", scale=1, variant="primary")
-                # library may grow while the app runs
-                lore_tab.select(
-                    lambda: gr.Dropdown(choices=song_choices()),
-                    None, [lore_song_dd])
-
             # ══ 页签 5: 互动（竞猜 / 拼图 / 单词练习） ══
             with gr.Tab("🎮 互动"):
                 with gr.Tabs():
+                    with gr.Tab("🕵️ 歌迷考据") as lore_tab:
+                        gr.Markdown(
+                            "像看粉丝解析视频一样看一首歌：AI 把**官方信息**、曲库"
+                            "检索出的**歌词呼应**和**基于歌词的 AI 推测**整理成一页考据故事。"
+                            "每条线索都带来源标签；歌词引用经曲库程序验证"
+                            "（✅ 可点击跳转，⚠️ 表示未验证）。"
+                        )
+                        with gr.Row():
+                            with gr.Column(scale=3):
+                                lore_song_dd = gr.Dropdown(
+                                    choices=song_choices(), value=None,
+                                    label="选择歌曲", allow_custom_value=True,
+                                    elem_id="ll-lore-song")
+                                lore_html = gr.HTML(FANLORE_EMPTY)
+                                if not public:
+                                    lore_btn = gr.Button(
+                                        "🕵️ 生成考据故事（调用 1 次 LLM，"
+                                        "之后永久缓存）", size="sm")
+                            with gr.Column(scale=1, elem_id="ll-lore-chat"):
+                                gr.HTML('<div class="side-panel-title">'
+                                        '💬 AI 助手</div>')
+                                _LORE_CHAT_HINT = ('<div class="chat-empty">考据页'
+                                                   '哪里看不懂，随时在这里问——'
+                                                   'AI 会结合本页内容回答。</div>')
+                                lore_chat_state = gr.State(None)
+                                lore_chat_html = gr.HTML(_LORE_CHAT_HINT)
+                                with gr.Row():
+                                    lore_chat_input = gr.Textbox(
+                                        placeholder="针对本页考据提问 ...",
+                                        show_label=False, scale=4, container=False)
+                                    lore_chat_send = gr.Button(
+                                        "提问", scale=1, variant="primary")
+                        # library may grow while the app runs
+                        lore_tab.select(
+                            lambda: gr.Dropdown(choices=song_choices()),
+                            None, [lore_song_dd])
                     with gr.Tab("🎯 歌词竞猜"):
                         gr.Markdown("从你的歌曲列表随机抽一句歌词，"
                                     "猜猜它出自哪首歌。")

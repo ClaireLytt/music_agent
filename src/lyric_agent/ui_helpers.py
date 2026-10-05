@@ -33,8 +33,32 @@ from .evidence import esc_html as _esc  # noqa: E402 — 渲染共用转义
 
 # ── Song loading ──────────────────────────────────────────
 
+_SONG_CJK_CACHE: dict[str, bool] = {}
+
+
+def song_is_cjk(song_dir: str | Path) -> bool:
+    """这首歌是不是中文歌：取歌词前 30 行，过半数行 CJK 占比 >30% 判中文。
+    产品定位是英文歌学英语，中文歌默认隐藏（LL_SHOW_CJK=1 可恢复）。"""
+    key = str(song_dir)
+    if key in _SONG_CJK_CACHE:
+        return _SONG_CJK_CACHE[key]
+    from .intertextuality.search import is_cjk_text
+    from .lrc_parser import parse_lrc
+    try:
+        _, timed = parse_lrc((Path(song_dir) / "lyrics.lrc")
+                             .read_text(encoding="utf-8"))
+        lines = [ln.text for ln in timed[:30] if ln.text.strip()]
+        result = bool(lines) and (
+            sum(is_cjk_text(ln) for ln in lines) / len(lines) > 0.5)
+    except Exception:
+        result = False
+    _SONG_CJK_CACHE[key] = result
+    return result
+
+
 def _discover_songs(songs_dir: str,
-                    exclude_sources: set[str] | None = None) -> list[dict[str, Any]]:
+                    exclude_sources: set[str] | None = None,
+                    exclude_cjk: bool = False) -> list[dict[str, Any]]:
     base = Path(songs_dir)
     if not base.exists():
         return []
@@ -46,6 +70,8 @@ def _discover_songs(songs_dir: str,
         if (d / "metadata.json").exists():
             meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
         if exclude_sources and meta.get("source") in exclude_sources:
+            continue
+        if exclude_cjk and song_is_cjk(d):
             continue
         audio = resolve_audio(d)
         era = meta.get("era", "").lower()
@@ -78,10 +104,18 @@ _CATALOG_PATH = Path("data/catalog/catalog.json")
 
 
 def _load_catalog() -> list[dict]:
+    """内置曲库（英文歌定位：默认滤掉中文条目，LL_SHOW_CJK=1 恢复）。"""
+    import os
+    import re as _re
     try:
         if _CATALOG_PATH.exists():
             data = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
             if isinstance(data, list):
+                if os.getenv("LL_SHOW_CJK", "") != "1":
+                    cjk = _re.compile(r"[一-鿿]")
+                    data = [c for c in data
+                            if not cjk.search(str(c.get("title", ""))
+                                              + str(c.get("artist", "")))]
                 return data
     except Exception:
         logger.exception("Failed reading catalog %s", _CATALOG_PATH)

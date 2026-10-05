@@ -441,7 +441,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                              msg="tour box did not open")
             pg.locator('[data-ob="next"]').click()
             probe.wait_until(
-                lambda: "歌词区" in pg.locator(".ll-onboard-box").inner_text(),
+                lambda: "听不懂的歌词" in pg.locator(".ll-onboard-box").inner_text(),
                 msg="step 2 text missing")
             pg.locator('[data-ob="skip"]').click()
             probe.wait_until(lambda: count(".ll-onboard-box") == 0,
@@ -508,6 +508,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
         # ── 歌迷考据 tab ──
         def c_fanlore():
+            probe.tab("🎮 互动")
             probe.tab("🕵️ 歌迷考据")
             pg.wait_for_timeout(1000)
             must(pg.locator("#ll-lore-song").count() == 1,
@@ -923,7 +924,9 @@ def main() -> int:
         env = {**__import__("os").environ, "UI_PORT": str(port),
                "BILI_AUTO_BIND": "0",
                "LL_CORPUS_REBUILD": "0",
-               "LL_WORD_EXAMPLES": "0"}
+               "LL_WORD_EXAMPLES": "0",
+               # 探针继续覆盖全曲库行为（含中文歌检查）
+               "LL_SHOW_CJK": "1"}
         with open(server_log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "lyric_agent.cli", "serve", "--no-browser"],

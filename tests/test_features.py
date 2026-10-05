@@ -1075,3 +1075,25 @@ def test_import_words_and_groups(tmp_path, monkeypatch):
     # 再导入同词到别的组 → 仍跳过（单词本按词唯一）
     assert d.import_words([{"word": "rain"}], "另一组") == (0, 1)
 
+
+def test_discover_songs_exclude_cjk(tmp_path):
+    from lyric_agent.ui_helpers import _discover_songs, song_is_cjk
+
+    zh = tmp_path / "zh_song"
+    zh.mkdir()
+    (zh / "lyrics.lrc").write_text(
+        "[00:01.00] 故事的小黄花\n[00:02.00] 童年的荡秋千\n",
+        encoding="utf-8")
+    en = tmp_path / "en_song"
+    en.mkdir()
+    (en / "lyrics.lrc").write_text(
+        "[00:01.00] vintage tee brand new phone\n"
+        "[00:02.00] high heels on cobblestones\n", encoding="utf-8")
+    assert song_is_cjk(zh) and not song_is_cjk(en)
+    names = {s["name"] for s in _discover_songs(str(tmp_path))}
+    assert names == {"zh_song", "en_song"}
+    names = {s["name"]
+             for s in _discover_songs(str(tmp_path), exclude_cjk=True)}
+    assert names == {"en_song"}
+
+
