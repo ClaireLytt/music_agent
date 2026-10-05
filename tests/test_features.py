@@ -165,7 +165,7 @@ def test_render_favorites():
     # id-based (stable) actions, not positional indices
     assert 'data-fav="jump:' in html and 'data-fav="del:' in html
     assert 'jump:0"' not in html  # no longer index-based
-    assert "还没有收藏" in _render_favorites([])
+    assert _render_favorites([]) == ""   # 空态提示已按用户要求删除
 
 
 def test_artist_overview_enriched(tmp_path):
@@ -272,7 +272,7 @@ def test_render_wordbook_escapes():
     assert "wb-ai" in html and "&lt;x&gt;" in html   # AI 解释展示且转义
     assert "①语境义：&lt;x&gt;<br>②整句：好" in html  # 换行渲染
     assert "wb-ai" not in render_wordbook([{"word": "w", "song": "s"}])
-    assert "还没有收藏的单词" in render_wordbook([])
+    assert render_wordbook([]) == ""     # 空态提示已按用户要求删除
 
 
 def _evidence_fixture(tmp_path):
@@ -678,7 +678,7 @@ def test_render_audio_html_video_branches():
     # 有 bvid + 无音频 -> 直接 iframe + 降级说明，横幅消失
     bound = _render_audio_html(dict(base, bvid="BV1xx411c7mD"), public=True)
     assert "bv-frame" in bound and "player.bilibili.com" in bound
-    assert "no-audio-hint" not in bound and "视频模式" in bound
+    assert "no-audio-hint" not in bound   # 视频模式说明已按用户要求删除
     # 候选卡渲染 + 转义
     cands = [{"bvid": "BV1xx411c7mD", "title": "<晴天> MV",
               "author": "up&主", "duration": "4:29"}]

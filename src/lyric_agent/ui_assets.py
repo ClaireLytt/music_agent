@@ -101,22 +101,37 @@ _HEAD_JS = """
       if (b.offsetParent !== null && b.textContent.includes(text)) return b;
     return null;
   }
+  function activeGame() {
+    for (const g of GAMES) {
+      const res = document.getElementById(g.res);
+      if (res && res.offsetParent !== null) return g;
+    }
+    return null;
+  }
   document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Enter' || e.isComposing) return;
+    if (e.isComposing) return;
     const tag = (e.target.tagName || '').toLowerCase();
     const type = (e.target.type || '').toLowerCase();
-    // 文本输入框里的 Enter 不抢（打字练习/聊天各有自己的行为）
+    // 文本输入框里的按键不抢（打字练习/聊天各有自己的行为）
     if (tag === 'textarea'
         || (tag === 'input' && type !== 'radio' && type !== 'checkbox'))
       return;
-    for (const g of GAMES) {
-      const res = document.getElementById(g.res);
-      if (!res || res.offsetParent === null) continue;
-      const answered = /[✅❌]/.test(res.textContent);
-      const btn = visibleBtn(answered ? g.next : g.submit);
-      if (btn) { e.preventDefault(); btn.click(); }
+    const g = activeGame();
+    if (!g) return;
+    // 1-4 选第 N 个选项
+    if (/^[1-4]$/.test(e.key)) {
+      const opts = [...document.querySelectorAll('input[type=radio]')]
+        .filter((i) => i.offsetParent !== null
+                       && i.closest('.tabitem'));
+      const idx = Number(e.key) - 1;
+      if (opts[idx]) { e.preventDefault(); opts[idx].click(); }
       return;
     }
+    if (e.key !== 'Enter') return;
+    const answered = /[✅❌]/.test(
+      document.getElementById(g.res).textContent);
+    const btn = visibleBtn(answered ? g.next : g.submit);
+    if (btn) { e.preventDefault(); btn.click(); }
   });
 })();
 window.llz = function() {   // body CSS zoom 校正系数
@@ -239,12 +254,14 @@ window.llz = function() {   // body CSS zoom 校正系数
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeAll();
   });
-  document.addEventListener('dblclick', (e) => {
+  function lookupSelection(e) {
     const lineEl = e.target.closest('.lyric-line');
     if (!lineEl) return;
     const sel = window.getSelection();
-    const word = (sel ? sel.toString() : '').trim();
-    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}$/.test(word)) return;
+    const word = (sel ? sel.toString() : '').trim().replace(/\\s+/g, ' ');
+    // \u5355\u8bcd\uff0c\u6216\u62d6\u9009 2-6 \u4e2a\u8bcd\u7684\u8bcd\u7ec4
+    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}(?: [A-Za-z][A-Za-z'\u2019-]{0,31}){0,5}$/.test(word))
+      return;
     const pops = document.querySelectorAll('.ll-dict-pop');
     if (pops.length >= 4) pops[0].remove();   // 最多同屏 4 张，顶掉最旧的
     const line = (lineEl.querySelector('.lyric-text') || lineEl).textContent.trim();
@@ -273,6 +290,13 @@ window.llz = function() {   // body CSS zoom 校正系数
     makeDraggable(pop);
     pop.dataset.q = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
     sendChannel('ll-dict-pick', pop.dataset.q);
+  }
+  document.addEventListener('dblclick', lookupSelection);
+  document.addEventListener('mouseup', (e) => {
+    // 拖选词组：选区含空格才走这里（单词仍由 dblclick 负责）
+    const sel = window.getSelection();
+    const s = (sel ? sel.toString() : '').trim();
+    if (s.includes(' ')) lookupSelection(e);
   });
   function render(pop, data) {
     if (!pop) return;
@@ -1310,7 +1334,8 @@ footer, .gradio-container footer { display: none !important; }
 }
 #lyrics-container::-webkit-scrollbar { width: 6px; }
 #lyrics-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-#lyrics-scroll { display: flex; flex-direction: column; gap: 2px; }
+#lyrics-scroll { display: flex; flex-direction: column; gap: 2px;
+  padding-bottom: 140px; /* 拖到底后再留 ~3 行空间 */ }
 
 .lyric-line {
   padding: 8px 16px; border-radius: 8px; cursor: pointer;
@@ -1547,10 +1572,15 @@ footer, .gradio-container footer { display: none !important; }
 .mv-link.ev-ok[data-cite-label]:hover { text-decoration: underline; }
 .mv-link.ev-bad { color: var(--text-secondary); }
 @keyframes ll-cite-flash {
-  0%, 60% { background: var(--accent-soft); }
-  100% { background: transparent; }
+  0%, 15% { background: var(--accent); color: #fff;
+            box-shadow: 0 0 0 3px var(--accent); }
+  70% { background: var(--accent-soft); color: inherit;
+        box-shadow: 0 0 0 2px var(--accent); }
+  100% { background: transparent; box-shadow: none; }
 }
-.lyric-line.cite-flash { animation: ll-cite-flash 2.5s ease-out; border-radius: 8px; }
+.lyric-line.cite-flash { animation: ll-cite-flash 4s ease-out;
+  border-radius: 8px; }
+.lyric-line.cite-flash .lyric-text { color: inherit; }
 
 /* mini translator popover + wordbook */
 .ll-dict-pop {
@@ -1617,8 +1647,8 @@ footer, .gradio-container footer { display: none !important; }
 /* 歌曲寻词整页与互动同级放大 */
 .tabitem:has(#ll-review-hint) { zoom: 1.25; }
 /* 添加歌曲：整块居中 + 同级放大 */
-.tabitem:has(#ll-catalog) { zoom: 1.25; }
-.tabitem:has(#ll-catalog) > * { max-width: 980px; margin-left: auto;
+.tabitem:has(#ll-add-head) { zoom: 1.25; }
+.tabitem:has(#ll-add-head) > * { max-width: 980px; margin-left: auto;
   margin-right: auto; text-align: center; }
 /* 练习范围：窄、贴提示行 */
 #ll-review-group { max-width: 280px; margin-left: 24%; margin-right: auto; }
@@ -1770,6 +1800,8 @@ footer, .gradio-container footer { display: none !important; }
 .ll-type-card .tp-donehint { display: none; color: var(--accent);
   font-weight: 700; font-size: 1.1em; margin-top: 8px; }
 .ll-type-card.tp-done .tp-donehint { display: block; }
+.ll-type-card .tp-ch.tp-space { min-width: .55em;
+  display: inline-block; }
 .ll-type-card .tp-wline-word { background: var(--accent-soft);
   border-radius: 4px; padding: 0 2px; }
 .ll-type-card .wb-src[data-tp-jump] { cursor: pointer; }

@@ -643,7 +643,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                     with gr.Row():
                         with gr.Column(scale=3):
                             review_group_dd = gr.Dropdown(
-                                choices=["全部", "📖 歌词收藏"], value="全部",
+                                choices=["全部", "📖 歌词收藏",
+                                     "🔤 单词", "🧩 词组"], value="全部",
                                 label="练习范围", allow_custom_value=True,
                                 elem_id="ll-review-group")
                         with gr.Column(scale=2,
@@ -739,7 +740,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                             None, [lore_song_dd])
                     with gr.Tab("🎯 歌词竞猜"),                             gr.Column(elem_id="ll-quiz-wrap"):
                         gr.Markdown("从你的歌曲列表随机抽一句歌词，"
-                                    "猜猜它出自哪首歌。选好选项后按 "
+                                    "猜猜它出自哪首歌。**按 1-4 选选项**、"
                                     "**Enter 提交答案**，看完答案再按一次 "
                                     "**Enter 下一题**。")
                         quiz_state = gr.State(
@@ -757,8 +758,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                         quiz_result = gr.HTML("", elem_id="ll-quiz-result")
                     with gr.Tab("🧩 歌名拼图"),                             gr.Column(elem_id="ll-blank-wrap"):
                         gr.Markdown("歌名被挖掉了一块——从选项里把它"
-                                    "拼回完整。选好后按 **Enter 提交**，"
-                                    "看完答案再按一次 **Enter 下一题**。")
+                                    "拼回完整。**按 1-4 选选项**、"
+                                    "**Enter 提交**，看完答案再按一次 "
+                                    "**Enter 下一题**。")
                         blank_state = gr.State(
                             {"score": 0, "total": 0, "answer": "", "reveal": ""})
                         blank_html = gr.HTML(
@@ -782,7 +784,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                         f"搜索会同时覆盖**内置曲库（{len(catalog)} 首）"
                         "**和**你已添加的歌**；已在列表里的会标注"
                         "「✓ 已在列表」且不可重复勾选。勾选一首或多首后"
-                        "一键添加。"
+                        "一键添加。",
+                        elem_id="ll-add-head",
                     )
                     with gr.Accordion(
                             f"📚 从内置曲库挑选（{len(cat_labels)} 首）",
@@ -1314,6 +1317,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                 book = load_wordbook()
                 if group == "📖 歌词收藏":
                     book = [e for e in book if not e.get("group")]
+                elif group == "🔤 单词":   # 不含空格的纯单词
+                    book = [e for e in book
+                            if " " not in e.get("word", "")]
+                elif group == "🧩 词组":   # 拖选收藏的多词词组
+                    book = [e for e in book if " " in e.get("word", "")]
                 elif group and group != "全部":
                     book = [e for e in book if e.get("group") == group]
                 if state.get("group") != group:   # 换范围 → 重开一轮
@@ -1398,7 +1406,8 @@ def create_app(settings: Settings) -> gr.Blocks:
 
             def _group_choices() -> list[str]:
                 from .dictionary import word_groups
-                return ["全部", "📖 歌词收藏"] + word_groups()
+                return (["全部", "📖 歌词收藏", "🔤 单词", "🧩 词组"]
+                        + word_groups())
 
             def on_review_tab_select(group: str):
                 choices = _group_choices()

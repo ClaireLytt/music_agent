@@ -18,10 +18,7 @@ from .lrc_parser import load_lrc_file
 logger = logging.getLogger(__name__)
 
 
-_CHAT_HINT = (
-    '<div class="chat-empty">点击左侧任意一句歌词，然后在这里向 AI 助手提问，'
-    '比如：这句用了什么修辞？背后有什么故事？</div>'
-)
+_CHAT_HINT = ""
 _CHAT_TOPIC_DEFAULT = '<div class="chat-topic dim">尚未选择歌词行</div>'
 _NO_AUDIO_HINT = (
     "🎧 未检测到音频 — 当前为纯阅读模式。将 audio.mp3 放入歌曲目录即可启用播放同步。"
@@ -170,8 +167,7 @@ def _save_notes(song_dir: str | Path, notes: list[dict]) -> None:
 
 def _render_notes(notes: list[dict]) -> str:
     if not notes:
-        return ('<div class="chat-empty">播放到喜欢的位置，写句感想点「添加」——'
-                '笔记会带上时间戳，点笔记即可跳回该位置。</div>')
+        return ""
     items = []
     for i, n in enumerate(notes):
         ts = int(n.get("ts_ms", 0))
@@ -409,10 +405,7 @@ def _render_favorites(favs: list[dict], song_title: str | None = None) -> str:
     if song_title is not None:
         favs = [f for f in favs if f.get("title", "") == song_title]
     if not favs:
-        return ('<div class="chat-empty">这首歌还没有收藏的歌词。<br>'
-                '用法：① 在左侧歌词区<b>点选一句歌词</b> → '
-                '② 点上面的「⭐ 收藏当前选中的歌词」。<br>'
-                '收藏只在<b>这首歌</b>打开时显示，✖ 可移除。</div>')
+        return ""
     def _jump_attr(f: dict, fid: str) -> str:
         # exact-line jump (cite pipeline) when the entry knows its line;
         # legacy entries fall back to the song-level jump
@@ -453,8 +446,7 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
     )
 
 
-_BV_NOTE = ('<div class="bv-note">📺 视频模式：歌词同步/卡拉OK不可用，'
-            '点句阅读与 AI 提问照常。</div>')
+_BV_NOTE = ''
 
 
 def _render_video_html(song_info: dict, has_audio: bool,
@@ -509,8 +501,7 @@ def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
                        public: bool = False) -> str:
     a_type, src = song_info["audio_type"], song_info["audio_src"]
     offset = song_info.get("audio_offset_ms", 0)
-    hint = ('<div class="preview-hint">🎧 官方试听片段 · 歌词已自动对齐</div>'
-            if offset else "")
+    hint = ""
     if a_type not in ("local", "url"):
         video = _render_video_html(song_info, has_audio=False,
                                    public=public)
@@ -679,9 +670,6 @@ def _render_lyrics_html(song_data: dict, song_info: dict,
         header_html
         + _render_audio_html(song_info, song_data.get("chorus_ts"),
                              public=public)
-        + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
-          '🖱️ <b>双击英文单词</b>查词义/收藏生词 · '
-          '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'
         + f'<div id="lyrics-container"><div id="lyrics-scroll">{"".join(parts)}</div></div>'
     )
 
@@ -693,10 +681,7 @@ def render_wordbook(entries: list[dict],
     if song_title is not None:
         entries = [e for e in entries if e.get("song", "") == song_title]
     if not entries:
-        return ('<div class="chat-empty">这首歌还没有收藏的单词。<br>'
-                '用法：① <b>双击</b>歌词里的英文单词 → ② 弹窗里看释义'
-                '（可点 ✨ 让 AI 结合本句解释）→ ③ 点「⭐ 收藏单词」。<br>'
-                '单词只在<b>收藏它的那首歌</b>打开时显示，✕ 可移除。</div>')
+        return ""
     items = []
     for e in entries:
         word = e.get("word", "")
@@ -796,8 +781,11 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str,
 
     examples: 零 LLM 真例句（词典 API/曲库，review.word_examples）。"""
     word = entry.get("word", "")
-    chars = "".join(f'<span class="tp-ch" data-ch="{_esc(c.lower())}">'
-                    f'{_esc(c)}</span>' for c in word)
+    chars = "".join(
+        ('<span class="tp-ch tp-space" data-ch=" ">&nbsp;</span>'
+         if c == " " else
+         f'<span class="tp-ch" data-ch="{_esc(c.lower())}">{_esc(c)}</span>')
+        for c in word)
     phon = entry.get("phonetic", "")
     phon_html = f'<span class="wb-phon">/{_esc(phon)}/</span>' if phon else ""
     say = ('<button class="ptool" data-ll-say="1" title="重播发音">🔊</button>'
