@@ -216,8 +216,12 @@ def import_words(rows: list[dict], group: str) -> tuple[int, int]:
             skipped += 1
             continue
         hit = lookup(word) or {}
+        stored = hit.get("word", word)
+        if stored.lower() in have:   # 词典规范化后的词形也要查重
+            skipped += 1
+            continue
         book.append({
-            "word": hit.get("word", word),
+            "word": stored,
             "phonetic": (r.get("phonetic") or "").strip()
             or hit.get("phonetic", ""),
             "translation": (r.get("translation") or "").strip()
@@ -226,6 +230,7 @@ def import_words(rows: list[dict], group: str) -> tuple[int, int]:
             "ai": "", "group": group,
         })
         have.add(word.lower())
+        have.add(stored.lower())
         added += 1
     if added:
         save_wordbook(book)

@@ -592,11 +592,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("mcp_channel", "MCP command file switches the song",
                     c_mcp_channel)
 
-        # ── evolution tab ──
-
-
-
-
         # ── 歌迷考据 tab ──
         def c_fanlore():
             probe.tab("🕵️ 歌迷考据")

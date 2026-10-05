@@ -126,7 +126,7 @@ def _parse_results(data: dict, limit: int) -> list[dict]:
     return out
 
 
-def pick_best(cands: list[dict], title: str, artist: str) -> dict | None:
+def pick_best(cands: list[dict], title: str) -> dict | None:
     """自动绑定的选片规则：标题必须含歌名，其中取播放量最高（用户决定：
     播放量优先于"标题含歌手名"）。全被淘汰时退回搜索相关性第一条。"""
     if not cands:
@@ -191,7 +191,7 @@ def auto_bind_missing(songs: list[dict], is_enabled) -> int:
             continue
         try:
             best = pick_best(search_mv(s["title"], s.get("artist", "")),
-                             s["title"], s.get("artist", ""))
+                             s["title"])
             if best is None:
                 raise LookupError("no candidates")
             meta_path = pathlib.Path(s["dir"]) / "metadata.json"

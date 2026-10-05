@@ -16,6 +16,21 @@ from pathlib import Path
 from .intertextuality.echo_map import norm_line
 from .lrc_parser import load_lrc_file
 
+
+def esc_html(t) -> str:
+    """Shared HTML escaper for the renderer modules."""
+    import html
+    return html.escape(str(t), quote=True)
+
+
+def cite_jump_attrs(label: str, line_index: int | str) -> str:
+    """data-cite-label/line 跳转属性（_HEAD_JS 的 cite 委托消费）。
+    label 为空（目标不在歌单）时返回空串 = 不可点。"""
+    if not label:
+        return ""
+    return (f' data-cite-label="{esc_html(label)}"'
+            f' data-cite-line="{line_index}"')
+
 logger = logging.getLogger(__name__)
 
 _FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$")

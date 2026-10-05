@@ -14,7 +14,6 @@ Results are persisted per song as fanlore.json (generated once, reused).
 
 from __future__ import annotations
 
-import html
 import json
 import logging
 from dataclasses import dataclass, field
@@ -205,8 +204,7 @@ def save_fanlore(song_dir: str | Path, data, model: str = "") -> None:
         logger.exception("Failed saving %s in %s", FANLORE_FILENAME, song_dir)
 
 
-def _esc(t) -> str:
-    return html.escape(str(t), quote=True)
+from .evidence import cite_jump_attrs, esc_html as _esc  # noqa: E402
 
 
 _BADGES = {
@@ -224,9 +222,8 @@ def _quote_html(q: tuple[str, str], verifier, label_of: dict) -> str:
     song, line = q
     hit = verifier(line, song) if verifier else None
     if hit:
-        label = (label_of or {}).get(hit["song_title"], "")
-        jump = (f' data-cite-label="{_esc(label)}" '
-                f'data-cite-line="{hit["line_index"]}"' if label else "")
+        jump = cite_jump_attrs((label_of or {}).get(hit["song_title"], ""),
+                               hit["line_index"])
         return (f'<div class="lore-quote ev-ok"{jump}>'
                 f'“{_esc(hit["line_text"])}”'
                 f'<span class="lore-quote-src">——《'
@@ -274,8 +271,8 @@ def render_fanlore_html(f: Fanlore, title: str,
             label = (label_of or {}).get(song, "")
             if label:
                 pills.append(
-                    f'<span class="lore-pill" data-cite-label='
-                    f'"{_esc(label)}" data-cite-line="-1" '
+                    f'<span class="lore-pill"'
+                    f'{cite_jump_attrs(label, -1)} '
                     f'title="{_esc(beat)}（点击去听）">'
                     f'《{_esc(song)}》</span>')
             else:
