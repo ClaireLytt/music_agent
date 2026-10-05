@@ -52,6 +52,8 @@ _BENIGN_CONSOLE = (
     "player.bilibili.com",       # bound-MV iframe noise is not an app bug
     "bilibili.com",              # ditto (embed player's own asset chatter)
     "bili-user-fingerprint",     # embed player's internal reporter errors
+    "ERR_CERT_COMMON_NAME_INVALID",  # external resource via local proxy —
+                                     # TLS noise, never our code
 )
 
 AUDIO_SONG = "北京昨夜下了雪"   # library song that ships with audio
