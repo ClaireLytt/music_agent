@@ -1474,6 +1474,8 @@ footer, .gradio-container footer { display: none !important; }
   line-height: 1.5; }
 .lyric-line .lyric-trans { font-size: .82em;
   color: var(--text-secondary); margin-top: 1px; }
+#ll-review-stats { text-align: right; }
+#ll-review-more .label-wrap { justify-content: flex-end; }
 /* 🧭 新手指引 */
 .ll-tour-ring {
   position: fixed; z-index: 1290; pointer-events: none; border-radius: 12px;
