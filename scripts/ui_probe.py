@@ -55,6 +55,7 @@ _BENIGN_CONSOLE = (
     "ERR_CERT_COMMON_NAME_INVALID",  # external resource via local proxy —
                                      # TLS noise, never our code
     "ERR_CONNECTION_CLOSED",         # ditto: proxy drops youdao/CDN fetches
+    "AbortError: signal is aborted",  # gradio 自身 SSE 中止噪音（bundle 内）
 )
 
 AUDIO_SONG = "北京昨夜下了雪"   # library song that ships with audio
