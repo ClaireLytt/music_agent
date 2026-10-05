@@ -1478,6 +1478,9 @@ footer, .gradio-container footer { display: none !important; }
 #ll-review-stats { text-align: right; }
 /* 练习范围：窄、贴提示行 */
 #ll-review-group { max-width: 280px; margin-left: 0; margin-right: auto; }
+/* 去掉下拉旁拉通整行的灰底容器 */
+.form:has(> #ll-review-group) { background: transparent; border: none;
+  box-shadow: none; max-width: 300px; }
 /* ⋯ 面板：竖排窄浮层，展开时覆盖在页面上，不挤压单词卡片 */
 #ll-review-topright { position: relative; }
 #ll-review-more { position: absolute; right: 0; top: 34px;
