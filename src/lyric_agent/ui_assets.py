@@ -5,6 +5,9 @@ no imports."""
 _HEAD_JS = """
 <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.6/wavesurfer.min.js" defer></script>
 <script>
+window.llz = function() {   // body CSS zoom 校正系数
+  return parseFloat(getComputedStyle(document.body).zoom) || 1;
+};
 // force Gradio's light theme so the UI is always white regardless of the
 // OS dark-mode setting (Gradio otherwise follows prefers-color-scheme)
 (function() {
@@ -92,10 +95,12 @@ _HEAD_JS = """
       if (e.target.closest('button, .dict-close')) return;
       sx = e.clientX; sy = e.clientY; moved = false;
       const r = pop.getBoundingClientRect();
-      px = r.left; py = r.top;
+      const z = window.llz();
+      px = r.left / z; py = r.top / z;
       pop.setPointerCapture(e.pointerId);
       const onMove = (ev) => {
-        const dx = ev.clientX - sx, dy = ev.clientY - sy;
+        const z2 = window.llz();
+        const dx = (ev.clientX - sx) / z2, dy = (ev.clientY - sy) / z2;
         if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
         moved = true;
         pop.style.left = Math.max(0, px + dx) + 'px';
@@ -145,8 +150,11 @@ _HEAD_JS = """
       const r = sel.getRangeAt(0).getBoundingClientRect();
       if (r && r.width) rect = r;
     } catch (err) {}
-    pop.style.left = Math.min(rect.left, window.innerWidth - 300) + 'px';
-    pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 160) + 'px';
+    const z0 = window.llz();
+    pop.style.left = Math.min(rect.left / z0,
+                              window.innerWidth / z0 - 300) + 'px';
+    pop.style.top = Math.min(rect.bottom / z0 + 6,
+                             window.innerHeight / z0 - 160) + 'px';
     document.body.appendChild(pop);
     makeDraggable(pop);
     pop.dataset.q = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
@@ -401,8 +409,9 @@ _HEAD_JS = """
       // span's transform would hijack the fixed containing block and the
       // list's overflow would clip the menu out of sight
       const r = btn.getBoundingClientRect();
-      menu.style.top = (r.bottom + 4) + 'px';
-      menu.style.left = Math.max(8, r.right - 150) + 'px';
+      const z = window.llz();
+      menu.style.top = (r.bottom / z + 4) + 'px';
+      menu.style.left = Math.max(8, r.right / z - 150) + 'px';
       const del = document.createElement('button');
       del.type = 'button';
       del.textContent = '🗑️ 删除这首歌';
@@ -722,9 +731,10 @@ _HEAD_JS = """
             return;
           }
           const r = lc.getBoundingClientRect();
+          const z = window.llz();
           back.style.display = 'block';
-          back.style.left = (r.right - back.offsetWidth - 12) + 'px';
-          back.style.top = (r.top + 10) + 'px';
+          back.style.left = (r.right / z - back.offsetWidth - 12) + 'px';
+          back.style.top = (r.top / z + 10) + 'px';
         }, 300);
         back.addEventListener('click', () => {
           for (const b of document.querySelectorAll('button[role="tab"]'))
@@ -968,11 +978,12 @@ _HEAD_JS = """
     const el = s.sel ? document.querySelector(s.sel) : null;
     if (el && el.offsetParent !== null) {
       const r = el.getBoundingClientRect();
+      const z = window.llz();
       ring.style.display = 'block';
-      ring.style.left = (r.left - 6) + 'px';
-      ring.style.top = (r.top - 6) + 'px';
-      ring.style.width = (r.width + 12) + 'px';
-      ring.style.height = (r.height + 12) + 'px';
+      ring.style.left = (r.left / z - 6) + 'px';
+      ring.style.top = (r.top / z - 6) + 'px';
+      ring.style.width = (r.width / z + 12) + 'px';
+      ring.style.height = (r.height / z + 12) + 'px';
     } else {
       ring.style.display = 'block';
       ring.style.left = '50%'; ring.style.top = '40%';
@@ -1024,6 +1035,8 @@ _HEAD_JS = """
 # ── CSS ───────────────────────────────────────────────────
 
 _CSS = """\
+/* 整体默认缩放 75%（等效浏览器 75% 缩放，用户定的默认密度） */
+body { zoom: 0.75; }
 :root {
   --bg-primary: #ffffff;
   --bg-secondary: #f6f8fa;
