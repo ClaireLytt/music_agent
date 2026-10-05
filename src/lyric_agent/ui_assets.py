@@ -1605,9 +1605,15 @@ footer, .gradio-container footer { display: none !important; }
 #ll-review-startrow { max-width: 720px; margin: 6px auto 0;
   display: flex; justify-content: flex-end; }
 #ll-review-startrow button { flex: 0 0 auto; }
-/* 🎮 竞猜/拼图：整块居中 */
+/* 🎮 竞猜/拼图：整块居中 + 放大（互动页空间大、原字号太小） */
 #ll-quiz-wrap, #ll-blank-wrap { max-width: 860px; margin: 0 auto;
-  text-align: center; }
+  text-align: center; zoom: 1.3; }
+/* 🕵️ 考据：选歌下拉居中收窄，正文整体放大 */
+.tabitem:has(#ll-lore-main) { zoom: 1.15; }
+#ll-lore-main .chat-empty { text-align: center; }
+#ll-lore-song { max-width: 560px; margin: 0 auto; }
+.form:has(> #ll-lore-song) { background: transparent; border: none;
+  box-shadow: none; max-width: 580px; margin: 0 auto; }
 #ll-quiz-wrap fieldset, #ll-blank-wrap fieldset {
   justify-content: center; }
 #ll-quiz-wrap .quiz-line, #ll-blank-wrap .quiz-line {

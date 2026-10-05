@@ -715,7 +715,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                             "（✅ 可点击跳转，⚠️ 表示未验证）。"
                         )
                         with gr.Row():
-                            with gr.Column(scale=3):
+                            with gr.Column(scale=3,
+                                           elem_id="ll-lore-main"):
                                 lore_song_dd = gr.Dropdown(
                                     choices=song_choices(), value=None,
                                     label="选择歌曲", allow_custom_value=True,
