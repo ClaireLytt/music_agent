@@ -389,6 +389,15 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             probe.wait_until(
                 lambda: 0 < count("#ll-songs input[type=radio]") <= n_all,
                 msg="song filter did not narrow the list")
+            # 歌词片段也能搜到歌（合并后的全库歌词搜索）
+            box.fill("vintage tee")
+            probe.wait_until(
+                lambda: 0 < count("#ll-songs input[type=radio]") < n_all,
+                msg="lyric-fragment search did not match a song")
+            must(any("cardigan" in (v or "") for v in pg.evaluate(
+                "() => [...document.querySelectorAll("
+                "'#ll-songs input[type=radio]')].map(i => i.value)")),
+                 "lyric search did not surface cardigan")
             box.fill("")
             probe.wait_until(
                 lambda: count("#ll-songs input[type=radio]") == n_all,
@@ -397,34 +406,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_song_filter)
 
 
-        def c_search_kw():
-            probe.tab("🎧 播放解读")
-            pg.locator("#ll-search input, #ll-search textarea").fill("scarf")
-            pg.get_by_role("button", name="搜索", exact=True).click()
-            probe.wait_until(
-                lambda: count(".search-hit") >= 1
-                or "没有找到" in pg.locator("body").inner_text(),
-                msg="keyword search produced neither hits nor empty-state")
-            must(count(".search-hit") >= 1, "no hits for 'scarf'")
-            pg.get_by_role("button", name="✕ 清除").click()
-            probe.wait_until(lambda: count(".search-hit") == 0,
-                             msg="clear button did not empty results")
-        probe.check("search_kw", "keyword search + clear button", c_search_kw)
-
-        def c_search_semantic():
-            pg.locator("#ll-search input, #ll-search textarea").fill(
-                "losing someone you love")
-            pg.get_by_role("radio", name="语义").check()
-            pg.get_by_role("button", name="搜索", exact=True).click()
-            probe.wait_until(   # first semantic query may load the model;
-                # the multilingual L12 model embeds the library ~5x slower
-                # than the old L6 (measured 55s cold on this machine)
-                lambda: count(".search-mode-tag") >= 1, timeout_s=150,
-                msg="semantic search returned nothing (no mode tag)")
-            pg.get_by_role("button", name="✕ 清除").click()
-            pg.get_by_role("radio", name="关键词").check()
-        probe.check("search_semantic", "semantic search (or fallback) works",
-                    c_search_semantic)
 
         def c_sort_modes():
             n = count("#ll-songs input[type=radio]")
@@ -688,6 +669,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             probe.wait_until(lambda: count(".lyric-line") > 12,
                              msg="cardigan lyrics did not render")
             pg.locator('.lyric-line[data-index="12"]').click()
+            probe.tab("🖊")   # 批注卡移进了右栏图标 dock
             probe.wait_until(
                 lambda: count(".ann-card .ann-summary") >= 1,
                 msg="annotated line showed no annotation card")
@@ -713,8 +695,10 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 if not meta.get("bvid"):
                     target = meta.get("title", d.name)
                     break
+            probe.tab("⚙️ 设置")
             must(pg.get_by_text("📺 关联 B 站视频").count() >= 1,
-                 "manual bvid accordion missing")
+                 "manual bvid accordion missing (moved to settings 🎛)")
+            probe.tab("🎧 播放解读")
             if target is None:
                 return  # every song bound — nothing unbound to assert on
             pg.get_by_role("radio", name=target, exact=True).first.check()
@@ -785,10 +769,12 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             must(geo is not None, "⋯ menu did not open on click")
             must(geo["inView"] and geo["gap"] < 40,
                  f"⋯ menu misplaced/off-screen: {geo}")
+            probe.tab("⚙️ 设置")   # 刷新按钮移进了设置 🎛
             pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),
                 msg="refresh library toast missing")
+            probe.tab("🎧 播放解读")
         probe.check("manage_guards", "⋯ on selected row + refresh works",
                     c_manage_guards)
 
@@ -857,6 +843,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 lambda: 0 < count("#ll-songs input[type=radio]") < n_all,
                 msg="filter did not narrow the list")
             n1 = count("#ll-songs input[type=radio]")
+            probe.tab("⚙️ 设置")   # 刷新按钮移进了设置 🎛
             pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),

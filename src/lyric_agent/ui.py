@@ -81,7 +81,6 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _render_intro,
     _render_lyrics_html,
     _render_notes,
-    _render_search_results,
     _save_chat_history,
     _save_notes,
 )
@@ -105,6 +104,7 @@ def create_app(settings: Settings) -> gr.Blocks:
 
     def refresh_library() -> None:
         ctx.pop("overview_html", None)  # library changed -> stale overviews
+        ctx.pop("lyrics_blobs", None)   # 筛选框的歌词索引同步失效
         # hackathon-playlist material is licensed for offline demo only —
         # never expose it on a public deployment
         songs = _discover_songs(
@@ -423,7 +423,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 open=True, elem_id="ll-songs-acc"):
                             with gr.Row(elem_id="ll-filter-row"):
                                 song_filter = gr.Textbox(
-                                    placeholder="筛选歌名 / 歌手 …",
+                                    placeholder="筛选歌名 / 歌手 / 搜歌词 …",
                                     show_label=False, container=False,
                                     elem_id="ll-song-filter", scale=5)
                                 filter_clear_btn = gr.Button(
@@ -436,47 +436,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 elem_id="ll-songs",
                             )
                         if not public:
-                            with gr.Accordion("🎵 为当前歌曲上传音频", open=False,
-                                              elem_id="ll-audio-up"):
-                                audio_file_up = gr.File(
-                                    label="拖拽 mp3 / wav / flac 文件到这里",
-                                    file_types=[".mp3", ".wav", ".flac",
-                                                ".ogg", ".m4a"])
-                                audio_up_status = gr.Markdown("")
-                            trans_btn = gr.Button(
-                                "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
-                                "之后永久缓存）", size="sm")
-                            with gr.Accordion("🎚 歌词时间校准", open=False):
-                                gr.Markdown(
-                                    "歌词快/慢半拍时微调（正值 = 歌词提前）。"
-                                    "拖动即实时预览，满意后保存。", elem_id=None)
-                                offset_slider = gr.Slider(
-                                    minimum=-5000, maximum=5000, step=50,
-                                    value=0, label="偏移 (ms)")
-                                offset_save_btn = gr.Button("保存偏移",
-                                                            size="sm")
-                                offset_status = gr.Markdown("")
-                            # backend -> JS: 偏移实时预览值
-                            offset_box = gr.Textbox(
-                                value="", visible=True,
-                                elem_id="ll-offset-set",
-                                elem_classes=["ll-hidden"], show_label=False,
-                                container=False)
-                            with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
-                                              open=False):
-                                bvid_input = gr.Textbox(
-                                    placeholder="粘贴 BV 号或视频链接；"
-                                                "留空保存 = 解绑",
-                                    show_label=False, container=False)
-                                bvid_save_btn = gr.Button("保存", size="sm")
-                                bvid_status = gr.Markdown("")
-                            # JS -> backend: 视频搜索/候选绑定
-                            # ("search\t<ts>" / "pick\t<bvid>\t<ts>")
-                            bvid_box = gr.Textbox(
-                                value="", visible=True,
-                                elem_id="ll-bvid-act",
-                                elem_classes=["ll-hidden"], show_label=False,
-                                container=False)
                             # delete rides the per-song ⋯ menu (JS):
                             # the menu confirms, then writes the label here
                             del_box = gr.Textbox(
@@ -484,9 +443,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 elem_id="ll-del-song",
                                 elem_classes=["ll-hidden"],
                                 show_label=False, container=False)
-                            manage_refresh_btn = gr.Button(
-                                "🔄 刷新曲库（手动增删过歌曲目录后同步）",
-                                size="sm", elem_id="ll-refresh-btn")
                         sort_mode = gr.Radio(
                             choices=[
                                 ("添加顺序（最早在前）", "added_asc"),
@@ -495,17 +451,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 ("歌手（按字母排序）", "artist_asc"),
                             ],
                             value="added_desc", label="🎛️ 排序")
-                        search_box = gr.Textbox(
-                            label="🔍 全库歌词搜索", elem_id="ll-search")
-                        search_mode = gr.Radio(
-                            choices=[("关键词", "kw"), ("语义", "sem")],
-                            value="kw", show_label=False,
-                        )
-                        with gr.Row():
-                            search_btn = gr.Button("搜索", size="sm", scale=1)
-                            search_clear = gr.Button("✕ 清除", size="sm", scale=1)
-                        search_results = gr.HTML("")
-
                     # ── 中栏: 歌词 ──
                     with gr.Column(scale=3):
                         lyrics_html = gr.HTML("")
@@ -514,12 +459,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                     with gr.Column(scale=2, min_width=320):
                         gr.HTML('<div class="side-panel-title">💬 AI 助手</div>')
                         chat_state = gr.State(None)
-                        ann_html = gr.HTML(_ANN_HINT)
-                        # JS -> backend: 确认后为本句生成批注 ("<idx>	<ts>")
-                        gen_ann_box = gr.Textbox(
-                            value="", visible=True, elem_id="ll-gen-ann",
-                            elem_classes=["ll-hidden"], show_label=False,
-                            container=False)
                         chat_topic = gr.HTML(_CHAT_TOPIC_DEFAULT)
                         chat_html = gr.HTML(_CHAT_HINT)
                         with gr.Row():
@@ -532,6 +471,18 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # on #ll-side-dock)
                         with gr.Tabs(elem_id="ll-side-dock",
                                      elem_classes=["ll-icon-dock"]):
+                            with gr.Tab("🖊"):
+                                with gr.Column(elem_id="ll-ann"):
+                                    gr.HTML('<div class="side-panel-title">'
+                                            '🖊 本句 AI 批注</div>')
+                                    ann_html = gr.HTML(_ANN_HINT)
+                                    # JS -> backend: 确认后为本句生成批注
+                                    # ("<idx>	<ts>")
+                                    gen_ann_box = gr.Textbox(
+                                        value="", visible=True,
+                                        elem_id="ll-gen-ann",
+                                        elem_classes=["ll-hidden"],
+                                        show_label=False, container=False)
                             with gr.Tab("📖"):
                                 with gr.Column(elem_id="ll-intro"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -832,6 +783,55 @@ def create_app(settings: Settings) -> gr.Blocks:
             # ══ 页签 7: 设置（三块功能 = 三个底部图标） ══
             with gr.Tab("⚙️ 设置"):
                 with gr.Tabs(elem_classes=["ll-icon-dock"]):
+                    if not public:
+                        with gr.Tab("🎛"):
+                            gr.Markdown(
+                                "### 🎛 当前歌曲工具 — 以下操作都"
+                                "作用于「🎧 播放解读」当前选中的歌曲。")
+                            with gr.Accordion("🎵 为当前歌曲上传音频", open=False,
+                                              elem_id="ll-audio-up"):
+                                audio_file_up = gr.File(
+                                    label="拖拽 mp3 / wav / flac 文件到这里",
+                                    file_types=[".mp3", ".wav", ".flac",
+                                                ".ogg", ".m4a"])
+                                audio_up_status = gr.Markdown("")
+                            trans_btn = gr.Button(
+                                "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
+                                "之后永久缓存）", size="sm")
+                            with gr.Accordion("🎚 歌词时间校准", open=False):
+                                gr.Markdown(
+                                    "歌词快/慢半拍时微调（正值 = 歌词提前）。"
+                                    "拖动即实时预览，满意后保存。", elem_id=None)
+                                offset_slider = gr.Slider(
+                                    minimum=-5000, maximum=5000, step=50,
+                                    value=0, label="偏移 (ms)")
+                                offset_save_btn = gr.Button("保存偏移",
+                                                            size="sm")
+                                offset_status = gr.Markdown("")
+                            # backend -> JS: 偏移实时预览值
+                            offset_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-offset-set",
+                                elem_classes=["ll-hidden"], show_label=False,
+                                container=False)
+                            with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
+                                              open=False):
+                                bvid_input = gr.Textbox(
+                                    placeholder="粘贴 BV 号或视频链接；"
+                                                "留空保存 = 解绑",
+                                    show_label=False, container=False)
+                                bvid_save_btn = gr.Button("保存", size="sm")
+                                bvid_status = gr.Markdown("")
+                            # JS -> backend: 视频搜索/候选绑定
+                            # ("search\t<ts>" / "pick\t<bvid>\t<ts>")
+                            bvid_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-bvid-act",
+                                elem_classes=["ll-hidden"], show_label=False,
+                                container=False)
+                            manage_refresh_btn = gr.Button(
+                                "🔄 刷新曲库（手动增删过歌曲目录后同步）",
+                                size="sm", elem_id="ll-refresh-btn")
                     with gr.Tab("📊"):
                         gr.Markdown("### 📊 API 用量\n本机记录的 LLM 调用"
                                     "与 token 消耗（批注/翻译/问答等全部"
@@ -1673,14 +1673,29 @@ def create_app(settings: Settings) -> gr.Blocks:
             # 切歌时带出当前偏移（独立监听，不动 on_song_select 的输出位序）
             song_radio.change(on_offset_load, [song_radio], [offset_slider])
 
+        def _lyrics_blob(label: str) -> str:
+            """某首歌的全部歌词小写拼接（懒加载，随曲库刷新失效）。"""
+            cache = ctx.setdefault("lyrics_blobs", {})
+            if label not in cache:
+                info = find_song(label)
+                try:
+                    data = _load_song_data(info["dir"])
+                    cache[label] = " ".join(
+                        ln.text for ln in data["timed_lines"]).casefold()
+                except Exception:
+                    cache[label] = ""
+            return cache[label]
+
         def _filtered_labels(sort: str, q: str) -> list[str]:
             labels = song_choices(sort)
             q = (q or "").strip().casefold()
             if q:
+                # 歌名/歌手命中之外，也搜整首歌词——粘一句歌词就能找到歌
                 labels = [
                     l for l in labels
                     if q in l.casefold()
                     or q in find_song(l).get("artist", "").casefold()
+                    or q in _lyrics_blob(l)
                 ]
             return labels
 
@@ -1703,24 +1718,6 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         sort_mode.change(on_sort, [sort_mode, song_radio, song_filter],
                          [song_radio])
-
-        def on_search_clear():
-            return "", ""
-
-        search_clear.click(on_search_clear, None, [search_box, search_results])
-
-        def on_search(query: str, mode: str, choice: str):
-            if not query.strip():
-                return ""
-            current = find_song(choice).get("name", "")
-            if mode == "sem":
-                hits, used = ctx["searcher"].semantic(query)
-            else:
-                hits, used = ctx["searcher"].keyword(query), "keyword"
-            return _render_search_results(hits, current, used)
-
-        search_btn.click(on_search, [search_box, search_mode, song_radio], [search_results])
-        search_box.submit(on_search, [search_box, search_mode, song_radio], [search_results])
 
         # ── AI 助手（行级问答）──
 

@@ -187,28 +187,6 @@ def main() -> None:
     except Exception as e:
         check("sort by artist asc", False, repr(e))
 
-    # ── 3. search ──
-    try:
-        out = call("on_search", ["scarf", "kw", songs[0]])
-        check("search kw 'scarf' (hits)", "data-seek" in out[0] or "scarf" in out[0].lower())
-    except Exception as e:
-        check("search kw 'scarf' (hits)", False, repr(e))
-    try:
-        out = call("on_search", ["zzzznothing", "kw", songs[0]])
-        check("search kw no-hit message", bool(str(out[0]).strip()))
-    except Exception as e:
-        check("search kw no-hit message", False, repr(e))
-    try:
-        out = call("on_search", ["scarf", "sem", songs[0]])
-        check("search semantic (or fallback)", bool(str(out[0]).strip()))
-    except Exception as e:
-        check("search semantic (or fallback)", False, repr(e))
-    try:
-        out = call("on_search", ["", "kw", songs[0]])
-        check("search empty query", out[0] == "")
-    except Exception as e:
-        check("search empty query", False, repr(e))
-
     # ── 4. AI assistant: line pick + chat ──
     try:
         out = call("on_line_pick", ["0", cardigan, None])
