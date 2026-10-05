@@ -1103,6 +1103,9 @@ body { zoom: 0.75; }
 }
 
 body, .gradio-container { background: var(--bg-primary) !important; }
+/* 全宽布局：歌单贴屏幕最左，不留大白边 */
+.gradio-container { max-width: 100% !important;
+  padding-left: 14px !important; padding-right: 14px !important; }
 
 /* hide gradio footer (Runs / API / Gradio links) */
 footer, .gradio-container footer { display: none !important; }

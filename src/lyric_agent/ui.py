@@ -394,7 +394,8 @@ def create_app(settings: Settings) -> gr.Blocks:
     threading.Thread(target=_warm_up, daemon=True,
                      name="ll-warmup").start()
 
-    with gr.Blocks(title="歌词透镜 — AI 歌词批注播放器") as app:
+    with gr.Blocks(title="歌词透镜 — AI 歌词批注播放器",
+                   fill_width=True) as app:
         # per-visitor LLM config, persisted in the visitor's own browser
         user_llm = gr.BrowserState(
             {"api_key": "", "llm_provider": "openai",
