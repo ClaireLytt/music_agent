@@ -39,7 +39,7 @@ from .debate import DebateSession, speak as ai_speak
 from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
                          remove_word)
 from .archaeology import mine_motifs
-from .evidence import QuoteIndex
+from .evidence import QuoteIndex, cite_jump_attrs
 from .ui_helpers import (_ANN_HINT, _file_url, render_annotation_card,
                          render_practice_card, render_wordbook)
 from .lrc_parser import parse_lrc
@@ -743,7 +743,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                         lore_tab.select(
                             lambda: gr.Dropdown(choices=song_choices()),
                             None, [lore_song_dd])
-                    with gr.Tab("🎯 歌词竞猜"):
+                    with gr.Tab("🎯 歌词竞猜"),                             gr.Column(elem_id="ll-quiz-wrap"):
                         gr.Markdown("从你的歌曲列表随机抽一句歌词，"
                                     "猜猜它出自哪首歌。选好选项后按 "
                                     "**Enter 提交答案**，看完答案再按一次 "
@@ -760,8 +760,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                             quiz_new_btn = gr.Button("🎲 开始 / 下一题",
                                                      variant="primary", scale=1)
                             quiz_submit_btn = gr.Button("提交答案", scale=1)
-                        quiz_result = gr.Markdown("", elem_id="ll-quiz-result")
-                    with gr.Tab("🧩 歌名拼图"):
+                        quiz_result = gr.HTML("", elem_id="ll-quiz-result")
+                    with gr.Tab("🧩 歌名拼图"),                             gr.Column(elem_id="ll-blank-wrap"):
                         gr.Markdown("歌名被挖掉了一块——从选项里把它"
                                     "拼回完整。选好后按 **Enter 提交**，"
                                     "看完答案再按一次 **Enter 下一题**。")
@@ -1215,7 +1215,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                         '<div class="chat-empty">歌曲列表至少需要 2 首歌'
                         '才能出题。</div>',
                         gr.Radio(choices=[], visible=False), "")
-            state = dict(state or {}, answer=q.answer)
+            state = dict(state or {}, answer=q.answer,
+                         line_index=q.line_index)
             passage = _esc(q.line).replace("\n", "<br>")
             html_q = (f'<div class="quiz-line">“{passage}”</div>'
                       f'<div class="quiz-meta">歌手：{_esc(q.artist)}</div>')
@@ -1232,12 +1233,19 @@ def create_app(settings: Settings) -> gr.Blocks:
             state["total"] = state.get("total", 0) + 1
             if choice == answer:
                 state["score"] = state.get("score", 0) + 1
-                verdict = f"✅ 答对了！正是《{answer}》。"
+                verdict = f"✅ 答对了！正是《{_esc(answer)}》。"
             else:
-                verdict = f"❌ 不对，这句出自《{answer}》。"
+                verdict = f"❌ 不对，这句出自《{_esc(answer)}》。"
+            # 「去听这句」：跳到对应歌曲的那一行（复用 cite 跳转委托，
+            # cite-go-play 让委托顺带切回播放页）
+            label = _label_of().get(answer, "")
+            jump = (f' <button class="ptool cite-go-play"'
+                    f'{cite_jump_attrs(label, state.get("line_index", -1))}>'
+                    '🎧 去听这句</button>' if label else "")
             state["answer"] = ""  # one submission per question
-            return (state, f"{verdict}　当前战绩 "
-                    f"**{state.get('score', 0)} / {state['total']}**")
+            return (state, f'<div>{verdict}{jump}　当前战绩 '
+                    f'<b>{state.get("score", 0)} / {state["total"]}</b>'
+                    '</div>')
 
         quiz_new_btn.click(on_quiz_new, [quiz_state],
                            [quiz_state, quiz_html, quiz_options, quiz_result])

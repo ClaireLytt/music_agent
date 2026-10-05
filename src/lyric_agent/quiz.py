@@ -22,6 +22,7 @@ class QuizQuestion:
     answer: str            # correct song title
     artist: str
     options: list[str] = field(default_factory=list)  # shuffled titles
+    line_index: int = -1   # anchor line (for jump-to-song after reveal)
 
 
 @dataclass
@@ -132,4 +133,4 @@ def make_question(
     options = [answer] + distractors
     rng.shuffle(options)
     return QuizQuestion(line=line, answer=answer, artist=artist,
-                        options=options)
+                        options=options, line_index=i)

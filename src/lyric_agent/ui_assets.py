@@ -866,8 +866,8 @@ window.llz = function() {   // body CSS zoom 校正系数
     }
     const cite = e.target.closest('[data-cite-label]');
     if (cite) {
-      // 从歌迷考据页跳转时顺带切回播放页（证据卡本就在播放页，无影响）
-      if (cite.closest('.lore-page'))
+      // 从考据页/竞猜结果跳转时顺带切回播放页
+      if (cite.closest('.lore-page') || cite.classList.contains('cite-go-play'))
         for (const b of document.querySelectorAll('button[role="tab"]'))
           if (b.textContent.includes('播放解读')) { b.click(); break; }
       const lineNo = parseInt(cite.dataset.citeLine || '-1', 10);
@@ -1605,6 +1605,13 @@ footer, .gradio-container footer { display: none !important; }
 #ll-review-startrow { max-width: 720px; margin: 6px auto 0;
   display: flex; justify-content: flex-end; }
 #ll-review-startrow button { flex: 0 0 auto; }
+/* 🎮 竞猜/拼图：整块居中 */
+#ll-quiz-wrap, #ll-blank-wrap { max-width: 860px; margin: 0 auto;
+  text-align: center; }
+#ll-quiz-wrap fieldset, #ll-blank-wrap fieldset {
+  justify-content: center; }
+#ll-quiz-wrap .quiz-line, #ll-blank-wrap .quiz-line {
+  text-align: center; }
 /* 🧭 新手指引 */
 .ll-tour-ring {
   position: fixed; z-index: 1290; pointer-events: none; border-radius: 12px;
