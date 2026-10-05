@@ -696,10 +696,9 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 if not meta.get("bvid"):
                     target = meta.get("title", d.name)
                     break
-            probe.tab("⚙️ 设置")
+            probe.tab("🎛")
             must(pg.get_by_text("📺 关联 B 站视频").count() >= 1,
-                 "manual bvid accordion missing (moved to settings 🎛)")
-            probe.tab("🎧 播放解读")
+                 "manual bvid accordion missing (play-tab 🎛 dock)")
             if target is None:
                 return  # every song bound — nothing unbound to assert on
             pg.get_by_role("radio", name=target, exact=True).first.check()
@@ -770,12 +769,11 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             must(geo is not None, "⋯ menu did not open on click")
             must(geo["inView"] and geo["gap"] < 40,
                  f"⋯ menu misplaced/off-screen: {geo}")
-            probe.tab("⚙️ 设置")   # 刷新按钮移进了设置 🎛
+            probe.tab("🎛")   # 刷新按钮在播放页右栏 🎛 工具
             pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),
                 msg="refresh library toast missing")
-            probe.tab("🎧 播放解读")
         probe.check("manage_guards", "⋯ on selected row + refresh works",
                     c_manage_guards)
 
@@ -844,7 +842,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 lambda: 0 < count("#ll-songs input[type=radio]") < n_all,
                 msg="filter did not narrow the list")
             n1 = count("#ll-songs input[type=radio]")
-            probe.tab("⚙️ 设置")   # 刷新按钮移进了设置 🎛
+            probe.tab("🎛")   # 刷新按钮在播放页右栏 🎛 工具
             pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),

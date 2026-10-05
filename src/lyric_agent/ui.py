@@ -537,6 +537,52 @@ def create_app(settings: Settings) -> gr.Blocks:
                                             container=False)
                                         note_add_btn = gr.Button(
                                             "添加", scale=1, size="sm")
+                            if not public:
+                                with gr.Tab("🎛"):
+                                    with gr.Accordion("🎵 为当前歌曲上传音频", open=False,
+                                                      elem_id="ll-audio-up"):
+                                        audio_file_up = gr.File(
+                                            label="拖拽 mp3 / wav / flac 文件到这里",
+                                            file_types=[".mp3", ".wav", ".flac",
+                                                        ".ogg", ".m4a"])
+                                        audio_up_status = gr.Markdown("")
+                                    trans_btn = gr.Button(
+                                        "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
+                                        "之后永久缓存）", size="sm")
+                                    with gr.Accordion("🎚 歌词时间校准", open=False):
+                                        gr.Markdown(
+                                            "歌词快/慢半拍时微调（正值 = 歌词提前）。"
+                                            "拖动即实时预览，满意后保存。", elem_id=None)
+                                        offset_slider = gr.Slider(
+                                            minimum=-5000, maximum=5000, step=50,
+                                            value=0, label="偏移 (ms)")
+                                        offset_save_btn = gr.Button("保存偏移",
+                                                                    size="sm")
+                                        offset_status = gr.Markdown("")
+                                    # backend -> JS: 偏移实时预览值
+                                    offset_box = gr.Textbox(
+                                        value="", visible=True,
+                                        elem_id="ll-offset-set",
+                                        elem_classes=["ll-hidden"], show_label=False,
+                                        container=False)
+                                    with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
+                                                      open=False):
+                                        bvid_input = gr.Textbox(
+                                            placeholder="粘贴 BV 号或视频链接；"
+                                                        "留空保存 = 解绑",
+                                            show_label=False, container=False)
+                                        bvid_save_btn = gr.Button("保存", size="sm")
+                                        bvid_status = gr.Markdown("")
+                                    # JS -> backend: 视频搜索/候选绑定
+                                    # ("search\t<ts>" / "pick\t<bvid>\t<ts>")
+                                    bvid_box = gr.Textbox(
+                                        value="", visible=True,
+                                        elem_id="ll-bvid-act",
+                                        elem_classes=["ll-hidden"], show_label=False,
+                                        container=False)
+                                    manage_refresh_btn = gr.Button(
+                                        "🔄 刷新曲库（手动增删过歌曲目录后同步）",
+                                        size="sm", elem_id="ll-refresh-btn")
                         line_pick = gr.Textbox(
                             value="", visible=True, elem_id="ll-line-pick",
                             elem_classes=["ll-hidden"], show_label=False,
@@ -783,55 +829,6 @@ def create_app(settings: Settings) -> gr.Blocks:
             # ══ 页签 7: 设置（三块功能 = 三个底部图标） ══
             with gr.Tab("⚙️ 设置"):
                 with gr.Tabs(elem_classes=["ll-icon-dock"]):
-                    if not public:
-                        with gr.Tab("🎛"):
-                            gr.Markdown(
-                                "### 🎛 当前歌曲工具 — 以下操作都"
-                                "作用于「🎧 播放解读」当前选中的歌曲。")
-                            with gr.Accordion("🎵 为当前歌曲上传音频", open=False,
-                                              elem_id="ll-audio-up"):
-                                audio_file_up = gr.File(
-                                    label="拖拽 mp3 / wav / flac 文件到这里",
-                                    file_types=[".mp3", ".wav", ".flac",
-                                                ".ogg", ".m4a"])
-                                audio_up_status = gr.Markdown("")
-                            trans_btn = gr.Button(
-                                "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
-                                "之后永久缓存）", size="sm")
-                            with gr.Accordion("🎚 歌词时间校准", open=False):
-                                gr.Markdown(
-                                    "歌词快/慢半拍时微调（正值 = 歌词提前）。"
-                                    "拖动即实时预览，满意后保存。", elem_id=None)
-                                offset_slider = gr.Slider(
-                                    minimum=-5000, maximum=5000, step=50,
-                                    value=0, label="偏移 (ms)")
-                                offset_save_btn = gr.Button("保存偏移",
-                                                            size="sm")
-                                offset_status = gr.Markdown("")
-                            # backend -> JS: 偏移实时预览值
-                            offset_box = gr.Textbox(
-                                value="", visible=True,
-                                elem_id="ll-offset-set",
-                                elem_classes=["ll-hidden"], show_label=False,
-                                container=False)
-                            with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
-                                              open=False):
-                                bvid_input = gr.Textbox(
-                                    placeholder="粘贴 BV 号或视频链接；"
-                                                "留空保存 = 解绑",
-                                    show_label=False, container=False)
-                                bvid_save_btn = gr.Button("保存", size="sm")
-                                bvid_status = gr.Markdown("")
-                            # JS -> backend: 视频搜索/候选绑定
-                            # ("search\t<ts>" / "pick\t<bvid>\t<ts>")
-                            bvid_box = gr.Textbox(
-                                value="", visible=True,
-                                elem_id="ll-bvid-act",
-                                elem_classes=["ll-hidden"], show_label=False,
-                                container=False)
-                            manage_refresh_btn = gr.Button(
-                                "🔄 刷新曲库（手动增删过歌曲目录后同步）",
-                                size="sm", elem_id="ll-refresh-btn")
                     with gr.Tab("📊"):
                         gr.Markdown("### 📊 API 用量\n本机记录的 LLM 调用"
                                     "与 token 消耗（批注/翻译/问答等全部"
