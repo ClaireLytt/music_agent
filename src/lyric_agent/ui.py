@@ -471,10 +471,10 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # on #ll-side-dock)
                         with gr.Tabs(elem_id="ll-side-dock",
                                      elem_classes=["ll-icon-dock"]):
-                            with gr.Tab("🖊"):
+                            with gr.Tab("✏️"):
                                 with gr.Column(elem_id="ll-ann"):
                                     gr.HTML('<div class="side-panel-title">'
-                                            '🖊 本句 AI 批注</div>')
+                                            '✏️ 本句 AI 批注</div>')
                                     ann_html = gr.HTML(_ANN_HINT)
                                     # JS -> backend: 确认后为本句生成批注
                                     # ("<idx>	<ts>")
@@ -538,7 +538,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                                         note_add_btn = gr.Button(
                                             "添加", scale=1, size="sm")
                             if not public:
-                                with gr.Tab("🎛"):
+                                with gr.Tab("⚙️"):
                                     with gr.Accordion("🎵 为当前歌曲上传音频", open=False,
                                                       elem_id="ll-audio-up"):
                                         audio_file_up = gr.File(

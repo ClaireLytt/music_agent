@@ -463,7 +463,6 @@ _HEAD_JS = """
 (function() {
   let userScrolling = false, scrollTimeout = null, lastActive = -2;
   // player tools state (survives per-song re-renders of the audio block)
-  let abStart = null, abEnd = null;
   let rhymeOn = false;
   let lastAudioEl = null;
 
@@ -547,11 +546,6 @@ _HEAD_JS = """
           }
         }
         lastActive = idx;
-      }
-      // A-B loop: jump back to A whenever playback passes B
-      if (abStart !== null && abEnd !== null && !audio.paused
-          && audio.currentTime >= abEnd) {
-        audio.currentTime = abStart;
       }
       // karaoke sweep on the active line: estimated per-line progress
       // (linear between this line's timestamp and the next one's)
@@ -649,12 +643,11 @@ _HEAD_JS = """
   }, 700);
 
   // new-song watcher: the audio block is re-rendered per song, so restore
-  // toggle states, rebuild the waveform, reset the A-B loop
+  // toggle states, rebuild the waveform
   setInterval(() => {
     const a = getAudio();
     if (!a || a === lastAudioEl) return;
     lastAudioEl = a;
-    abStart = abEnd = null;
     const y = document.getElementById('ll-rhyme-toggle');
     if (y) y.checked = rhymeOn;
     applyRhyme();
@@ -675,32 +668,6 @@ _HEAD_JS = """
   document.addEventListener('click', function(e) {
     if (!e.target.closest) return;
     const audio = getAudio();
-    if (e.target.closest('#ll-ab-a') && audio) {
-      abStart = audio.currentTime; abEnd = null;
-      e.target.closest('#ll-ab-a').textContent = '🅰 ' + fmt(abStart);
-      const b = document.getElementById('ll-ab-b');
-      if (b) b.textContent = '🅱 循环';
-      const c = document.getElementById('ll-ab-clear');
-      if (c) c.style.display = 'none';
-      return;
-    }
-    if (e.target.closest('#ll-ab-b') && audio) {
-      if (abStart === null || audio.currentTime <= abStart + 0.3) return;
-      abEnd = audio.currentTime;
-      e.target.closest('#ll-ab-b').textContent = '🅱 ' + fmt(abEnd);
-      const c = document.getElementById('ll-ab-clear');
-      if (c) c.style.display = '';
-      return;
-    }
-    if (e.target.closest('#ll-ab-clear')) {
-      abStart = abEnd = null;
-      const a2 = document.getElementById('ll-ab-a');
-      if (a2) a2.textContent = '🅰 起点';
-      const b2 = document.getElementById('ll-ab-b');
-      if (b2) b2.textContent = '🅱 循环';
-      e.target.closest('#ll-ab-clear').style.display = 'none';
-      return;
-    }
     const del = e.target.closest('[data-del-note]');
     if (del) {
       e.stopPropagation();

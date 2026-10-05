@@ -413,9 +413,6 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
     return (
         '<div class="player-tools">'
         + chorus +
-        '<button class="ptool" id="ll-ab-a" title="以当前位置为循环起点">🅰 起点</button>'
-        '<button class="ptool" id="ll-ab-b" title="以当前位置为循环终点并开始循环">🅱 循环</button>'
-        '<button class="ptool" id="ll-ab-clear" style="display:none">✕ 停止循环</button>'
         '<label class="ptool-toggle" title="同韵脚的歌词行标同色圆点">'
         '<input type="checkbox" id="ll-rhyme-toggle"> 🎯 韵脚</label>'
         '</div>'

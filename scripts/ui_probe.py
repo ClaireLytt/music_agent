@@ -225,18 +225,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             must("linear-gradient" in grad, f"no karaoke gradient: {grad!r}")
         probe.check("karaoke", "karaoke sweep during playback", c_karaoke)
 
-        def c_ab_loop():
-            pg.evaluate("document.getElementById('ll-audio').play()")
-            pg.wait_for_timeout(800)
-            pg.locator("#ll-ab-a").click()
-            pg.wait_for_timeout(1200)
-            pg.locator("#ll-ab-b").click()
-            pg.wait_for_timeout(300)
-            pg.evaluate("document.getElementById('ll-audio').pause()")
-            must(pg.locator("#ll-ab-clear").is_visible(),
-                 "A-B clear button not shown after setting loop")
-            pg.locator("#ll-ab-clear").click()
-        probe.check("ab_loop", "A-B loop set + clear", c_ab_loop)
 
         def c_notes():
             # scrub probe notes a previous aborted run left on disk —
@@ -625,6 +613,13 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             csv_path.write_text(
                 "word,translation\nzzprobeword,探针词\n",
                 encoding="utf-8")
+            # 自愈：上一轮如中途失败会把探针词留在单词本里
+            pg.evaluate(
+                "() => {const b=document.querySelector('#ll-wb-act textarea,"
+                "#ll-wb-act input'); if(b){b.value='del:zzprobeword\t'"
+                "+Date.now(); b.dispatchEvent(new Event('input',"
+                "{bubbles:true}));}}")
+            pg.wait_for_timeout(1200)
             pg.get_by_text("⋯ 导入 / 导出 / 分组管理",
                            exact=False).first.click()   # 展开 ⋯ 面板
             pg.wait_for_timeout(600)
@@ -677,7 +672,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             probe.wait_until(lambda: count(".lyric-line") > 12,
                              msg="cardigan lyrics did not render")
             pg.locator('.lyric-line[data-index="12"]').click()
-            probe.tab("🖊")   # 批注卡移进了右栏图标 dock
+            probe.tab("✏️")   # 批注卡移进了右栏图标 dock
             probe.wait_until(
                 lambda: count(".ann-card .ann-summary") >= 1,
                 msg="annotated line showed no annotation card")
@@ -703,7 +698,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 if not meta.get("bvid"):
                     target = meta.get("title", d.name)
                     break
-            probe.tab("🎛")
+            probe.tab("⚙️")
             must(pg.get_by_text("📺 关联 B 站视频").count() >= 1,
                  "manual bvid accordion missing (play-tab 🎛 dock)")
             if target is None:
@@ -776,7 +771,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             must(geo is not None, "⋯ menu did not open on click")
             must(geo["inView"] and geo["gap"] < 40,
                  f"⋯ menu misplaced/off-screen: {geo}")
-            probe.tab("🎛")   # 刷新按钮在播放页右栏 🎛 工具
+            probe.tab("⚙️")   # 刷新按钮在播放页右栏 🎛 工具
             pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),
@@ -849,7 +844,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 lambda: 0 < count("#ll-songs input[type=radio]") < n_all,
                 msg="filter did not narrow the list")
             n1 = count("#ll-songs input[type=radio]")
-            probe.tab("🎛")   # 刷新按钮在播放页右栏 🎛 工具
+            probe.tab("⚙️")   # 刷新按钮在播放页右栏 🎛 工具
             pg.locator("#ll-refresh-btn").click()
             probe.wait_until(
                 lambda: "已刷新" in pg.locator("body").inner_text(),
