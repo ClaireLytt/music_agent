@@ -40,6 +40,17 @@ def generate(song_dir: str, chunk_size: int, fresh: bool) -> None:
               help="don't auto-open the page in the default browser")
 def serve(port: int | None, no_browser: bool) -> None:
     """Launch the lyrics annotation player UI."""
+    import logging as _logging
+
+    class _MuteProactorNoise(_logging.Filter):
+        """Windows：浏览器刷新/关标签时 SSE 断开，asyncio proactor 会打
+        ConnectionResetError 堆栈——无害但刷屏误导排障，定向静音。"""
+        def filter(self, record):
+            msg = str(record.getMessage()) + str(record.exc_info)
+            return not ("ConnectionResetError" in msg
+                        or "_call_connection_lost" in msg)
+
+    _logging.getLogger("asyncio").addFilter(_MuteProactorNoise())
     from .review import TTS_CACHE_DIR as _TTS_CACHE_DIR
     from pathlib import Path
 

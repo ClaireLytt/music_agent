@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from dataclasses import dataclass
 
 import numpy as np
@@ -20,6 +21,7 @@ from .corpus import CorpusLine
 logger = logging.getLogger(__name__)
 
 _MODEL_CACHE: dict[str, object] = {}
+_MODEL_LOCK = threading.Lock()
 
 _FEAT_SPLIT_RE = re.compile(
     r"\s+(?:ft\.?|feat\.?|featuring|x|×)\s+|、|/|&|,", re.IGNORECASE)
@@ -73,16 +75,21 @@ def get_model(model_name: str = DEFAULT_EMBEDDING_MODEL):
     huggingface.co blocks model init for minutes on online revision checks
     even though the model is fully cached.
     """
-    if model_name not in _MODEL_CACHE:
-        from sentence_transformers import SentenceTransformer
+    if model_name in _MODEL_CACHE:          # 快路径：已加载
+        return _MODEL_CACHE[model_name]
+    with _MODEL_LOCK:
+        # 双检：启动窗口里 warm-up 线程、整歌扫描、点句检索会并发
+        # 首查——无锁时各加载一份模型（3×内存 + CPU 全占 = 卡顿）
+        if model_name not in _MODEL_CACHE:
+            from sentence_transformers import SentenceTransformer
 
-        logger.info("Loading sentence-transformer model: %s", model_name)
-        try:
-            _MODEL_CACHE[model_name] = SentenceTransformer(
-                model_name, local_files_only=True)
-        except Exception:
-            # not cached yet — first-time download path
-            _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
+            logger.info("Loading sentence-transformer model: %s", model_name)
+            try:
+                _MODEL_CACHE[model_name] = SentenceTransformer(
+                    model_name, local_files_only=True)
+            except Exception:
+                # not cached yet — first-time download path
+                _MODEL_CACHE[model_name] = SentenceTransformer(model_name)
     return _MODEL_CACHE[model_name]
 
 

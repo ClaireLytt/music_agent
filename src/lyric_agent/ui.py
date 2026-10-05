@@ -239,15 +239,20 @@ def create_app(settings: Settings) -> gr.Blocks:
             model_name=model,
         )
 
+    _echo_index_lock = threading.Lock()
+
     def _echo_index():
-        if "echo_index" not in ctx:
-            try:
-                from .intertextuality.embeddings import load_embeddings
-                ctx["echo_index"] = load_embeddings(
-                    settings.corpus_dir, settings.embedding_model)
-            except Exception:
-                logger.exception("Intertextuality index unavailable")
-                ctx["echo_index"] = None
+        if "echo_index" in ctx:
+            return ctx["echo_index"]
+        with _echo_index_lock:   # 启动窗口多路并发首查，只加载一份
+            if "echo_index" not in ctx:
+                try:
+                    from .intertextuality.embeddings import load_embeddings
+                    ctx["echo_index"] = load_embeddings(
+                        settings.corpus_dir, settings.embedding_model)
+                except Exception:
+                    logger.exception("Intertextuality index unavailable")
+                    ctx["echo_index"] = None
         return ctx["echo_index"]
 
     def find_echoes(line_text: str, info: dict) -> list[dict] | None:

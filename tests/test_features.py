@@ -1076,6 +1076,36 @@ def test_import_words_and_groups(tmp_path, monkeypatch):
     assert d.import_words([{"word": "rain"}], "另一组") == (0, 1)
 
 
+def test_get_model_loads_once_under_concurrency(monkeypatch):
+    import sys
+    import threading
+    import types
+
+    from lyric_agent.intertextuality import search as s
+
+    calls = []
+
+    class FakeST:
+        def __init__(self, name, **kw):
+            calls.append(name)
+            import time
+            time.sleep(0.05)   # 放大竞态窗口
+
+    fake = types.ModuleType("sentence_transformers")
+    fake.SentenceTransformer = FakeST
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake)
+    monkeypatch.setattr(s, "_MODEL_CACHE", {})
+
+    threads = [threading.Thread(target=s.get_model, args=("stub-model",))
+               for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    # 无锁时这里会是 8 份加载（用户日志里的三连加载即此竞态）
+    assert len(calls) == 1
+
+
 def test_discover_songs_exclude_cjk(tmp_path):
     from lyric_agent.ui_helpers import _discover_songs, song_is_cjk
 
