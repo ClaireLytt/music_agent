@@ -644,12 +644,13 @@ def create_app(settings: Settings) -> gr.Blocks:
 
             if not public:
                 with gr.Tab("🔤 歌曲寻词") as review_tab:
+                    gr.Markdown(
+                        "💡 打错整词重来 · Tab 偷看单词 · "
+                        "Enter 跳过换词 · 点卡片可继续输入；"
+                        "错得多的词会更频繁出现。",
+                        elem_id="ll-review-hint")
                     with gr.Row():
                         with gr.Column(scale=3):
-                            gr.Markdown(
-                                "💡 打错整词重来 · Tab 偷看单词 · "
-                                "Enter 跳过换词 · 点卡片可继续输入；"
-                                "错得多的词会更频繁出现。")
                             review_group_dd = gr.Dropdown(
                                 choices=["全部", "📖 歌词收藏"], value="全部",
                                 label="练习范围", allow_custom_value=True,

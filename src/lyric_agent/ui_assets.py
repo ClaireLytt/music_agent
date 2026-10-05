@@ -1625,11 +1625,12 @@ footer, .gradio-container footer { display: none !important; }
   background: #3a3f45; color: #c8cdd3; font-family: inherit;
   font-size: 11.5px; }
 #ll-review-stats { text-align: right; }
+#ll-review-hint { text-align: center; }
 /* 练习范围：窄、贴提示行 */
-#ll-review-group { max-width: 280px; margin-left: 0; margin-right: auto; }
+#ll-review-group { max-width: 280px; margin-left: 24%; margin-right: auto; }
 /* 去掉下拉旁拉通整行的灰底容器 */
 .form:has(> #ll-review-group) { background: transparent; border: none;
-  box-shadow: none; max-width: 300px; }
+  box-shadow: none; }
 /* ⋯ 面板：竖排窄浮层，展开时覆盖在页面上，不挤压单词卡片 */
 #ll-review-topright { position: relative; }
 #ll-review-more { position: absolute; right: 0; top: 34px;
@@ -1797,8 +1798,15 @@ footer, .gradio-container footer { display: none !important; }
   border-radius: 4px; padding: 0 2px; }
 .ll-type-card .wb-src[data-tp-jump] { cursor: pointer; }
 .ll-type-card .wb-src[data-tp-jump]:hover { color: var(--accent); }
-.ll-type-card .wb-example { margin-top: 6px; font-size: 1.15em;
-  line-height: 1.6; color: var(--text-secondary); }
+.ll-example-card { padding: 14px 20px; border: 1px solid var(--border);
+  border-radius: 14px; background: var(--bg-card); max-width: 720px;
+  margin: 10px auto 0; text-align: center; }
+.ll-example-card .wb-example { margin-top: 6px; font-size: 1.15em;
+  line-height: 1.7; color: var(--text-secondary); }
+/* 盲打时例句卡里的目标词同样遮住（跟随主卡的 tp-blind 状态） */
+.ll-type-card.tp-blind + .ll-example-card .tp-wline-word {
+  background: var(--text-secondary); color: transparent;
+  border-radius: 4px; }
 #ll-back-typing {
   position: fixed; z-index: 1280;
   padding: 8px 16px; border-radius: 999px; cursor: pointer;

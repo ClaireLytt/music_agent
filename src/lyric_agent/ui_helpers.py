@@ -819,9 +819,6 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str,
                 if label and line_idx >= 0 else "")
         rows.append(f'<div class="wb-src"{jump}>「{src}」'
                     f'·《{_esc(entry.get("song", ""))}》</div>')
-    for ex in (examples or [])[:3]:
-        rows.append(f'<div class="wb-example">📚 {_mask_word(ex, word)}'
-                    '</div>')
     ai = (entry.get("ai", "") or "").strip()
     if ai:
         rows.append(f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(
@@ -837,7 +834,12 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str,
         f'<div class="tp-ime-hint">请切换到英文输入法</div>'
         f'<div class="tp-donehint">🎉 完成！按 Enter 下一个词</div>'
         f'{"".join(rows)}'
-        f'</div>')
+        f'</div>'
+        + ((
+            '<div class="ll-example-card">'
+            + "".join(f'<div class="wb-example">📚 {_mask_word(ex, word)}'
+                      '</div>' for ex in examples[:3])
+            + '</div>') if examples else ''))
 
 
 # ── Insights renderers (曲库洞察) ─────────────────────────
