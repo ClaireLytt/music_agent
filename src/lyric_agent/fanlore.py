@@ -23,7 +23,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 FANLORE_FILENAME = "fanlore.json"
-MAX_CLUES = 5
+MAX_CLUES = 4
 MAX_CHAIN = 6
 
 FANLORE_EMPTY = ('<div class="chat-empty">点「🕵️ 生成考据故事」，让 AI '
@@ -53,19 +53,33 @@ _FANLORE_SCHEMA = (
     '  "clues": [\n'
     '    {"type": "official | lyric_parallel | fan_theory",\n'
     '     "title": "线索小标题（像粉丝视频的小节名）",\n'
-    '     "body": "80-150字，讲成有发现感的小故事",\n'
+    '     "body": "60-100字，讲成有发现感的小故事，惜字如金",\n'
     '     "quote_a": {"song": "歌名", "line": "歌词原句，逐字"},  // 可省\n'
     '     "quote_b": {"song": "歌名", "line": "歌词原句，逐字"}}  // 可省\n'
     "  ],\n"
     '  "chain": [  // 粉丝提出的多首歌连续剧情理论；没有可靠理论则为 []\n'
     '    {"song": "歌名", "beat": "这一站的一句剧情"}\n'
     "  ],\n"
-    '  "summary": "粉丝视频式收尾：这首歌最有意思的地方（<=120字）",\n'
+    '  "summary": "粉丝视频式收尾：这首歌最有意思的地方（<=80字）",\n'
     '  "caveat": "不确定之处的说明，可空"\n'
     "}\n"
     f"clues 最多 {MAX_CLUES} 条、chain 最多 {MAX_CHAIN} 站；"
-    "known 为 false 时 clues 和 chain 必须为空数组。"
+    "known 为 false 时 clues 和 chain 必须为空数组。全文精炼，总字数控制在 500 字以内。"
 )
+
+
+def progress_stage(buffer: str) -> str:
+    """把流式 JSON buffer 翻译成人话进度（粗粒度启发式，纯展示用）。"""
+    if '"summary"' in buffer:
+        return "正在写收尾总结"
+    if '"chain"' in buffer:
+        return "正在整理粉丝剧情理论"
+    n = buffer.count('"type"')
+    if n:
+        return f"正在写第 {n} 条线索"
+    if '"hook"' in buffer:
+        return "正在写一句话看懂"
+    return "正在构思"
 
 
 def fanlore_messages(title: str, artist: str, album: str = "",

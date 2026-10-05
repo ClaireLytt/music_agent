@@ -1130,7 +1130,23 @@ def create_app(settings: Settings) -> gr.Blocks:
                         info.get("album", ""), info.get("year"),
                         echo_pairs=pairs, library_titles=titles)
                     from .llm import LLMClient
-                    verdict = LLMClient(req).generate_json(system, user_msg)
+
+                    buf: list[str] = []
+
+                    def _on_delta(piece: str) -> None:
+                        # 流式进度：timer 把它实时刷到页面，像聊天一样能
+                        # 看到模型在动（JSON 半成品不直接展示，翻译成人话）
+                        from .fanlore import progress_stage
+                        buf.append(piece)
+                        s = "".join(buf)
+                        flight[info["dir"]] = {
+                            "status": "running",
+                            "progress": progress_stage(s),
+                            "chars": len(s),
+                        }
+
+                    verdict = LLMClient(req).generate_json(
+                        system, user_msg, on_text_delta=_on_delta)
                     save_fanlore(info["dir"], verdict, req.model_name)
                     flight[info["dir"]] = {"status": "done"}
                 except Exception as exc:
@@ -1177,6 +1193,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                     ctx["lore_inflight"].pop(info["dir"], None)
                     return (f'<div class="chat-empty">⚠️ 生成失败：'
                             f'{_esc(st.get("msg", ""))}</div>')
+                if st.get("chars"):   # 流式进度实时可见
+                    return ('<div class="chat-empty">🕵️ '
+                            f'{_esc(st.get("progress", "正在生成"))}…'
+                            f'（已生成 {st["chars"]} 字 · 后台进行，'
+                            '切歌/刷新不中断）</div>')
                 return gr.skip()
 
             lore_timer.tick(on_lore_tick, [lore_song_dd], [lore_html])

@@ -81,16 +81,13 @@ class LLMClient:
         self,
         system_prompt: str,
         user_message: str,
+        on_text_delta: Callable[[str], None] | None = None,
     ) -> Any:
-        resp = self.generate(system_prompt, user_message)
-        text = resp.reply_text.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            lines = lines[1:]  # remove ```json
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            text = "\n".join(lines)
-        return json.loads(text)
+        """generate + parse; on_text_delta streams raw deltas (callers can
+        turn them into progress feedback for slow models)."""
+        resp = self.generate(system_prompt, user_message,
+                             on_text_delta=on_text_delta)
+        return parse_json_reply(resp.reply_text)
 
     # ------------------------------------------------------------------
     # Retry helper
@@ -311,6 +308,18 @@ class LLMClient:
             thinking_text="",
             usage=usage,
         )
+
+
+def parse_json_reply(text: str):
+    """Parse an LLM reply as JSON, stripping a ``` fence if present."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = lines[1:]  # remove ```json
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines)
+    return json.loads(text)
 
 
 # ── token usage accounting (⚙️ 设置页可视化) ────────────────────────────

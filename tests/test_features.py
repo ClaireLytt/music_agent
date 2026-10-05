@@ -969,6 +969,23 @@ def test_practice_card_jump_and_examples():
     assert "data-tp-jump" not in render_practice_card(entry2, "", "n2")
 
 
+def test_fanlore_progress_stage():
+    from lyric_agent.fanlore import progress_stage
+
+    assert progress_stage("") == "正在构思"
+    assert progress_stage('{"known": true, "hook": "x') == "正在写一句话看懂"
+    assert progress_stage('..."type": "a"..."type": "b"') == "正在写第 2 条线索"
+    assert progress_stage('..."type": "a"..."chain": [') == "正在整理粉丝剧情理论"
+    assert progress_stage('..."chain": []..."summary"') == "正在写收尾总结"
+
+
+def test_parse_json_reply_fence():
+    from lyric_agent.llm import parse_json_reply
+
+    assert parse_json_reply('{"a": 1}') == {"a": 1}
+    assert parse_json_reply('```json\n{"a": 1}\n```') == {"a": 1}
+
+
 def test_parse_fanlore_defensive():
     from lyric_agent.fanlore import parse_fanlore
 
