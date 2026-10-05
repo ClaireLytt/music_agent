@@ -725,7 +725,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 if not public:
                                     lore_btn = gr.Button(
                                         "🕵️ 生成考据故事（调用 1 次 LLM，"
-                                        "之后永久缓存）", size="sm")
+                                        "之后永久缓存）", size="sm",
+                                        elem_id="ll-lore-gen")
                             with gr.Column(scale=1, elem_id="ll-lore-chat"):
                                 gr.HTML('<div class="side-panel-title">'
                                         '💬 AI 助手</div>')

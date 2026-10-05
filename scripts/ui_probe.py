@@ -540,10 +540,18 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             ).count() == 1, "fanlore generate button missing")
             body = pg.locator("body").inner_text()
             must("考据" in body, "fanlore intro text missing")
-            # 右侧 AI 助手（提问按钮存在即可，不真的花 LLM）
+            # AI 助手默认收起；💬 展开后可见（不真的花 LLM）
             must(pg.locator("#ll-lore-chat").count() == 1
-                 and "AI 助手" in pg.locator("#ll-lore-chat").inner_text(),
-                 "lore chat panel missing")
+                 and pg.locator("#ll-lore-chat").is_hidden(),
+                 "lore chat should start hidden")
+            pg.locator("#ll-lore-chat-btn").click()
+            probe.wait_until(
+                lambda: pg.locator("#ll-lore-chat").is_visible(),
+                msg="💬 did not reveal the lore chat")
+            pg.locator("#ll-lore-chat-btn").click()   # 收回，别影响后续
+            probe.wait_until(
+                lambda: pg.locator("#ll-lore-chat").is_hidden(),
+                msg="💬 did not hide the lore chat again")
         probe.check("fanlore", "fanlore tab picker + guarded button",
                     c_fanlore)
 

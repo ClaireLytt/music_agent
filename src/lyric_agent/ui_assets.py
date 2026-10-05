@@ -5,6 +5,42 @@ no imports."""
 _HEAD_JS = """
 <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.6/wavesurfer.min.js" defer></script>
 <script>
+// 🕵️ 考据页 AI 助手：默认收起，右上角 💬 按需展开
+(function() {
+  function panel() { return document.getElementById('ll-lore-chat'); }
+  function hidden() {
+    const p = panel();
+    return !!(p && p.classList.contains('ll-lc-hidden'));
+  }
+  function refreshTip(btn) {
+    const tip = btn.querySelector('.ll-sb-tip');
+    if (tip) tip.textContent = hidden() ? '展开 AI 助手' : '收起 AI 助手';
+  }
+  const t = setInterval(() => {
+    const p = panel();
+    if (!p) return;
+    clearInterval(t);
+    let shown = '';
+    try { shown = localStorage.getItem('ll_lore_chat') || ''; } catch (e) {}
+    if (shown !== '1') p.classList.add('ll-lc-hidden');   // 默认隐藏
+    const btn = document.createElement('button');
+    btn.id = 'll-lore-chat-btn';
+    btn.innerHTML = '💬<span class="ll-sb-tip"></span>';
+    btn.addEventListener('click', () => {
+      p.classList.toggle('ll-lc-hidden');
+      try {
+        localStorage.setItem('ll_lore_chat', hidden() ? '0' : '1');
+      } catch (e) {}
+      refreshTip(btn);
+    });
+    document.body.appendChild(btn);
+    refreshTip(btn);
+    setInterval(() => {   // 只在考据子页签可见时显示按钮
+      const main = document.getElementById('ll-lore-main');
+      btn.style.display = (main && main.offsetParent !== null) ? '' : 'none';
+    }, 400);
+  }, 400);
+})();
 // 🎵 歌单侧栏收起/展开（仿 Claude 网页版：左上角图标 + 黑色气泡提示 +
 // Ctrl+B 快捷键，偏好记入 localStorage）
 (function() {
@@ -1610,6 +1646,23 @@ footer, .gradio-container footer { display: none !important; }
   text-align: center; zoom: 1.3; }
 /* 🕵️ 考据：选歌下拉居中收窄，正文整体放大 */
 .tabitem:has(#ll-lore-main) { zoom: 1.15; }
+/* 生成按钮与选歌下拉等宽居中 */
+#ll-lore-gen { max-width: 560px; margin: 8px auto 0; display: block; }
+/* 考据 AI 助手默认收起，💬 图标按需展开 */
+#ll-lore-chat.ll-lc-hidden { display: none !important; }
+#ll-lore-chat-btn {
+  position: fixed; z-index: 1270; right: 14px; top: 10px;
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); font-size: 16px; line-height: 1; }
+#ll-lore-chat-btn:hover { color: var(--text-primary);
+  background: var(--bg-card-hover); }
+#ll-lore-chat-btn .ll-sb-tip {
+  display: none; position: absolute; right: 0; top: 40px;
+  white-space: nowrap; padding: 7px 10px; border-radius: 8px;
+  background: #1f2328; color: #fff; font-size: 12.5px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .3); }
+#ll-lore-chat-btn:hover .ll-sb-tip { display: block; }
 #ll-lore-main .chat-empty { text-align: center; }
 #ll-lore-song { max-width: 560px; margin: 0 auto; }
 .form:has(> #ll-lore-song) { background: transparent; border: none;
