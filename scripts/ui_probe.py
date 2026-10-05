@@ -362,6 +362,26 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
 
 
+        def c_sidebar_toggle():
+            # 仿 Claude 的歌单收起：按钮/Ctrl+B 切换 + 气泡提示
+            probe.tab("🎧 播放解读")
+            must(count("#ll-sb-btn") == 1, "sidebar toggle button missing")
+            pg.locator("#ll-sb-btn").click()
+            probe.wait_until(
+                lambda: pg.locator("#ll-sidebar").is_hidden(),
+                msg="sidebar did not collapse")
+            pg.locator("body").press("Control+b")
+            probe.wait_until(
+                lambda: pg.locator("#ll-sidebar").is_visible(),
+                msg="Ctrl+B did not restore the sidebar")
+            tip = pg.evaluate(
+                "() => document.querySelector('#ll-sb-btn .ll-sb-tip')"
+                ".textContent")
+            must("隐藏歌单" in tip and "Ctrl+B" in tip,
+                 f"tooltip wrong: {tip!r}")
+        probe.check("sidebar_toggle", "song sidebar collapse + Ctrl+B",
+                    c_sidebar_toggle)
+
         def c_song_filter():
             # the filter narrows the radio by title/artist and restores on
             # clear — this path previously broke (dead .input event)

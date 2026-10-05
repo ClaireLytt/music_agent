@@ -5,6 +5,55 @@ no imports."""
 _HEAD_JS = """
 <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.6/wavesurfer.min.js" defer></script>
 <script>
+// 🎵 歌单侧栏收起/展开（仿 Claude 网页版：左上角图标 + 黑色气泡提示 +
+// Ctrl+B 快捷键，偏好记入 localStorage）
+(function() {
+  function sidebar() { return document.getElementById('ll-sidebar'); }
+  function hidden() {
+    const sb = sidebar();
+    return !!(sb && sb.classList.contains('ll-sb-hidden'));
+  }
+  function refreshTip(btn) {
+    const tip = btn.querySelector('.ll-sb-tip');
+    if (tip) tip.innerHTML = (hidden() ? '显示歌单' : '隐藏歌单')
+      + ' <kbd>Ctrl+B</kbd>';
+  }
+  function toggle(btn) {
+    const sb = sidebar();
+    if (!sb) return;
+    sb.classList.toggle('ll-sb-hidden');
+    try {
+      localStorage.setItem('ll_sidebar', hidden() ? '0' : '1');
+    } catch (err) {}
+    refreshTip(btn);
+  }
+  const t = setInterval(() => {
+    const sb = sidebar();
+    if (!sb) return;
+    clearInterval(t);
+    try {   // 记忆：上次收起则保持收起
+      if (localStorage.getItem('ll_sidebar') === '0')
+        sb.classList.add('ll-sb-hidden');
+    } catch (err) {}
+    const btn = document.createElement('button');
+    btn.id = 'll-sb-btn';
+    btn.innerHTML = '◧<span class="ll-sb-tip"></span>';
+    btn.addEventListener('click', () => toggle(btn));
+    document.body.appendChild(btn);
+    refreshTip(btn);
+    // 只在播放解读页显示切换按钮（歌单只在那页）
+    setInterval(() => {
+      const lc = document.getElementById('lyrics-container');
+      btn.style.display = (lc && lc.offsetParent !== null) ? '' : 'none';
+    }, 400);
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        toggle(btn);
+      }
+    });
+  }, 400);
+})();
 window.llz = function() {   // body CSS zoom 校正系数
   return parseFloat(getComputedStyle(document.body).zoom) || 1;
 };
@@ -1488,6 +1537,25 @@ footer, .gradio-container footer { display: none !important; }
   line-height: 1.5; }
 .lyric-line .lyric-trans { font-size: .82em;
   color: var(--text-secondary); margin-top: 1px; }
+/* 歌单侧栏收起（仿 Claude） */
+#ll-sidebar.ll-sb-hidden { display: none !important; }
+#ll-sb-btn {
+  position: fixed; z-index: 1270; left: 10px; top: 10px;
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); font-size: 16px; line-height: 1; }
+#ll-sb-btn:hover { color: var(--text-primary);
+  background: var(--bg-card-hover); }
+#ll-sb-btn .ll-sb-tip {
+  display: none; position: absolute; left: 0; top: 40px;
+  white-space: nowrap; padding: 7px 10px; border-radius: 8px;
+  background: #1f2328; color: #fff; font-size: 12.5px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .3); }
+#ll-sb-btn:hover .ll-sb-tip { display: block; }
+#ll-sb-btn .ll-sb-tip kbd {
+  margin-left: 8px; padding: 1px 6px; border-radius: 4px;
+  background: #3a3f45; color: #c8cdd3; font-family: inherit;
+  font-size: 11.5px; }
 #ll-review-stats { text-align: right; }
 /* 练习范围：窄、贴提示行 */
 #ll-review-group { max-width: 280px; margin-left: 0; margin-right: auto; }

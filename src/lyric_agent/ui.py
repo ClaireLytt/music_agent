@@ -416,7 +416,8 @@ def create_app(settings: Settings) -> gr.Blocks:
             with gr.Tab("🎧 播放解读", id="play"):
                 with gr.Row():
                     # ── 左栏: 歌曲 + 搜索 ──
-                    with gr.Column(scale=1, min_width=230):
+                    with gr.Column(scale=1, min_width=230,
+                                   elem_id="ll-sidebar"):
                         choices = song_choices()
                         # 黄金路径：默认落在主打歌 cardigan（不在库时回退第一首）
                         default_choice = next(
