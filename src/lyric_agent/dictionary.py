@@ -244,6 +244,21 @@ def word_groups(book: list[dict] | None = None) -> list[str]:
                    for e in book} - {""}, key=str.lower)
 
 
+def set_note(word: str, note: str) -> list[dict]:
+    """写/改/清空某个词的个人笔记，返回更新后的单词本。"""
+    book = load_wordbook()
+    key = (word or "").lower()
+    for e in book:
+        if e.get("word", "").lower() == key:
+            if (note or "").strip():
+                e["note"] = note.strip()
+            else:
+                e.pop("note", None)
+            save_wordbook(book)
+            break
+    return book
+
+
 def remove_word(word: str) -> list[dict]:
     book = [e for e in load_wordbook()
             if e.get("word", "").lower() != (word or "").lower()]

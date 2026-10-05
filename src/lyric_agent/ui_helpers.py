@@ -420,9 +420,6 @@ def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
         '<button class="ptool" id="ll-ab-clear" style="display:none">✕ 停止循环</button>'
         '<label class="ptool-toggle" title="同韵脚的歌词行标同色圆点">'
         '<input type="checkbox" id="ll-rhyme-toggle"> 🎯 韵脚</label>'
-        '<label class="ptool-toggle" '
-        'title="唱到有呼应的句子时，右下角弹出回声卡，点卡片去听被呼应的那句">'
-        '<input type="checkbox" id="ll-tour-toggle"> 💫 回声时刻</label>'
         '</div>'
     )
 
@@ -569,21 +566,6 @@ _ECHO_OVERVIEW_EMPTY = ('<div class="chat-empty">本歌暂未发现与同歌手�
                         '强呼应彩蛋。</div>')
 
 
-def render_echo_story(story: str | None, can_generate: bool) -> str:
-    """每首歌一段"粉丝解说"小故事：缓存后默认展示；未生成时给
-    consent 按钮（1 次 LLM，data-echo-story 由 _HEAD_JS 委托处理）。"""
-    if story:
-        return (f'<div class="echo-story">📖 '
-                f'{_esc(story)}</div>')
-    if can_generate:
-        return ('<div class="echo-story echo-story-empty">'
-                '<button class="ptool" data-echo-story="1">'
-                '✨ 生成彩蛋故事（调用 1 次 LLM，之后永久展示）</button>'
-                '<span class="echo-story-hint">把全部呼应讲成一段 100 字的'
-                '粉丝解说</span></div>')
-    return ""
-
-
 def _render_echo_overview(hits: list[tuple[Any, Any]], artist: str) -> str:
     """Whole-song echo overview: a hero "你可能没注意到" pick on top, the
     full list folded below.
@@ -617,21 +599,6 @@ def _render_echo_overview(hits: list[tuple[Any, Any]], artist: str) -> str:
                   '其他作品的呼应</summary>'
                   + "".join(rest) + "</details>")
     return f'<div class="echo-ov-list">{hero}{folded}</div>'
-
-
-def _render_echo_html(results: list[dict], artist: str) -> str:
-    if not results:
-        return (f'<div class="chat-empty">未在 {_esc(artist or "该歌手")} '
-                '的其他作品中找到明显呼应（相似度不足）。</div>')
-    cards = []
-    for r in results:
-        album = f' · {_esc(r["album"])}' if r["album"] else ""
-        cards.append(
-            '<div class="echo-card">'
-            f'<div class="echo-line">“{_esc(r["line"])}”</div>'
-            f'<div class="echo-meta">《{_esc(r["song"])}》{album}</div></div>'
-        )
-    return '<div class="echo-list">' + "".join(cards) + "</div>"
 
 
 def load_translation(song_dir: str) -> dict[int, str]:
@@ -724,13 +691,18 @@ def render_wordbook(entries: list[dict],
         ai = (e.get("ai", "") or "").strip()
         ai_html = (f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(
             "\n", "<br>") if ai else "")
+        note = (e.get("note", "") or "").strip()
+        note_html = (f'<div class="wb-note">📝 {_esc(note)}</div>'
+                     if note else "")
         items.append(
             f'<div class="wb-item">'
             f'<span class="wb-del" data-wb="del:{_esc(word)}" '
             f'title="移出单词本">✕</span>'
+            f'<span class="wb-note-btn" data-wb-note="{_esc(word)}" '
+            f'data-note="{_esc(note)}" title="写/改我的笔记">📝</span>'
             f'<div class="wb-word">{_esc(word)} {phon_html}</div>'
             f'<div class="wb-meaning">{_esc(meaning)}</div>'
-            f'{src_html}{ai_html}</div>'
+            f'{src_html}{note_html}{ai_html}</div>'
         )
     return f'<div class="wb-list">{"".join(items)}</div>'
 
@@ -834,6 +806,7 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str,
         f'<input class="ll-type-input" autocomplete="off" '
         f'autocapitalize="off" spellcheck="false">'
         f'<div class="tp-ime-hint">请切换到英文输入法</div>'
+        f'<div class="tp-donehint">🎉 完成！按 Enter 下一个词</div>'
         f'{"".join(rows)}'
         f'<div class="tp-blurhint">💡 打错整词重来 · Tab 偷看单词 · '
         f'Enter 跳过换词 · 点卡片可继续输入</div>'

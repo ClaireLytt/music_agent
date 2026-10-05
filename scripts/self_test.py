@@ -243,19 +243,6 @@ def main() -> None:
     except Exception as e:
         check("chat send without line pick -> hint", False, repr(e))
 
-    # ── 4b. 彩蛋: whole-song echo map + overview panel ──
-    try:
-        out = call("on_echo_map", [cardigan])
-        payload, overview = out[0], out[1]
-        d = json.loads(payload) if payload else {"lines": []}
-        ok = (d.get("song") == "cardigan" and d["lines"]
-              and all({"i", "song", "sim"} <= set(o) for o in d["lines"])
-              and "data-goto-line" in str(overview))
-        check("echo map payload + overview", bool(ok),
-              f"lines={len(d.get('lines', []))}")
-    except Exception as e:
-        check("echo map payload + overview", False, repr(e))
-
     # ── 4d2. 播放器工具（波形/副歌/A-B/韵脚开关随音频渲染） ──
     try:
         out = call("on_song_select", ["北京昨夜下了雪"],

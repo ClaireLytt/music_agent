@@ -39,7 +39,7 @@ from .debate import DebateSession, speak as ai_speak
 from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
                          remove_word)
 from .archaeology import mine_motifs
-from .evidence import QuoteIndex, parse_claims, render_evidence_card
+from .evidence import QuoteIndex
 from .ui_helpers import (_ANN_HINT, _file_url, render_annotation_card,
                          render_practice_card, render_wordbook)
 from .lrc_parser import parse_lrc
@@ -60,7 +60,6 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _render_favorites,
     _save_favorites,
     _CHAT_TOPIC_DEFAULT,
-    _ECHO_HINT,
     _ECHO_NO_INDEX,
     _ECHO_OVERVIEW_EMPTY,
     _ECHO_SCAN_CACHE_DIR,
@@ -78,7 +77,6 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _load_notes,
     _load_song_data,
     _render_chat,
-    _render_echo_html,
     _render_echo_overview,
     _render_intro,
     _render_lyrics_html,
@@ -534,29 +532,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # on #ll-side-dock)
                         with gr.Tabs(elem_id="ll-side-dock",
                                      elem_classes=["ll-icon-dock"]):
-                            with gr.Tab("🥚"):
-                                with gr.Column(elem_id="ll-echo"):
-                                    gr.HTML('<div class="side-panel-title">'
-                                            '🥚 彩蛋 · 互文追踪</div>')
-                                    echo_state = gr.State(None)
-                                    echo_html = gr.HTML(_ECHO_HINT)
-                                    with gr.Row():
-                                        echo_btn = gr.Button(
-                                            "✨ 让 AI 解释这些呼应",
-                                            size="sm", scale=1)
-                                        echo_card_btn = gr.Button(
-                                            "🖼️ 彩蛋对照卡", size="sm", scale=1)
-                                    echo_out = gr.HTML(
-                                        "", elem_classes=["echo-explain"])
-                                    echo_card_status = gr.Markdown("")
-                                    echo_card_img = gr.Image(
-                                        label="长按/右键保存图片",
-                                        type="filepath", visible=False)
-                            with gr.Tab("🗺️"):
-                                with gr.Column(elem_id="ll-echo-overview"):
-                                    gr.HTML('<div class="side-panel-title">'
-                                            '🗺️ 本歌彩蛋总览</div>')
-                                    echo_overview = gr.HTML(_ECHO_OVERVIEW_EMPTY)
                             with gr.Tab("📖"):
                                 with gr.Column(elem_id="ll-intro"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -616,10 +591,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
                         # backend -> JS channel: whole-song echo map (🥚 markers)
-                        echo_map_box = gr.Textbox(
-                            value="", visible=True, elem_id="ll-echo-map",
-                            elem_classes=["ll-hidden"], show_label=False,
-                            container=False)
                         # JS -> backend: current audio position (for notes)
                         cur_time_box = gr.Textbox(
                             value="0", visible=True, elem_id="ll-cur-time",
@@ -629,11 +600,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # ("jump:<i>" / "del:<i>")
                         fav_box = gr.Textbox(
                             value="", visible=True, elem_id="ll-fav-act",
-                            elem_classes=["ll-hidden"], show_label=False,
-                            container=False)
-                        # JS -> backend: "✨ 生成彩蛋故事" consent clicks
-                        echo_story_box = gr.Textbox(
-                            value="", visible=True, elem_id="ll-echo-story",
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
                         # JS -> backend: evidence-card citation jumps
@@ -835,7 +801,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                                 variant="primary")
                     add_status = gr.Markdown("", elem_classes=["add-status"])
                     add_state = gr.State("")  # last added song dir name
-                    gen_btn = gr.Button("🪄 为刚添加的歌曲生成 AI 批注（需 API Key，耗时约 1-3 分钟）")
 
                     with gr.Accordion("✍️ 手动添加曲库以外的歌曲", open=False):
                         gr.Markdown(
@@ -976,8 +941,8 @@ def create_app(settings: Settings) -> gr.Blocks:
         def on_song_select(choice: str):
             if not ctx["songs"]:
                 return ("", None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
-                        None, _ECHO_HINT, "", "", gr.Image(visible=False),
-                        _INTRO_EMPTY, "", gr.Image(visible=False),
+                        "", gr.Image(visible=False),
+                        _INTRO_EMPTY,
                         _render_notes([]), _ANN_HINT) + _collections_for("")
             info = find_song(choice)
             audio = resolve_audio(info["dir"])
@@ -986,105 +951,20 @@ def create_app(settings: Settings) -> gr.Blocks:
             lyrics = _render_lyrics_html(data, info, public=public)
             intro = _render_intro(_load_intro(info["dir"]))
             return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
-                    None, _ECHO_HINT, "", "", gr.Image(visible=False),
-                    intro, "", gr.Image(visible=False), _notes_for(info),
+                    "", gr.Image(visible=False),
+                    intro, _notes_for(info),
                     _ANN_HINT) + _collections_for(info["title"])
 
         song_outputs = [lyrics_html, chat_state, chat_topic, chat_html,
-                        echo_state, echo_html, echo_out, card_status, card_img,
-                        intro_html, echo_card_status, echo_card_img, notes_html,
+                        card_status, card_img,
+                        intro_html, notes_html,
                         ann_html]
         if not public:
             # the two per-song collections re-render on every song switch
             song_outputs += [favs_html, wordbook_html]
 
-        def _echo_story_of(song_dir: str) -> str:
-            try:
-                return json.loads(
-                    (Path(song_dir) / "echo_story.json").read_text(
-                        encoding="utf-8")).get("story", "")
-            except (OSError, ValueError):
-                return ""
 
-        def on_echo_map(choice: str) -> tuple[str, str]:
-            if not ctx["songs"]:
-                return "", _ECHO_OVERVIEW_EMPTY
-            info = find_song(choice)
-            payload, overview = build_echo_map(info)
-            from .ui_helpers import render_echo_story
-            story = (_echo_story_of(info["dir"])
-                     if info.get("dir") else "")
-            has_hits = overview != _ECHO_OVERVIEW_EMPTY and bool(payload)
-            block = render_echo_story(
-                story, can_generate=(not public) and has_hits)
-            return payload, block + overview
-
-        def on_echo_story(trigger: str, choice: str, user_cfg):
-            """Consent-gated: 把本歌最强的几处呼应讲成一段粉丝解说
-            （只基于歌词本身，严禁编造创作背景），缓存后永久展示。"""
-            if not (trigger or "").strip() or not ctx["songs"]:
-                yield gr.skip()
-                return
-            info = find_song(choice)
-            if not info.get("dir"):
-                yield gr.skip()
-                return
-            req = _request_settings(user_cfg)
-            if not req.api_key:
-                gr.Warning("需要 API Key 才能生成彩蛋故事（⚙️ 设置）。")
-                yield gr.skip()
-                return
-            payload, overview = build_echo_map(info)
-            try:
-                lines = json.loads(payload).get("lines", []) if payload else []
-            except ValueError:
-                lines = []
-            if not lines:
-                gr.Warning("这首歌没有可讲的呼应。")
-                yield gr.skip()
-                return
-            from .ui_helpers import render_echo_story
-            yield ('<div class="echo-story">⏳ AI 正在把这些呼应写成'
-                   '一段解说（慢的模型可能要一两分钟，生成后永久缓存，'
-                   '请勿刷新）……</div>' + overview)
-            data = _load_song_data(info["dir"])
-            by_idx = {ln.line_index: ln.text for ln in data["timed_lines"]}
-            top = sorted(lines, key=lambda o: -o.get("sim", 0))[:5]
-            pairs = "\n".join(
-                f'本歌「{by_idx.get(o["i"], "")}」 ↔ '
-                f'《{o["song"]}》「{o.get("target", "")}」'
-                for o in top)
-            from .llm import LLMClient
-            try:
-                resp = LLMClient(req).generate(
-                    system_prompt=(
-                        "你是懂行的歌迷解说。根据给出的歌词呼应对，写一段"
-                        "100 字左右的简体中文解说，把这些呼应讲成一个"
-                        "有发现感的小故事（比如同一场景的开头与结局、"
-                        "同一意象的反复）。只基于歌词文本本身推断，"
-                        "严禁编造创作背景、幕后故事或歌手意图。"
-                        "不要列条目，写成连贯一段话。"),
-                    user_message=(f"歌曲：《{info.get('title', '')}》"
-                                  f"（{info.get('artist', '')}）\n"
-                                  f"呼应对：\n{pairs}"),
-                )
-                story = resp.reply_text.strip()
-                Path(info["dir"], "echo_story.json").write_text(
-                    json.dumps({"story": story}, ensure_ascii=False,
-                               indent=1), encoding="utf-8")
-            except Exception as exc:
-                logger.exception("echo story failed")
-                gr.Warning(f"生成失败：{str(exc)[:120]}")
-                yield render_echo_story("", True) + overview
-                return
-            yield render_echo_story(story, False) + overview
-
-        echo_story_box.change(on_echo_story,
-                              [echo_story_box, song_radio, user_llm],
-                              [echo_overview])
-
-        song_radio.change(on_song_select, [song_radio], song_outputs).then(
-            on_echo_map, [song_radio], [echo_map_box, echo_overview])
+        song_radio.change(on_song_select, [song_radio], song_outputs)
 
         # ── 彩蛋地图（歌手级互文网络）──
 
@@ -1489,8 +1369,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                     state["ms"] += max(0, int(ms))
                 except ValueError:
                     pass
-                return _review_next(state, exclude=word,
-                                    group=group or "全部")
+                # 不自动跳下一个词：用户按 Enter 才换（JS 侧放行）
+                return state, gr.skip(), _review_stats_line(state)
 
             def on_review_export():
                 from .review import export_qwerty
@@ -1911,19 +1791,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                 line_index=idx,
                 history=history,
             )
-            if echoes is None:
-                echo, echo_render = None, _ECHO_NO_INDEX
-            else:
-                echo = {"line": line.text, "song": info.get("title", ""),
-                        "artist": info.get("artist", ""), "results": echoes}
-                echo_render = _render_echo_html(echoes, info.get("artist", ""))
             return (session, _chat_topic_html(line.text), _render_chat(session),
-                    echo, echo_render, "",
                     render_annotation_card(ann, idx, can_generate=not public))
 
         line_pick.change(on_line_pick, [line_pick, song_radio, chat_state],
-                         [chat_state, chat_topic, chat_html,
-                          echo_state, echo_html, echo_out, ann_html])
+                         [chat_state, chat_topic, chat_html, ann_html])
 
         def on_gen_ann(payload: str, choice: str, user_cfg):
             """「✨ 为本句生成」按钮：用户点击确认后才发生的唯一一次调用。"""
@@ -2242,6 +2114,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                         ai=_cached_dict_ai(word, line))
                     gr.Info(f"📒 已收藏单词 {word}。")
                     return render_wordbook(book, song_title=cur)
+                if head.startswith("note:"):
+                    from .dictionary import set_note
+                    book = set_note(head[5:],
+                                    act[1] if len(act) > 1 else "")
+                    return render_wordbook(book, song_title=cur)
                 if head.startswith("del:"):
                     book = remove_word(head[4:])
                     return render_wordbook(book, song_title=cur)
@@ -2255,44 +2132,6 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         # ── 彩蛋对照卡 ──
 
-        def on_echo_card(echo, choice: str):
-            if not echo or not echo.get("results"):
-                return ("⚠️ 请先点击一句有彩蛋呼应的歌词，再生成对照卡。",
-                        gr.Image(visible=False))
-            top = echo["results"][0]
-            # 卡上带一句点评（已生成的彩蛋故事截前一句，零新增调用）
-            info = find_song(choice)
-            comment = ""
-            if info.get("dir"):
-                story = _echo_story_of(info["dir"])
-                if story:
-                    comment = re.split(r"[。！？]", story)[0][:60]
-            # 英文歌「今日一词」：两句共有的最长实义词 + 本地词典释义
-            word = gloss = ""
-            common = (set(re.findall(r"[A-Za-z']{4,}", echo.get("line", "")))
-                      & set(re.findall(r"[A-Za-z']{4,}", top.get("line", ""))))
-            common -= {"that", "this", "with", "your", "from", "have",
-                       "what", "when", "will", "just", "like", "been"}
-            if common:
-                word = max(common, key=len).lower()
-                hit = dict_lookup(word) or {}
-                gloss = (hit.get("translation", "") or "").split("\\n")[0]
-            try:
-                from .share_card import render_echo_card
-                path = render_echo_card(
-                    artist=echo.get("artist", ""),
-                    song_a=echo.get("song", ""), line_a=echo.get("line", ""),
-                    song_b=top["song"], line_b=top["line"],
-                    similarity=top.get("similarity", 0.0),
-                    comment=comment, learn_word=word, learn_gloss=gloss,
-                )
-            except Exception as exc:
-                logger.exception("Echo card failed")
-                return f"⚠️ 卡片生成失败：{str(exc)[:120]}", gr.Image(visible=False)
-            return "", gr.Image(value=path, visible=True)
-
-        echo_card_btn.click(on_echo_card, [echo_state, song_radio],
-                            [echo_card_status, echo_card_img])
 
         # ── 听歌笔记 ──
 
@@ -2351,60 +2190,6 @@ def create_app(settings: Settings) -> gr.Blocks:
         note_del_box.change(on_del_note, [note_del_box, song_radio],
                             [notes_html])
 
-        def on_echo_explain(echo, user_cfg):
-            if not echo or not echo.get("results"):
-                yield "⚠️ 请先点击一句歌词，检索到呼应结果后再让 AI 解释。"
-                return
-            req_settings = _request_settings(user_cfg)
-            if public and not req_settings.api_key:
-                yield _PUBLIC_KEY_HINT
-                return
-            yield "🤔 AI 正在分析这些呼应关系……"
-            hits = "\n".join(
-                f"- 《{r['song']}》(专辑：{r['album'] or '未知'})："
-                f"“{r['line']}”（相似度 {r['similarity']}）"
-                for r in echo["results"]
-            )
-            user_msg = (
-                f"歌手：{echo['artist']}\n"
-                f"当前歌曲：《{echo['song']}》\n"
-                f"当前歌词行：“{echo['line']}”\n\n"
-                f"在这位歌手的其他作品中检索到以下相似歌词：\n{hits}\n\n"
-                "请分析这句歌词与上面哪些歌构成了真正的呼应或互文，"
-                "只讨论列表中出现的歌曲，并输出 JSON（不要多余文字）：\n"
-                '{"conclusion": "2-3 句总结这组呼应讲了什么",\n'
-                ' "quotes": [{"text": "逐字照抄的歌词原句", '
-                '"song": "出处歌名"}, ...],\n'
-                ' "facts": ["可查证的事实背景（专辑/年份），没有就留空列表"],\n'
-                ' "speculation": ["明确属于推测/粉丝理论的内容"]}\n'
-                "要求：quotes 里的 text 必须逐字照抄上面给出的歌词，"
-                "不得改写、翻译或缩略；无实质关联的检索结果不要引用。"
-            )
-            from .llm import LLMClient
-            try:
-                resp = LLMClient(req_settings).generate(
-                    system_prompt=("你是精通歌词文本分析的音乐评论人。"
-                                   "严格按用户要求的 JSON 结构输出，"
-                                   "用简体中文。"),
-                    user_message=user_msg,
-                )
-                text = (resp.reply_text or "").strip()
-                claims = parse_claims(text)
-                if claims is None:
-                    # structured check failed -> degrade to plain text
-                    yield ("⚠️ 本次输出未通过结构化校验，以下为原始回答：\n\n"
-                           + (text or "（空）"))
-                    return
-                idx = ctx.get("quote_index")
-                if idx is None or idx._songs is not ctx["songs"]:
-                    idx = QuoteIndex(ctx["songs"])
-                    ctx["quote_index"] = idx
-                yield render_evidence_card(claims, idx, _label_of())
-            except Exception as exc:
-                logger.exception("Echo explain failed")
-                yield f"⚠️ LLM 调用失败：{str(exc)[:200]}"
-
-        echo_btn.click(on_echo_explain, [echo_state, user_llm], [echo_out])
 
         # ── 证据卡引用跳转：切歌并高亮那一行（行号由 JS 记忆并滚动）──
 
@@ -2430,8 +2215,7 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         cite_box.change(
             on_cite_jump, [cite_box, sort_mode, song_filter], [song_radio],
-        ).then(on_song_select, [song_radio], song_outputs
-        ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+        ).then(on_song_select, [song_radio], song_outputs)
 
         if not public:
             # ── MCP 播放命令通道（lyric-agent mcp 写命令文件，这里轮询）──
@@ -2567,8 +2351,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                 "已切到「最新在前」排序，它就在左侧歌曲列表**最上方**并已打开。"
                 "回声索引正在后台重建（本地计算，约一分钟），完成后"
                 "💫 回声时刻/彩蛋会自动把这首歌纳入。"
-                "目前还没有 AI 批注 —— 点击下方按钮生成，"
-                f"或在终端运行 `lyric-agent generate data/songs/{slug}`。"
+                "需要整歌 AI 批注的话在终端运行 "
+                f"`lyric-agent generate data/songs/{slug}`。"
             )
             return (status,
                     gr.Radio(choices=song_choices("added_desc"),
@@ -2587,7 +2371,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                 # NOT an output: clearing it cascades through on_song_filter
                 # and re-sorts the list, undoing the newest-first order
                 on_song_select, [song_radio], song_outputs,
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview]
             ).then(lambda: gr.Radio(value="added_desc"), None, [sort_mode])
 
         # ── 曲库 ──
@@ -2744,32 +2527,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                 # newest-first choices + explicit load; song_filter left out
                 # on purpose (see on_add_song wiring)
                 on_song_select, [song_radio], song_outputs,
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview]
             ).then(lambda: gr.Radio(value="added_desc"), None, [sort_mode])
-
-        def on_generate_ann(slug: str):
-            if not slug:
-                return "⚠️ 请先在上方保存一首歌曲。", gr.skip()
-            if not settings.api_key:
-                return ("⚠️ 未配置 API Key，无法生成批注。"
-                        "请到「⚙️ 设置」页签填写 API Key 并保存。"), gr.skip()
-            d = Path(settings.songs_dir) / slug
-            if not d.exists():
-                return f"⚠️ 找不到歌曲目录 `{slug}`。", gr.skip()
-            from .annotator.engine import generate_annotations
-            try:
-                song = generate_annotations(settings, d)
-            except Exception as exc:
-                return f"⚠️ 生成失败：{exc}", gr.skip()
-            refresh_library()
-            new_choices = song_choices()
-            new_song = next((s for s in ctx["songs"] if s["name"] == slug), None)
-            new_label = song_choice_label(new_song) if new_song else None
-            return (f"✅ 已为《{song.metadata.title}》生成 {len(song.annotations)} 条批注。",
-                    gr.Radio(choices=new_choices, value=new_label))
-
-        if not public:
-            gen_btn.click(on_generate_ann, [add_state], [add_status, song_radio])
 
         # ── 管理歌曲列表 ──
 
@@ -2820,13 +2578,11 @@ def create_app(settings: Settings) -> gr.Blocks:
             manage_refresh_btn.click(
                 on_manage_refresh, [song_radio, sort_mode, song_filter],
                 [song_radio],
-            ).then(on_song_select, [song_radio], song_outputs
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            ).then(on_song_select, [song_radio], song_outputs)
             del_box.change(
                 on_del_song, [del_box, sort_mode, song_filter],
                 [song_radio],
-            ).then(on_song_select, [song_radio], song_outputs
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            ).then(on_song_select, [song_radio], song_outputs)
 
         # ── 语料库索引重建 ──
 
@@ -2915,8 +2671,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                      [set_provider, set_key, set_base, set_model])
 
         if ctx["songs"]:
-            app.load(on_song_select, [song_radio], song_outputs).then(
-                on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            app.load(on_song_select, [song_radio], song_outputs)
 
         if not public:
             # suggest existing artists in the manual-add artist field

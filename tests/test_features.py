@@ -898,27 +898,6 @@ def test_echo_overview_hero_and_fold():
     assert "<details" not in _render_echo_overview(hits[:1], "")
 
 
-def test_echo_story_render_states():
-    from lyric_agent.ui_helpers import render_echo_story
-
-    assert "echo-story" in render_echo_story("两首歌写同一场雨。", False)
-    btn = render_echo_story("", True)
-    assert "data-echo-story" in btn and "1 次 LLM" in btn
-    assert render_echo_story("", False) == ""
-
-
-def test_echo_card_comment_and_word(tmp_path):
-    from lyric_agent.share_card import render_echo_card
-
-    path = render_echo_card(
-        "Artist", "songA", "I can see the rain fall",
-        "songB", "the rain falls on me", similarity=0.7,
-        out_dir=tmp_path, comment="同一场雨的开头与结局",
-        learn_word="rain", learn_gloss="n. 雨")
-    from pathlib import Path
-    assert Path(path).exists() and Path(path).stat().st_size > 10000
-
-
 def test_word_examples_sources(tmp_path, monkeypatch):
     import json as J
 

@@ -290,19 +290,20 @@ _HEAD_JS = """
     if (!e.target.classList || !e.target.classList.contains('ll-type-input'))
       return;
     const c = card();
-    if (!c || done) return;
+    if (!c) return;
+    if (e.key === 'Enter') {       // 跳过 / 打完后继续，都走换一词
+      e.preventDefault();
+      for (const b of document.querySelectorAll('button'))
+        if (b.textContent.includes('开始 / 换一词')) { b.click(); break; }
+      return;
+    }
+    if (done) return;              // 已完成：除 Enter 外不再吃按键
     if (e.isComposing || e.keyCode === 229) {   // CJK IME is active
       c.classList.add('tp-ime');
       e.preventDefault();
       return;
     }
     c.classList.remove('tp-ime');
-    if (e.key === 'Enter') {                    // 跳过这个词，直接换下一个
-      e.preventDefault();
-      for (const b of document.querySelectorAll('button'))
-        if (b.textContent.includes('开始 / 换一词')) { b.click(); break; }
-      return;
-    }
     if (e.key === 'Tab') {                      // 盲打模式偷看一眼（0.2 秒）
       e.preventDefault();
       if (c.classList.contains('tp-blind')) {
@@ -324,6 +325,7 @@ _HEAD_JS = """
       pos += 1;
       if (pos >= want.length) {
         done = true;
+        c.classList.add('tp-done');
         sendChannel('ll-review-done',
                     want + '\\t' + mistakes + '\\t' + (Date.now() - t0)
                     + '\\t' + Date.now());
@@ -463,8 +465,6 @@ _HEAD_JS = """
   // player tools state (survives per-song re-renders of the audio block)
   let abStart = null, abEnd = null;
   let rhymeOn = false;
-  let tourOn = true;  // 回声时刻默认开启（可在播放器工具里关）
-  try { if (localStorage.getItem('ll_tour') === '0') tourOn = false; } catch (err) {}
   let lastAudioEl = null;
 
   function getAudio() { return document.getElementById('ll-audio'); }
@@ -485,45 +485,6 @@ _HEAD_JS = """
     box.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // 💫 回声时刻: when the line that just became active echoes another
-  // song, slide in a card; clicking it jumps to that song (the existing
-  // [data-cite-label] delegate does the switch + line flash)
-  function maybeTourCard(idx) {
-    if (!tourOn) return;
-    const box = document.querySelector('#ll-echo-map textarea, #ll-echo-map input');
-    if (!box || !box.value) return;
-    let data;
-    try { data = JSON.parse(box.value); } catch (e) { return; }
-    const title = document.querySelector('.song-title-display');
-    if (!title || title.textContent.trim() !== data.song) return;
-    document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
-    const o = (data.lines || []).find((l) => l.i === idx);
-    if (!o) return;
-    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const card = document.createElement('div');
-    card.className = 'll-tour-card';
-    if (o.label) {
-      card.dataset.citeLabel = o.label;
-      card.dataset.citeLine = String(o.ti != null ? o.ti : -1);
-    }
-    let html = '<div class="tour-head">💫 回声时刻'
-      + '<span class="tour-close" title="关闭">✕</span></div>';
-    html += '<div class="tour-echo">这句让人想起《' + esc(o.song) + '》';
-    if (o.target) html += '——“' + esc(o.target) + '”';
-    html += '</div>';
-    if (o.note) html += '<div class="tour-note">📝 ' + esc(o.note) + '</div>';
-    html += '<div class="tour-hint">'
-      + (o.label ? '点击卡片去听那句' : '详情见右侧 🥚 面板') + '</div>';
-    card.innerHTML = html;
-    card.querySelector('.tour-close').addEventListener('click', (e) => {
-      e.stopPropagation();
-      card.remove();
-    });
-    // jump handled by the document-level cite delegate; just tidy up
-    card.addEventListener('click', () => card.remove());
-    document.body.appendChild(card);
-    setTimeout(() => { if (card.isConnected) card.remove(); }, 9000);
-  }
 
   function applyRhyme() {
     const c = document.getElementById('lyrics-container');
@@ -585,7 +546,6 @@ _HEAD_JS = """
             });
           }
         }
-        if (idx >= 0 && idx !== undefined) maybeTourCard(idx);
         lastActive = idx;
       }
       // A-B loop: jump back to A whenever playback passes B
@@ -697,8 +657,6 @@ _HEAD_JS = """
     abStart = abEnd = null;
     const y = document.getElementById('ll-rhyme-toggle');
     if (y) y.checked = rhymeOn;
-    const tg = document.getElementById('ll-tour-toggle');
-    if (tg) tg.checked = tourOn;
     applyRhyme();
     initWave(a);
   }, 500);
@@ -706,12 +664,6 @@ _HEAD_JS = """
   // toggle listeners (delegated: the checkboxes are re-rendered per song)
   document.addEventListener('change', function(e) {
     if (!e.target) return;
-    if (e.target.id === 'll-tour-toggle') {
-      tourOn = e.target.checked;
-      try { localStorage.setItem('ll_tour', tourOn ? '1' : '0'); } catch (err) {}
-      if (!tourOn)
-        document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
-    }
     if (e.target.id === 'll-rhyme-toggle') {
       rhymeOn = e.target.checked;
       applyRhyme();
@@ -811,17 +763,13 @@ _HEAD_JS = """
           for (const b of document.querySelectorAll('button[role="tab"]'))
             if (b.textContent.includes('歌曲寻词')) { b.click(); break; }
           back.remove();
+          setTimeout(() => {   // 回来直接能打字/按 Enter，无需先点卡片
+            const inp = document.querySelector('.ll-type-input');
+            if (inp) inp.focus();
+          }, 400);
         });
         document.body.appendChild(back);
       }
-      return;
-    }
-    const es = e.target.closest('[data-echo-story]');
-    if (es) {
-      if (!confirm('将调用 1 次 LLM 把本歌的呼应讲成一段彩蛋故事，继续？')) return;
-      es.textContent = '✨ 生成中…';
-      es.disabled = true;
-      writeChannel('ll-echo-story', 'gen\\t' + Date.now());
       return;
     }
     const bvu = e.target.closest('[data-bvid-unbind]');
@@ -844,6 +792,16 @@ _HEAD_JS = """
     const fav = e.target.closest('[data-fav]');
     if (fav) {
       writeChannel('ll-fav-act', fav.dataset.fav + '\\t' + Date.now());
+      return;
+    }
+    const wn = e.target.closest('[data-wb-note]');
+    if (wn) {
+      const txt = prompt('给「' + wn.dataset.wbNote
+                         + '」写一句我的笔记（清空 = 删除笔记）',
+                         wn.dataset.note || '');
+      if (txt === null) return;
+      writeChannel('ll-wb-act', 'note:' + wn.dataset.wbNote + '\\t'
+                   + txt.replace(/[\\t\\n]/g, ' ') + '\\t' + Date.now());
       return;
     }
     const wb = e.target.closest('[data-wb]');
@@ -1017,7 +975,7 @@ _HEAD_JS = """
             + '<b>双击英文单词</b>弹出词义卡（可收藏、可 AI 语境解释）。' },
     { sel: '.player-tools',
       text: '🎚 播放器工具：跳副歌、A-B 循环、韵脚标色；'
-            + '💫 回声时刻开着时，唱到有呼应的歌词会自动弹出回声卡。' },
+            + '还能开关韵脚标色辅助听歌。' },
     { sel: 'button[role="tab"]',
       text: '🗂 顶部页签：🔤 歌曲寻词练打字背单词，🕵️ 歌迷考据看 AI 整理的歌曲故事，'
             + '➕ 添加歌曲自动配歌词和 MV，⚙️ 设置里填 API Key 看用量。' },
@@ -1478,26 +1436,6 @@ footer, .gradio-container footer { display: none !important; }
 .cov-line b { color: var(--text-primary); }
 
 /* 🎧 tour commentary card */
-.ll-tour-card {
-  position: fixed; right: 18px; bottom: 18px; z-index: 1100; width: 300px;
-  padding: 12px 14px; border-radius: 12px; cursor: pointer;
-  background: var(--bg-card); border: 1px solid var(--border);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
-  font-size: 12.5px; line-height: 1.65;
-  animation: ll-tour-in .35s ease-out;
-}
-@keyframes ll-tour-in {
-  from { transform: translateY(14px); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
-.ll-tour-card .tour-head { font-weight: 700; margin-bottom: 4px;
-  display: flex; justify-content: space-between; align-items: center; }
-.ll-tour-card .tour-close { cursor: pointer; padding: 0 4px;
-  color: var(--text-secondary); font-weight: 400; }
-.ll-tour-card .tour-close:hover { color: var(--text-primary); }
-.ll-tour-card .tour-note { color: var(--text-primary); margin-bottom: 4px; }
-.ll-tour-card .tour-echo { color: var(--text-primary); }
-.ll-tour-card .tour-hint { margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
 
 /* evidence card (可追溯证据) */
 .ev-card {
@@ -1688,6 +1626,9 @@ footer, .gradio-container footer { display: none !important; }
 .ll-type-card .tp-ime-hint { display: none; color: #cf222e;
   font-size: .85em; margin-top: 4px; }
 .ll-type-card.tp-ime .tp-ime-hint { display: block; }
+.ll-type-card .tp-donehint { display: none; color: var(--accent);
+  font-weight: 700; font-size: 1.1em; margin-top: 8px; }
+.ll-type-card.tp-done .tp-donehint { display: block; }
 .ll-type-card .tp-blurhint { font-size: 1.05em; color: var(--text-secondary);
   margin-top: 10px; }
 .ll-type-card .tp-wline-word { background: var(--accent-soft);
@@ -1721,6 +1662,13 @@ footer, .gradio-container footer { display: none !important; }
   color: var(--text-secondary); padding: 0 4px; border-radius: 6px;
 }
 .wb-item .wb-del:hover { color: #dc2626; background: var(--bg-card-hover); }
+.wb-item .wb-note-btn {
+  position: absolute; right: 32px; top: 8px; cursor: pointer;
+  padding: 0 4px; border-radius: 6px; font-size: 12px;
+}
+.wb-item .wb-note-btn:hover { background: var(--bg-card-hover); }
+.wb-item .wb-note { font-size: .9em; color: var(--accent);
+  margin-top: 4px; }
 
 /* lyric favorites */
 .fav-list { display: flex; flex-direction: column; gap: 6px;
@@ -1749,42 +1697,16 @@ footer, .gradio-container footer { display: none !important; }
 }
 .quiz-meta { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
 
-/* whole-song easter-egg overview (🗺️ 本歌彩蛋总览) */
-.echo-ov-head { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-.echo-ov-list { max-height: 40vh; overflow-y: auto; scrollbar-width: thin; }
-.echo-ov-item {
-  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--bg-card); margin-bottom: 6px; cursor: pointer;
-  transition: border-color 0.15s ease;
-}
-.echo-ov-item:hover { border-color: var(--accent); }
-.echo-ov-item.echo-hero { border-color: var(--accent);
-  background: var(--accent-soft); padding: 12px 14px; }
-.echo-hero-head { font-size: 12px; font-weight: 700; color: var(--accent);
-  margin-bottom: 4px; }
-.echo-ov-more summary { cursor: pointer; font-size: 12px;
-  color: var(--text-secondary); margin: 6px 0 8px; }
-.echo-ov-more summary:hover { color: var(--accent); }
-.echo-story { padding: 10px 14px; border-radius: 10px; margin-bottom: 8px;
-  background: var(--bg-card); border: 1px dashed var(--accent);
-  font-size: 13px; line-height: 1.8; color: var(--text-primary); }
-.echo-story-empty { border-style: solid; border-color: var(--border); }
-.echo-story-hint { margin-left: 8px; font-size: 11.5px;
-  color: var(--text-secondary); }
-.echo-ov-src { font-size: 13px; font-style: italic; color: var(--text-primary); }
-.echo-ov-dst { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
-.echo-ov-sim { margin-left: 6px; font-size: 11px; color: var(--accent); }
-
 /* ── Card hover ──
    clickable cards lift & brighten; static info cards only brighten
    (no lift = no false affordance); list rows brighten like tracklist rows.
    (.uni-* / .egg-pair live in other CSS constants but share this sheet.) */
-.search-hit, .echo-ov-item, .note-item, .egg-pair,
+.search-hit, .note-item, .egg-pair,
 .echo-card, .uni-char-card, .uni-event, .quiz-line {
   transition: transform 0.2s ease, background 0.2s ease,
     border-color 0.2s ease;
 }
-.search-hit.seekable:hover, .echo-ov-item:hover, .note-item:hover,
+.search-hit.seekable:hover, .note-item:hover,
 .egg-pair:hover {
   transform: translateY(-3px);
   background: var(--bg-card-hover);

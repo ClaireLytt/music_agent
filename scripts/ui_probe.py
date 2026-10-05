@@ -180,13 +180,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("line_click", "lyric click selects line + chat topic",
                     c_line_click)
 
-        def c_echo_panel():
-            probe.wait_until(
-                lambda: any(k in pg.locator("#ll-echo").inner_html()
-                            for k in ("echo-card", "未在", "语料库")),
-                msg="echo panel neither results nor hint")
-        probe.check("echo_panel", "echo panel populated after line click",
-                    c_echo_panel)
 
         def c_share_guard():
             # switch to a different song: resets the chat session so the
@@ -379,20 +372,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_cite_jump)
 
 
-        def c_tour_toggle():
-            # 🎧 导览 toggle ships with the player tools — audio songs only
-            # (reading-mode songs have no player toolbar at all)
-            probe.tab("🎧 播放解读")
-            pg.get_by_role("radio", name=AUDIO_SONG, exact=True).check()
-            probe.wait_until(lambda: count("#ll-tour-toggle") == 1,
-                             msg="tour toggle missing on an audio song")
-            pg.locator("#ll-tour-toggle").check()
-            pg.wait_for_timeout(300)
-            must(pg.locator("#ll-tour-toggle").is_checked(),
-                 "tour toggle did not check")
-            pg.locator("#ll-tour-toggle").uncheck()
-        probe.check("tour_toggle", "🎧 tour toggle present + togglable",
-                    c_tour_toggle)
 
         def c_song_filter():
             # the filter narrows the radio by title/artist and restores on
@@ -473,41 +452,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_chat_guard)
 
 
-        def c_echo_explain_guard():
-            probe.tab("🥚")
-            pg.get_by_role("button", name="✨ 让 AI 解释这些呼应").click()
-            probe.wait_until(
-                lambda: "请先点击一句歌词" in pg.locator("body").inner_text(),
-                msg="echo explain guard missing")
-        probe.check("echo_explain_guard",
-                    "echo explain without line -> guard (no LLM cost)",
-                    c_echo_explain_guard)
-
-        def c_echo_card_guard():
-            pg.get_by_role("button", name="🖼️ 彩蛋对照卡").click()
-            probe.wait_until(
-                lambda: "有彩蛋呼应的歌词" in pg.locator("body").inner_text(),
-                msg="echo card guard missing")
-        probe.check("echo_card_guard", "echo card without echo -> guard",
-                    c_echo_card_guard)
-
-        def c_echo_overview():
-            probe.tab("🗺️")
-            probe.wait_until(
-                lambda: count(".echo-ov-item") >= 1
-                or "未发现" in pg.locator("#ll-echo-overview").inner_text(),
-                msg="echo overview neither items nor empty-state")
-            if count(".echo-ov-item"):
-                goto = pg.locator(".echo-ov-item").first \
-                    .get_attribute("data-goto-line")
-                pg.locator(".echo-ov-item").first.click()
-                probe.wait_until(
-                    lambda: count(".lyric-line.picked") == 1
-                    and pg.locator(".lyric-line.picked")
-                        .get_attribute("data-index") == goto,
-                    msg="overview click did not select the right line")
-        probe.check("echo_overview", "echo overview list + click-to-jump",
-                    c_echo_overview)
 
         def c_intro_panel():
             probe.tab("📖")
