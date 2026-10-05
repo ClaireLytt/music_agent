@@ -1475,7 +1475,19 @@ footer, .gradio-container footer { display: none !important; }
 .lyric-line .lyric-trans { font-size: .82em;
   color: var(--text-secondary); margin-top: 1px; }
 #ll-review-stats { text-align: right; }
+/* 练习范围：窄、贴提示行 */
+#ll-review-group { max-width: 280px; margin-left: 0; margin-right: auto; }
+/* ⋯ 面板：竖排窄浮层，展开时覆盖在页面上，不挤压单词卡片 */
+#ll-review-topright { position: relative; }
+#ll-review-more { position: absolute; right: 0; top: 34px;
+  width: 400px; z-index: 60; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .15); }
 #ll-review-more .label-wrap { justify-content: flex-end; }
+/* 开始按钮：小、蓝底白字、贴卡片右缘 */
+#ll-review-startrow { max-width: 720px; margin: 6px auto 0;
+  display: flex; justify-content: flex-end; }
+#ll-review-startrow button { flex: 0 0 auto; }
 /* 🧭 新手指引 */
 .ll-tour-ring {
   position: fixed; z-index: 1290; pointer-events: none; border-radius: 12px;

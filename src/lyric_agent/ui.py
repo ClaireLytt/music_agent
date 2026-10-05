@@ -648,56 +648,53 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 "💡 打错整词重来 · Tab 偷看单词 · "
                                 "Enter 跳过换词 · 点卡片可继续输入；"
                                 "错得多的词会更频繁出现。")
-                        with gr.Column(scale=2):
+                            review_group_dd = gr.Dropdown(
+                                choices=["全部", "📖 歌词收藏"], value="全部",
+                                label="练习范围", allow_custom_value=True,
+                                elem_id="ll-review-group")
+                        with gr.Column(scale=2,
+                                       elem_id="ll-review-topright"):
                             review_stats_md = gr.Markdown(
                                 "", elem_id="ll-review-stats")
+                            # 展开时浮在页面上方（CSS absolute），
+                            # 不把下方的单词卡片往下挤
                             with gr.Accordion("⋯ 导入 / 导出 / 分组管理",
-                                              open=False, elem_id="ll-review-more"):
+                                              open=False,
+                                              elem_id="ll-review-more"):
                                 gr.Markdown(
-                                    "**📥 导入单词表**：第 1 列单词，第 2 列释义、"
-                                    "第 3 列音标均可省（带不带表头都行，缺释义"
-                                    "自动查本地词典补全）。Excel 直接传 .xlsx，"
-                                    "或另存为 CSV。")
-                                with gr.Row():
-                                    import_file = gr.File(
-                                        label="选择 .csv / .tsv / .txt / .xlsx",
-                                        file_types=[".csv", ".tsv", ".txt",
-                                                    ".xlsx"])
-                                    import_group_box = gr.Textbox(
-                                        label="分组名（留空 = 文件名）")
-                                with gr.Row():
-                                    import_btn = gr.Button("📥 导入到单词本",
-                                                           size="sm", scale=1)
-                                    group_del_btn = gr.Button(
-                                        "🗑 删除当前分组", size="sm", scale=1)
-                                import_status = gr.Markdown("")
-                                with gr.Row():
-                                    review_export_btn = gr.Button(
-                                        "📤 导出 qwerty-learner 词典",
-                                        size="sm", scale=1)
-                                    anki_export_btn = gr.Button(
-                                        "🗂️ 导出 Anki 牌组", size="sm", scale=1)
+                                    "**📥 导入单词表**：第 1 列单词，"
+                                    "第 2 列释义、第 3 列音标均可省；"
+                                    "缺释义自动查本地词典补全。"
+                                    "Excel 直接传 .xlsx，或另存为 CSV。")
+                                import_file = gr.File(
+                                    label="选择 .csv / .tsv / .txt / .xlsx",
+                                    file_types=[".csv", ".tsv", ".txt",
+                                                ".xlsx"])
+                                import_group_box = gr.Textbox(
+                                    label="分组名（留空 = 文件名）")
+                                import_btn = gr.Button("📥 导入到单词本",
+                                                       size="sm")
+                                group_del_btn = gr.Button(
+                                    "🗑 删除当前分组", size="sm")
+                                review_export_btn = gr.Button(
+                                    "📤 导出 qwerty-learner 词典",
+                                    size="sm")
+                                anki_export_btn = gr.Button(
+                                    "🗂️ 导出 Anki 牌组", size="sm")
                                 review_download = gr.DownloadButton(
                                     "⬇️ 下载词典 JSON", visible=False)
                                 anki_download = gr.DownloadButton(
                                     "⬇️ 下载 Anki TSV", visible=False)
+                                import_status = gr.Markdown("")
                                 review_export_status = gr.Markdown("")
-                    with gr.Row():
-                        review_group_dd = gr.Dropdown(
-                            choices=["全部", "📖 歌词收藏"], value="全部",
-                            label="练习范围", allow_custom_value=True,
-                            scale=1, min_width=260,
-                            elem_id="ll-review-group")
-                        gr.Column(scale=3)   # 占位：下拉窄靠左
                     review_state = gr.State(
                         {"word": "", "words": 0, "perfect": 0,
                          "chars": 0, "ms": 0, "queue": [], "group": "全部"})
                     review_html = gr.HTML("")
-                    with gr.Row():
-                        gr.Column(scale=4)   # 占位：按钮小且靠右
+                    with gr.Row(elem_id="ll-review-startrow"):
                         review_start_btn = gr.Button(
-                            "⌨️ 开始 / 换一词", size="sm", scale=1,
-                            min_width=130)
+                            "⌨️ 开始 / 换一词", size="sm",
+                            variant="primary", min_width=130)
                     # JS -> backend: word done ("word	mistakes	ms	ts")
                     review_done_box = gr.Textbox(
                         value="", visible=True,
