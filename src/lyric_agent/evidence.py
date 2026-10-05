@@ -8,9 +8,7 @@ the exact song + line, and speculation is rendered in its own layer.
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from pathlib import Path
 
 from .intertextuality.echo_map import norm_line
@@ -33,7 +31,6 @@ def cite_jump_attrs(label: str, line_index: int | str) -> str:
 
 logger = logging.getLogger(__name__)
 
-_FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$")
 
 
 def _esc(text: str) -> str:
@@ -98,17 +95,8 @@ class QuoteIndex:
 
 def parse_claims(raw: str) -> dict | None:
     """Tolerant parse of the structured verdict (parse_mv's approach)."""
-    text = (raw or "").strip()
-    if not text:
-        return None
-    text = _FENCE_RE.sub("", text).strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    try:
-        data = json.loads(text[start:end + 1])
-    except ValueError:
-        return None
+    from .llm import extract_json
+    data = extract_json(raw)
     if not isinstance(data, dict):
         return None
     quotes = []

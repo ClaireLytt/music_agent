@@ -175,10 +175,10 @@ def auto_bind_missing(songs: list[dict], is_enabled) -> int:
     Returns the number of songs bound."""
     import json as _json
     import pathlib
+    from .jsonio import read_json, write_json_atomic
     fail_path = pathlib.Path(_AUTOBIND_FAIL_PATH)
-    try:
-        fails = _json.loads(fail_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    fails = read_json(fail_path, {})
+    if not isinstance(fails, dict):
         fails = {}
     bound = 0
     for s in songs:
@@ -210,9 +210,7 @@ def auto_bind_missing(songs: list[dict], is_enabled) -> int:
             fails[s["dir"]] = time.time()
             logger.info("auto-bind skipped %s: %s", s.get("title"), exc)
             try:
-                fail_path.parent.mkdir(parents=True, exist_ok=True)
-                fail_path.write_text(_json.dumps(fails, ensure_ascii=False),
-                                     encoding="utf-8")
+                write_json_atomic(fail_path, fails, indent=None)
             except OSError:
                 pass
         time.sleep(_THROTTLE_S)

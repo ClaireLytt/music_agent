@@ -1341,8 +1341,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                 url = _file_url(mp3) if mp3 else ""
                 state["word"] = entry["word"]
                 from .review import word_examples
-                examples = word_examples(entry["word"],
-                                         exclude_song=entry.get("song", ""))
+                examples = word_examples(
+                    entry["word"], exclude_song=entry.get("song", ""),
+                    corpus_dir=settings.corpus_dir)
                 return (state,
                         render_practice_card(entry, url, uuid.uuid4().hex,
                                              examples=examples),

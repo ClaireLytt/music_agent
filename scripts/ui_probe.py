@@ -54,6 +54,7 @@ _BENIGN_CONSOLE = (
     "bili-user-fingerprint",     # embed player's internal reporter errors
     "ERR_CERT_COMMON_NAME_INVALID",  # external resource via local proxy —
                                      # TLS noise, never our code
+    "ERR_CONNECTION_CLOSED",         # ditto: proxy drops youdao/CDN fetches
 )
 
 AUDIO_SONG = "北京昨夜下了雪"   # library song that ships with audio

@@ -40,6 +40,7 @@ def generate(song_dir: str, chunk_size: int, fresh: bool) -> None:
               help="don't auto-open the page in the default browser")
 def serve(port: int | None, no_browser: bool) -> None:
     """Launch the lyrics annotation player UI."""
+    from .review import TTS_CACHE_DIR as _TTS_CACHE_DIR
     from pathlib import Path
 
     from .config import load_settings
@@ -62,8 +63,9 @@ def serve(port: int | None, no_browser: bool) -> None:
         # public deployments run headless — never pop a browser there
         inbrowser=not no_browser and not settings.public_mode,
         allowed_paths=[str(Path(settings.songs_dir).resolve()),
-                       # ⌨️ 单词练习 word-pronunciation mp3s
-                       str(Path("data/cache/tts").resolve())],
+                       # ⌨️ 单词练习 word-pronunciation mp3s（与 review.py
+                       # 共用一个常量，避免字面量漂移导致发音静默 404）
+                       str(_TTS_CACHE_DIR.resolve())],
         **auth_kwargs,
         **launch_kwargs(),
     )

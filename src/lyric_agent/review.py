@@ -162,10 +162,11 @@ def _examples_from_api(word: str, limit: int) -> list[str]:
     return out
 
 
-def _examples_from_corpus(word: str, exclude_song: str, limit: int) -> list[str]:
+def _examples_from_corpus(word: str, exclude_song: str, limit: int,
+                          corpus_path: Path | None = None) -> list[str]:
     pat = re.compile(rf"\b{re.escape(word)}\b", re.IGNORECASE)
     out = []
-    with _CORPUS_PATH.open(encoding="utf-8") as f:
+    with (corpus_path or _CORPUS_PATH).open(encoding="utf-8") as f:
         for raw in f:
             try:
                 song = json.loads(raw)
@@ -183,7 +184,8 @@ def _examples_from_corpus(word: str, exclude_song: str, limit: int) -> list[str]
 
 
 def word_examples(word: str, exclude_song: str = "",
-                  limit: int = 3) -> list[str]:
+                  limit: int = 3,
+                  corpus_dir: str | None = None) -> list[str]:
     """零 LLM 真例句：有道 jsonapi（中英双语）优先，退 dictionaryapi.dev，
     再退曲库其他歌的歌词句；全失败返回 []，绝不抛。
     结果（含空结果）落盘缓存，离线/限流只打一次。
@@ -193,9 +195,9 @@ def word_examples(word: str, exclude_song: str = "",
     word = (word or "").strip().lower()
     if not word or os.getenv("LL_WORD_EXAMPLES", "1") == "0":
         return []
-    try:
-        cache = json.loads(_EXAMPLES_CACHE.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    from .jsonio import read_json, write_json_atomic
+    cache = read_json(_EXAMPLES_CACHE, {})
+    if not isinstance(cache, dict):
         cache = {}
     if word in cache:
         return cache[word][:limit]
@@ -210,16 +212,16 @@ def word_examples(word: str, exclude_song: str = "",
         except Exception:
             logger.info("dictionary API unavailable for %r", word)
     if not examples:
+        corpus_path = (Path(corpus_dir) / "discography.jsonl"
+                       if corpus_dir else _CORPUS_PATH)
         try:
-            examples = _examples_from_corpus(word, exclude_song, 2)
+            examples = _examples_from_corpus(word, exclude_song, 2,
+                                             corpus_path)
         except OSError:
             pass
     try:
         cache[word] = examples
-        _EXAMPLES_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        _EXAMPLES_CACHE.write_text(
-            json.dumps(cache, ensure_ascii=False, indent=1),
-            encoding="utf-8")
+        write_json_atomic(_EXAMPLES_CACHE, cache)
     except OSError:
         pass
     return examples

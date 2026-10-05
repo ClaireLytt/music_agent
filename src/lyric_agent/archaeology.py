@@ -145,14 +145,8 @@ def report_messages(artist: str, motifs: list[dict]) -> tuple[str, str]:
 
 
 def parse_report(raw: str) -> dict | None:
-    text = re.sub(r"^```[a-zA-Z]*\s*|\s*```$", "", (raw or "").strip())
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    try:
-        data = json.loads(text[start:end + 1])
-    except ValueError:
-        return None
+    from .llm import extract_json
+    data = extract_json(raw)
     if not isinstance(data, dict):
         return None
     arcs = {}

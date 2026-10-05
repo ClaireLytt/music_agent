@@ -959,10 +959,17 @@ def test_fanlore_progress_stage():
 
 
 def test_parse_json_reply_fence():
-    from lyric_agent.llm import parse_json_reply
+    import pytest as _pytest
+
+    from lyric_agent.llm import extract_json, parse_json_reply
 
     assert parse_json_reply('{"a": 1}') == {"a": 1}
     assert parse_json_reply('```json\n{"a": 1}\n```') == {"a": 1}
+    # 模型在 JSON 前多说一句话也要能解析（deepseek/grok 常见）
+    assert parse_json_reply('好的，结果如下：\n{"a": 1}\n以上。') == {"a": 1}
+    assert extract_json("completely not json") is None
+    with _pytest.raises(ValueError):
+        parse_json_reply("completely not json")
 
 
 def test_parse_fanlore_defensive():
