@@ -1008,8 +1008,9 @@ def test_render_fanlore_html():
     assert "⚠️ 未在曲库验证" in html
     # fan_theory 自动带非官方标注
     assert "推测，非官方" in html
-    # 剧情链：库内可点、库外灰显
-    assert "lore-pill-out" in html and html.count("data-lore-vote") == 3
+    # 剧情链/投票/总结已按用户要求不再渲染（caveat 与声明保留）
+    assert "lore-pill" not in html and "data-lore-vote" not in html
+    assert "lore-summary" not in html
     assert "考据由 AI 整理" in html
 
 

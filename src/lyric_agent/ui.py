@@ -520,10 +520,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     with gr.Column(elem_id="ll-favs"):
                                         gr.HTML('<div class="side-panel-title">'
                                                 '⭐ 歌词收藏夹</div>')
-                                        gr.Markdown(
-                                            "点选左侧一句歌词 → 点下面的按钮收藏。"
-                                            "收藏**只在这首歌**打开时显示。",
-                                            elem_classes=["wb-hint"])
                                         fav_add_btn = gr.Button(
                                             "⭐ 收藏当前选中的歌词", size="sm")
                                         fav_status = gr.Markdown("")
@@ -533,11 +529,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 with gr.Column(elem_id="ll-wordbook"):
                                     gr.HTML('<div class="side-panel-title">'
                                             '📒 单词本</div>')
-                                    gr.Markdown(
-                                        "**双击**歌词里的英文单词即可查词，"
-                                        "弹窗里点 ⭐ 收藏到这里；"
-                                        "单词**只在收藏它的那首歌**里显示。",
-                                        elem_classes=["wb-hint"])
                                     wordbook_html = gr.HTML(
                                         render_wordbook(load_wordbook()))
                             with gr.Tab("📝"):

@@ -264,36 +264,6 @@ def render_fanlore_html(f: Fanlore, title: str,
             inner.append('<div class="lore-theory-note">⚠️ AI 基于歌词'
                          '的推测，非官方设定</div>')
         parts.append(f'<div class="lore-clue">{"".join(inner)}</div>')
-    if f.chain:
-        pills = []
-        for song, beat in f.chain:
-            label = (label_of or {}).get(song, "")
-            if label:
-                pills.append(
-                    f'<span class="lore-pill"'
-                    f'{cite_jump_attrs(label, -1)} '
-                    f'title="{_esc(beat)}（点击去听）">'
-                    f'《{_esc(song)}》</span>')
-            else:
-                pills.append(f'<span class="lore-pill lore-pill-out" '
-                             f'title="{_esc(beat)}（不在曲库）">'
-                             f'《{_esc(song)}》</span>')
-        beats = "".join(f'<div class="lore-beat">《{_esc(s)}》：{_esc(b)}'
-                        '</div>' for s, b in f.chain)
-        parts.append('<div class="lore-sec">💭 多首歌连续剧情推测（AI）</div>'
-                     f'<div class="lore-chain">{" → ".join(pills)}</div>'
-                     f'{beats}'
-                     '<div class="lore-vote">🤔 你觉得这个理论成立吗？'
-                     f'<button class="ptool" data-lore-vote="fire" '
-                     f'data-lore-song="{_esc(title)}">🔥 太合理了</button>'
-                     f'<button class="ptool" data-lore-vote="hmm" '
-                     f'data-lore-song="{_esc(title)}">🤨 有点牵强</button>'
-                     f'<button class="ptool" data-lore-vote="lol" '
-                     f'data-lore-song="{_esc(title)}">😂 又开始写小说了'
-                     '</button></div>')
-    if f.summary:
-        parts.append(f'<div class="lore-summary">💬 {_esc(f.summary)}'
-                     '</div>')
     if f.caveat:
         parts.append(f'<div class="lore-caveat">📝 {_esc(f.caveat)}</div>')
     parts.append(_DISCLAIM)

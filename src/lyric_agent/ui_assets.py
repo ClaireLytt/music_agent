@@ -928,18 +928,6 @@ window.llz = function() {   // body CSS zoom 校正系数
                    + '\\t' + Date.now());
       return;
     }
-    const lv = e.target.closest('[data-lore-vote]');
-    if (lv) {
-      // 考据页投票：纯前端，localStorage 记一次（每歌一票，仅本机）
-      const key = 'll_lore_vote_' + (lv.dataset.loreSong || '');
-      let voted = '';
-      try { voted = localStorage.getItem(key) || ''; } catch (err) {}
-      if (voted) return;
-      try { localStorage.setItem(key, lv.dataset.loreVote); } catch (err) {}
-      lv.classList.add('lore-voted');
-      lv.textContent += ' ✓';
-      return;
-    }
   }, true);
 
   // current playback position → hidden channel (used by 听歌笔记)
@@ -1626,6 +1614,12 @@ footer, .gradio-container footer { display: none !important; }
   font-size: 11.5px; }
 #ll-review-stats { text-align: right; }
 #ll-review-hint { text-align: center; }
+/* 歌曲寻词整页与互动同级放大 */
+.tabitem:has(#ll-review-hint) { zoom: 1.25; }
+/* 添加歌曲：整块居中 + 同级放大 */
+.tabitem:has(#ll-catalog) { zoom: 1.25; }
+.tabitem:has(#ll-catalog) > * { max-width: 980px; margin-left: auto;
+  margin-right: auto; text-align: center; }
 /* 练习范围：窄、贴提示行 */
 #ll-review-group { max-width: 280px; margin-left: 24%; margin-right: auto; }
 /* 去掉下拉旁拉通整行的灰底容器 */
@@ -1703,7 +1697,6 @@ footer, .gradio-container footer { display: none !important; }
 #ll-onboard-btn:hover { color: var(--accent); border-color: var(--accent); }
 /* 🕵️ 歌迷考据 */
 .lore-page { max-width: 760px; margin: 0 auto; text-align: center; }
-.lore-page .lore-vote .ptool { margin: 0 4px; }
 .lore-head { font-size: 18px; font-weight: 800; margin: 8px 0; }
 .lore-hook { padding: 12px 16px; border-left: 4px solid var(--accent);
   background: var(--accent-soft); border-radius: 0 10px 10px 0;
@@ -1728,23 +1721,6 @@ footer, .gradio-container footer { display: none !important; }
   color: var(--text-secondary); }
 .lore-theory-note { margin-top: 6px; font-size: 11.5px;
   color: var(--text-secondary); }
-.lore-chain { margin: 6px 0 10px; line-height: 2.2; }
-.lore-pill { display: inline-block; padding: 3px 12px; border-radius: 999px;
-  border: 1px solid var(--accent); color: var(--accent); cursor: pointer;
-  font-size: 12.5px; margin: 0 2px; }
-.lore-pill:hover { background: var(--accent); color: #fff; }
-.lore-pill.lore-pill-out { border-color: var(--border);
-  color: var(--text-secondary); cursor: default; }
-.lore-pill.lore-pill-out:hover { background: transparent;
-  color: var(--text-secondary); }
-.lore-beat { font-size: 12.5px; color: var(--text-secondary);
-  margin: 2px 0; }
-.lore-vote { margin-top: 10px; font-size: 13px; }
-.lore-vote .ptool { margin-left: 8px; }
-.lore-vote .lore-voted { border-color: var(--accent);
-  color: var(--accent); }
-.lore-summary { margin-top: 14px; padding: 12px 16px; border-radius: 12px;
-  background: var(--accent-soft); line-height: 1.8; }
 .lore-caveat { margin-top: 8px; font-size: 12px;
   color: var(--text-secondary); }
 .lore-disclaim { margin-top: 14px; font-size: 11.5px;
@@ -1846,8 +1822,8 @@ footer, .gradio-container footer { display: none !important; }
 .fav-item { padding: 8px 12px; border: 1px solid var(--border);
   border-radius: 10px; background: var(--bg-card); cursor: pointer; }
 .fav-item:hover { border-color: var(--accent); }
-.fav-line { font-size: 15.5px; font-style: italic; color: var(--text-primary); }
-.fav-song { font-size: 13.5px; color: var(--text-secondary); margin-top: 3px; }
+.fav-line { font-size: 17px; font-style: italic; color: var(--text-primary); }
+.fav-song { font-size: 14.5px; color: var(--text-secondary); margin-top: 3px; }
 .fav-del { float: right; color: var(--text-secondary); padding: 0 4px; }
 .fav-del:hover { color: #cf222e; }
 
