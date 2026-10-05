@@ -4,7 +4,6 @@ every function stays unit-testable in isolation."""
 
 from __future__ import annotations
 
-import html
 import re
 import json
 import logging
@@ -19,24 +18,44 @@ from .lrc_parser import load_lrc_file
 logger = logging.getLogger(__name__)
 
 
-_CHAT_HINT = (
-    '<div class="chat-empty">点击左侧任意一句歌词，然后在这里向 AI 助手提问，'
-    '比如：这句用了什么修辞？背后有什么故事？</div>'
-)
+_CHAT_HINT = ""
 _CHAT_TOPIC_DEFAULT = '<div class="chat-topic dim">尚未选择歌词行</div>'
 _NO_AUDIO_HINT = (
     "🎧 未检测到音频 — 当前为纯阅读模式。将 audio.mp3 放入歌曲目录即可启用播放同步。"
 )
 
 
-def _esc(text: str) -> str:
-    return html.escape(str(text))
+from .evidence import esc_html as _esc  # noqa: E402 — 渲染共用转义
 
 
 # ── Song loading ──────────────────────────────────────────
 
+_SONG_CJK_CACHE: dict[str, bool] = {}
+
+
+def song_is_cjk(song_dir: str | Path) -> bool:
+    """这首歌是不是中文歌：取歌词前 30 行，过半数行 CJK 占比 >30% 判中文。
+    产品定位是英文歌学英语，中文歌默认隐藏（LL_SHOW_CJK=1 可恢复）。"""
+    key = str(song_dir)
+    if key in _SONG_CJK_CACHE:
+        return _SONG_CJK_CACHE[key]
+    from .intertextuality.search import is_cjk_text
+    from .lrc_parser import parse_lrc
+    try:
+        _, timed = parse_lrc((Path(song_dir) / "lyrics.lrc")
+                             .read_text(encoding="utf-8"))
+        lines = [ln.text for ln in timed[:30] if ln.text.strip()]
+        result = bool(lines) and (
+            sum(is_cjk_text(ln) for ln in lines) / len(lines) > 0.5)
+    except Exception:
+        result = False
+    _SONG_CJK_CACHE[key] = result
+    return result
+
+
 def _discover_songs(songs_dir: str,
-                    exclude_sources: set[str] | None = None) -> list[dict[str, Any]]:
+                    exclude_sources: set[str] | None = None,
+                    exclude_cjk: bool = False) -> list[dict[str, Any]]:
     base = Path(songs_dir)
     if not base.exists():
         return []
@@ -48,6 +67,8 @@ def _discover_songs(songs_dir: str,
         if (d / "metadata.json").exists():
             meta = json.loads((d / "metadata.json").read_text(encoding="utf-8"))
         if exclude_sources and meta.get("source") in exclude_sources:
+            continue
+        if exclude_cjk and song_is_cjk(d):
             continue
         audio = resolve_audio(d)
         era = meta.get("era", "").lower()
@@ -80,10 +101,18 @@ _CATALOG_PATH = Path("data/catalog/catalog.json")
 
 
 def _load_catalog() -> list[dict]:
+    """内置曲库（英文歌定位：默认滤掉中文条目，LL_SHOW_CJK=1 恢复）。"""
+    import os
+    import re as _re
     try:
         if _CATALOG_PATH.exists():
             data = json.loads(_CATALOG_PATH.read_text(encoding="utf-8"))
             if isinstance(data, list):
+                if os.getenv("LL_SHOW_CJK", "") != "1":
+                    cjk = _re.compile(r"[一-鿿]")
+                    data = [c for c in data
+                            if not cjk.search(str(c.get("title", ""))
+                                              + str(c.get("artist", "")))]
                 return data
     except Exception:
         logger.exception("Failed reading catalog %s", _CATALOG_PATH)
@@ -138,8 +167,7 @@ def _save_notes(song_dir: str | Path, notes: list[dict]) -> None:
 
 def _render_notes(notes: list[dict]) -> str:
     if not notes:
-        return ('<div class="chat-empty">播放到喜欢的位置，写句感想点「添加」——'
-                '笔记会带上时间戳，点笔记即可跳回该位置。</div>')
+        return ""
     items = []
     for i, n in enumerate(notes):
         ts = int(n.get("ts_ms", 0))
@@ -166,8 +194,7 @@ _ECHO_SCAN_CACHE_DIR = Path("data/cache/echo_scans")
 
 # whole-song AI intro, generated once and cached in the song directory
 _INTRO_FILENAME = "intro.txt"
-_INTRO_EMPTY = ('<div class="chat-empty">尚未生成本歌导读 — '
-                '点击下方按钮由 AI 生成（需 API Key，几秒钟）。</div>')
+_INTRO_EMPTY = ""
 
 
 def _load_intro(song_dir: str | Path) -> str:
@@ -377,15 +404,12 @@ def _render_favorites(favs: list[dict], song_title: str | None = None) -> str:
     if song_title is not None:
         favs = [f for f in favs if f.get("title", "") == song_title]
     if not favs:
-        return ('<div class="chat-empty">这首歌还没有收藏的歌词。<br>'
-                '用法：① 在左侧歌词区<b>点选一句歌词</b> → '
-                '② 点上面的「⭐ 收藏当前选中的歌词」。<br>'
-                '收藏只在<b>这首歌</b>打开时显示，✖ 可移除。</div>')
+        return ""
     def _jump_attr(f: dict, fid: str) -> str:
         # exact-line jump (cite pipeline) when the entry knows its line;
         # legacy entries fall back to the song-level jump
-        if f.get("line_index", -1) >= 0 and f.get("label"):
-            return (f'data-cite-label="{_esc(f["label"])}" '
+        if f.get("line_index", -1) >= 0 and f.get("title"):
+            return (f'data-cite-label="{_esc(f["title"])}" '
                     f'data-cite-line="{f["line_index"]}"')
         return f'data-fav="jump:{_esc(fid)}"'
 
@@ -408,31 +432,20 @@ def _file_url(path: str | Path) -> str:
 
 
 def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
-    """Chorus jump, A-B loop, rhyme + radio toggles (wired up in _HEAD_JS)."""
+    """Chorus jump, A-B loop, rhyme/echo toggles (wired up in _HEAD_JS)."""
     chorus = (f'<button class="ptool" data-seek="{chorus_ts}" '
               'title="跳到检测出的副歌位置">⏩ 副歌</button>'
               if chorus_ts is not None else "")
     return (
         '<div class="player-tools">'
         + chorus +
-        '<button class="ptool" id="ll-ab-a" title="以当前位置为循环起点">🅰 起点</button>'
-        '<button class="ptool" id="ll-ab-b" title="以当前位置为循环终点并开始循环">🅱 循环</button>'
-        '<button class="ptool" id="ll-ab-clear" style="display:none">✕ 停止循环</button>'
         '<label class="ptool-toggle" title="同韵脚的歌词行标同色圆点">'
         '<input type="checkbox" id="ll-rhyme-toggle"> 🎯 韵脚</label>'
-        '<label class="ptool-toggle" '
-        'title="播完自动切下一首；有串场语音时先播报再进歌">'
-        '<input type="checkbox" id="ll-radio-toggle"> 📻 电台模式</label>'
-        '<label class="ptool-toggle" '
-        'title="导览模式：唱到带 🥚 的句子时，自动弹出该句的讲解与它呼应的歌，'
-        '并用语音播报（AI DJ）">'
-        '<input type="checkbox" id="ll-tour-toggle"> 🎧 导览</label>'
         '</div>'
     )
 
 
-_BV_NOTE = ('<div class="bv-note">📺 视频模式：歌词同步/卡拉OK不可用，'
-            '点句阅读与 AI 提问照常。</div>')
+_BV_NOTE = ''
 
 
 def _render_video_html(song_info: dict, has_audio: bool,
@@ -467,11 +480,17 @@ def _render_video_html(song_info: dict, has_audio: bool,
             'data-bvid-search="1">🔍 搜索 B 站 MV</button>'
             '<span class="bv-bind-hint">或在下方「📺 关联 B 站视频」'
             '手风琴里粘 BV 号</span></div>')
-        for c in song_info.get("bvid_cands", []):
+        cands = sorted(song_info.get("bvid_cands", []),
+                       key=lambda c: c.get("play", 0), reverse=True)
+        for c in cands:
+            play = c.get("play", 0)
+            play_s = (f"{play / 10000:.1f}万" if play >= 10000
+                      else str(play)) + "播放"
             parts.append(
                 f'<div class="bv-cand" data-bvid-pick="{_esc(c["bvid"])}">'
                 f'<b>{_esc(c["title"])}</b>'
-                f'<span class="bv-cand-meta">UP主 {_esc(c["author"])} · '
+                f'<span class="bv-cand-meta">▶ {play_s} · '
+                f'UP主 {_esc(c["author"])} · '
                 f'{_esc(c["duration"])} · {_esc(c["bvid"])}'
                 '（点击绑定）</span></div>')
     return "".join(parts)
@@ -481,8 +500,7 @@ def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
                        public: bool = False) -> str:
     a_type, src = song_info["audio_type"], song_info["audio_src"]
     offset = song_info.get("audio_offset_ms", 0)
-    hint = ('<div class="preview-hint">🎧 官方试听片段 · 歌词已自动对齐</div>'
-            if offset else "")
+    hint = ""
     if a_type not in ("local", "url"):
         video = _render_video_html(song_info, has_audio=False,
                                    public=public)
@@ -490,17 +508,10 @@ def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
             return video  # bound video replaces the no-audio banner
         return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>' + video
     url = _file_url(src) if a_type == "local" else src
-    # cached radio intro (电台串场语音), if generated for this song
-    from .radio import intro_audio_path
-    intro = ""
-    if song_info.get("dir"):
-        p = intro_audio_path(song_info["dir"])
-        if p.exists():
-            intro = f' data-intro="{_esc(_file_url(p))}"'
     return (
         '<div id="ll-wave" title="波形加载中（需联网加载 wavesurfer）"></div>'
         f'<audio id="ll-audio" controls preload="metadata" '
-        f'data-offset="{offset}"{intro} '
+        f'data-offset="{offset}" '
         f'src="{_esc(url)}" style="width:100%"></audio>'
         + _player_tools(song_info, chorus_ts) + hint
         + _render_video_html(song_info, has_audio=True, public=public)
@@ -575,42 +586,38 @@ _ECHO_OVERVIEW_EMPTY = ('<div class="chat-empty">本歌暂未发现与同歌手�
 
 
 def _render_echo_overview(hits: list[tuple[Any, Any]], artist: str) -> str:
-    """Whole-song echo overview: every 🥚 line and its strongest target.
+    """Whole-song echo overview: a hero "你可能没注意到" pick on top, the
+    full list folded below.
 
     hits: (TimedLine, EchoLine) pairs; each entry is clickable and jumps to
     the lyric line (data-goto-line is handled in _HEAD_JS).
     """
     if not hits:
         return _ECHO_OVERVIEW_EMPTY
-    items = []
-    for ln, e in hits:
+
+    def _item(ln, e, extra_cls="", label=""):
         album = f" · {_esc(e.album)}" if e.album else ""
-        items.append(
-            f'<div class="echo-ov-item" data-goto-line="{ln.line_index}" '
-            f'title="点击跳转到这句歌词">'
+        return (
+            f'<div class="echo-ov-item{extra_cls}" '
+            f'data-goto-line="{ln.line_index}" title="点击跳转到这句歌词">'
+            f'{label}'
             f'<div class="echo-ov-src">“{_esc(ln.text)}”</div>'
             f'<div class="echo-ov-dst">↔ 《{_esc(e.song)}》{album}：'
             f'“{_esc(e.line)}”<span class="echo-ov-sim">{e.similarity}</span>'
-            '</div></div>'
-        )
-    head = (f'<div class="echo-ov-head">共 {len(hits)} 处与'
-            f'{_esc(artist or "同歌手")}其他作品的呼应 · 点击条目跳转</div>')
-    return f'<div class="echo-ov-list">{head}{"".join(items)}</div>'
+            '</div></div>')
 
-
-def _render_echo_html(results: list[dict], artist: str) -> str:
-    if not results:
-        return (f'<div class="chat-empty">未在 {_esc(artist or "该歌手")} '
-                '的其他作品中找到明显呼应（相似度不足）。</div>')
-    cards = []
-    for r in results:
-        album = f' · {_esc(r["album"])}' if r["album"] else ""
-        cards.append(
-            '<div class="echo-card">'
-            f'<div class="echo-line">“{_esc(r["line"])}”</div>'
-            f'<div class="echo-meta">《{_esc(r["song"])}》{album}</div></div>'
-        )
-    return '<div class="echo-list">' + "".join(cards) + "</div>"
+    # 最强的一处呼应置顶（"哇"时刻），其余折叠备查
+    best = max(hits, key=lambda p: p[1].similarity)
+    hero = _item(best[0], best[1], " echo-hero",
+                 '<div class="echo-hero-head">👀 你可能没注意到</div>')
+    rest = [_item(ln, e) for ln, e in hits if (ln, e) != best]
+    folded = ""
+    if rest:
+        folded = (f'<details class="echo-ov-more"><summary>展开全部 '
+                  f'{len(hits)} 处与{_esc(artist or "同歌手")}'
+                  '其他作品的呼应</summary>'
+                  + "".join(rest) + "</details>")
+    return f'<div class="echo-ov-list">{hero}{folded}</div>'
 
 
 def load_translation(song_dir: str) -> dict[int, str]:
@@ -662,9 +669,6 @@ def _render_lyrics_html(song_data: dict, song_info: dict,
         header_html
         + _render_audio_html(song_info, song_data.get("chorus_ts"),
                              public=public)
-        + '<div class="lyrics-hint">点击一句歌词，在右侧向 AI 助手提问 · '
-          '🖱️ <b>双击英文单词</b>查词义/收藏生词 · '
-          '⌨️ 空格 播放/暂停 · ←/→ 快退/快进 5 秒</div>'
         + f'<div id="lyrics-container"><div id="lyrics-scroll">{"".join(parts)}</div></div>'
     )
 
@@ -676,10 +680,7 @@ def render_wordbook(entries: list[dict],
     if song_title is not None:
         entries = [e for e in entries if e.get("song", "") == song_title]
     if not entries:
-        return ('<div class="chat-empty">这首歌还没有收藏的单词。<br>'
-                '用法：① <b>双击</b>歌词里的英文单词 → ② 弹窗里看释义'
-                '（可点 ✨ 让 AI 结合本句解释）→ ③ 点「⭐ 收藏单词」。<br>'
-                '单词只在<b>收藏它的那首歌</b>打开时显示，✕ 可移除。</div>')
+        return ""
     items = []
     for e in entries:
         word = e.get("word", "")
@@ -693,7 +694,7 @@ def render_wordbook(entries: list[dict],
                      if phon else "")
         if src and e.get("line_index", -1) >= 0 and e.get("label"):
             src_html = (f'<div class="wb-src wb-jump" '
-                        f'data-cite-label="{_esc(e["label"])}" '
+                        f'data-cite-label="{_esc(e.get("song", ""))}" '
                         f'data-cite-line="{e["line_index"]}" '
                         f'title="点击跳到这句歌词">「{_esc(src)}」</div>')
         elif src:
@@ -703,13 +704,18 @@ def render_wordbook(entries: list[dict],
         ai = (e.get("ai", "") or "").strip()
         ai_html = (f'<div class="wb-ai">✨ {_esc(ai)}</div>'.replace(
             "\n", "<br>") if ai else "")
+        note = (e.get("note", "") or "").strip()
+        note_html = (f'<div class="wb-note">📝 {_esc(note)}</div>'
+                     if note else "")
         items.append(
             f'<div class="wb-item">'
             f'<span class="wb-del" data-wb="del:{_esc(word)}" '
             f'title="移出单词本">✕</span>'
+            f'<span class="wb-note-btn" data-wb-note="{_esc(word)}" '
+            f'data-note="{_esc(note)}" title="写/改我的笔记">📝</span>'
             f'<div class="wb-word">{_esc(word)} {phon_html}</div>'
             f'<div class="wb-meaning">{_esc(meaning)}</div>'
-            f'{src_html}{ai_html}</div>'
+            f'{src_html}{note_html}{ai_html}</div>'
         )
     return f'<div class="wb-list">{"".join(items)}</div>'
 
@@ -757,13 +763,28 @@ def render_annotation_card(ann, line_index: int,
     return "".join(parts)
 
 
-def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
+def _mask_word(text: str, word: str) -> str:
+    """Escape text and wrap each occurrence of word in the blind-mode mask
+    span (tp-wline-word) so blind practice never leaks the answer."""
+    return re.sub(re.escape(_esc(word)),
+                  lambda m: f'<span class="tp-wline-word">{m.group(0)}'
+                            '</span>',
+                  _esc(text), flags=re.IGNORECASE)
+
+
+def render_practice_card(entry: dict, mp3_url: str, nonce: str,
+                         examples: list[str] | None = None) -> str:
     """⌨️ 单词练习 card. The JS keystroke loop (ui_assets) reads data-word /
     data-mp3 / data-nonce and colors the .tp-ch spans; the hidden input
-    receives focus so the player's space/arrow shortcuts stay exempt."""
+    receives focus so the player's space/arrow shortcuts stay exempt.
+
+    examples: 零 LLM 真例句（词典 API/曲库，review.word_examples）。"""
     word = entry.get("word", "")
-    chars = "".join(f'<span class="tp-ch" data-ch="{_esc(c.lower())}">'
-                    f'{_esc(c)}</span>' for c in word)
+    chars = "".join(
+        ('<span class="tp-ch tp-space" data-ch=" ">&nbsp;</span>'
+         if c == " " else
+         f'<span class="tp-ch" data-ch="{_esc(c.lower())}">{_esc(c)}</span>')
+        for c in word)
     phon = entry.get("phonetic", "")
     phon_html = f'<span class="wb-phon">/{_esc(phon)}/</span>' if phon else ""
     say = ('<button class="ptool" data-ll-say="1" title="重播发音">🔊</button>'
@@ -776,11 +797,14 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
         rows.append(f'<div class="wb-meaning">{_esc(meaning)}</div>')
     if entry.get("line"):
         # 目标单词嵌在原句里高亮；盲打模式下由 CSS 遮住
-        src = re.sub(re.escape(_esc(word)),
-                     lambda m: f'<span class="tp-wline-word">{m.group(0)}'
-                               '</span>',
-                     _esc(entry["line"]), count=1, flags=re.IGNORECASE)
-        rows.append(f'<div class="wb-src">「{src}」'
+        src = _mask_word(entry["line"], word)
+        # 条目带定位信息时整行可点：跳到那首歌的那一句（JS 委托）
+        song = entry.get("song", "")
+        line_idx = entry.get("line_index", -1)
+        jump = (f' data-tp-jump="{_esc(song)}" data-tp-line="{line_idx}" '
+                'title="点击去歌里听这句"'
+                if song and line_idx >= 0 else "")
+        rows.append(f'<div class="wb-src"{jump}>「{src}」'
                     f'·《{_esc(entry.get("song", ""))}》</div>')
     ai = (entry.get("ai", "") or "").strip()
     if ai:
@@ -795,9 +819,14 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str) -> str:
         f'<input class="ll-type-input" autocomplete="off" '
         f'autocapitalize="off" spellcheck="false">'
         f'<div class="tp-ime-hint">请切换到英文输入法</div>'
+        f'<div class="tp-donehint">🎉 完成！按 Enter 下一个词</div>'
         f'{"".join(rows)}'
-        f'<div class="tp-blurhint">💡 打错整词重来；点卡片可继续输入</div>'
-        f'</div>')
+        f'</div>'
+        + ((
+            '<div class="ll-example-card">'
+            + "".join(f'<div class="wb-example">📚 {_mask_word(ex, word)}'
+                      '</div>' for ex in examples[:3])
+            + '</div>') if examples else ''))
 
 
 # ── Insights renderers (曲库洞察) ─────────────────────────
@@ -931,3 +960,8 @@ def _render_emotion_map(emotions: list) -> str:
     )
 
 
+
+
+# 跨模块共享 API（ui.py / mcp_server.py / cli.py 共用）——公开名
+discover_songs = _discover_songs
+load_song_data = _load_song_data

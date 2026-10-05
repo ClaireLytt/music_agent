@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import html as html_lib
-import json
 import logging
 import re
 import time
@@ -68,9 +67,8 @@ def embed_url(bvid: str) -> str:
 
 
 def _get_json(url: str, headers: dict) -> dict:
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    from .jsonio import http_get_json
+    return http_get_json(url, headers)
 
 
 def _mixin_key(img_key: str, sub_key: str) -> str:
@@ -126,22 +124,19 @@ def _parse_results(data: dict, limit: int) -> list[dict]:
     return out
 
 
-def pick_best(cands: list[dict], title: str, artist: str) -> dict | None:
-    """自动绑定的选片规则：标题必须含歌名；含歌手名视作正主优先；
-    同级取播放量最高。全被淘汰时退回搜索相关性第一条。"""
+def pick_best(cands: list[dict], title: str) -> dict | None:
+    """自动绑定的选片规则：标题必须含歌名，其中取播放量最高（用户决定：
+    播放量优先于"标题含歌手名"）。全被淘汰时退回搜索相关性第一条。"""
     if not cands:
         return None
-    t, a = title.casefold(), artist.casefold()
+    t = title.casefold()
     pool = [c for c in cands if t in c["title"].casefold()]
     if not pool:
         return cands[0]
-    # artist-in-title strictly dominates play count (官方/正主 beats a
-    # 9-million-view 翻唱), then plays break ties
-    return max(pool, key=lambda c: (bool(a) and a in c["title"].casefold(),
-                                    c.get("play", 0)))
+    return max(pool, key=lambda c: c.get("play", 0))
 
 
-def search_mv(title: str, artist: str, limit: int = 10) -> list[dict]:
+def search_mv(title: str, artist: str, limit: int = 20) -> list[dict]:
     """Top MV candidates for a song; [] on any failure (manual fallback)."""
     keyword = f"{title} {artist} MV".strip()
     params = {"search_type": "video", "keyword": keyword, "page": "1"}
@@ -178,10 +173,10 @@ def auto_bind_missing(songs: list[dict], is_enabled) -> int:
     Returns the number of songs bound."""
     import json as _json
     import pathlib
+    from .jsonio import read_json, write_json_atomic
     fail_path = pathlib.Path(_AUTOBIND_FAIL_PATH)
-    try:
-        fails = _json.loads(fail_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    fails = read_json(fail_path, {})
+    if not isinstance(fails, dict):
         fails = {}
     bound = 0
     for s in songs:
@@ -194,7 +189,7 @@ def auto_bind_missing(songs: list[dict], is_enabled) -> int:
             continue
         try:
             best = pick_best(search_mv(s["title"], s.get("artist", "")),
-                             s["title"], s.get("artist", ""))
+                             s["title"])
             if best is None:
                 raise LookupError("no candidates")
             meta_path = pathlib.Path(s["dir"]) / "metadata.json"
@@ -213,9 +208,7 @@ def auto_bind_missing(songs: list[dict], is_enabled) -> int:
             fails[s["dir"]] = time.time()
             logger.info("auto-bind skipped %s: %s", s.get("title"), exc)
             try:
-                fail_path.parent.mkdir(parents=True, exist_ok=True)
-                fail_path.write_text(_json.dumps(fails, ensure_ascii=False),
-                                     encoding="utf-8")
+                write_json_atomic(fail_path, fails, indent=None)
             except OSError:
                 pass
         time.sleep(_THROTTLE_S)

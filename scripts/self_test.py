@@ -187,28 +187,6 @@ def main() -> None:
     except Exception as e:
         check("sort by artist asc", False, repr(e))
 
-    # ── 3. search ──
-    try:
-        out = call("on_search", ["scarf", "kw", songs[0]])
-        check("search kw 'scarf' (hits)", "data-seek" in out[0] or "scarf" in out[0].lower())
-    except Exception as e:
-        check("search kw 'scarf' (hits)", False, repr(e))
-    try:
-        out = call("on_search", ["zzzznothing", "kw", songs[0]])
-        check("search kw no-hit message", bool(str(out[0]).strip()))
-    except Exception as e:
-        check("search kw no-hit message", False, repr(e))
-    try:
-        out = call("on_search", ["scarf", "sem", songs[0]])
-        check("search semantic (or fallback)", bool(str(out[0]).strip()))
-    except Exception as e:
-        check("search semantic (or fallback)", False, repr(e))
-    try:
-        out = call("on_search", ["", "kw", songs[0]])
-        check("search empty query", out[0] == "")
-    except Exception as e:
-        check("search empty query", False, repr(e))
-
     # ── 4. AI assistant: line pick + chat ──
     try:
         out = call("on_line_pick", ["0", cardigan, None])
@@ -243,75 +221,13 @@ def main() -> None:
     except Exception as e:
         check("chat send without line pick -> hint", False, repr(e))
 
-    # ── 4b. 彩蛋: whole-song echo map + overview panel ──
-    try:
-        out = call("on_echo_map", [cardigan])
-        payload, overview = out[0], out[1]
-        d = json.loads(payload) if payload else {"lines": []}
-        ok = (d.get("song") == "cardigan" and d["lines"]
-              and all({"i", "song", "sim"} == set(o) for o in d["lines"])
-              and "data-goto-line" in str(overview))
-        check("echo map payload + overview", bool(ok),
-              f"lines={len(d.get('lines', []))}")
-    except Exception as e:
-        check("echo map payload + overview", False, repr(e))
-
-    # ── 4c. 彩蛋地图 tab: artist network graph ──
-    try:
-        out = call("init_echo_map", [cardigan])
-        dd, focus_dd, map_html = out[0], out[1], out[2]
-        choices = [c[0] if isinstance(c, list) else c
-                   for c in dd.get("choices", [])] if isinstance(dd, dict) else []
-        ok = (dd.get("value") == "Taylor Swift" and len(choices) > 1
-              and "<svg" in str(map_html) and "聚焦" in str(map_html)
-              and focus_dd.get("value") == "cardigan")
-        check("echo map tab init (focus view on current song)", bool(ok),
-              f"value={dd.get('value')} focus={focus_dd.get('value')}")
-    except Exception as e:
-        check("echo map tab init (dropdown + svg)", False, repr(e))
-    try:
-        out = call("on_map_artist", ["陈奕迅", "focus"])
-        check("echo map switch artist", "陈奕迅" in str(out[1]))
-    except Exception as e:
-        check("echo map switch artist", False, repr(e))
-    try:
-        out = call("on_map_artist", ["🌐 跨歌手引用（全部歌手）", "net"])
-        check("echo map cross-artist mode",
-              "跨歌手" in str(out[1]) and "<svg" in str(out[1]))
-    except Exception as e:
-        check("echo map cross-artist mode", False, repr(e))
-    try:
-        out = call("on_map_focus", ["cardigan", "Taylor Swift", "focus"])
-        check("echo map focus view quotes visible",
-              "本歌：" in str(out[0]) and "egg-pair" in str(out[0]))
-    except Exception as e:
-        check("echo map focus view quotes visible", False, repr(e))
-    try:
-        out = call("on_map_view", ["net", "Taylor Swift", "cardigan"])
-        check("echo map switch to network view", "egg-edge" in str(out[1]))
-    except Exception as e:
-        check("echo map cross-artist mode", False, repr(e))
-
-    # ── 4d. 意象追踪 ──
-    try:
-        out = call("on_imagery", ["scarf", "Taylor Swift"])
-        check("imagery trace (artist scope)",
-              "img-timeline" in str(out[0]) and "原词" in str(out[0]))
-    except Exception as e:
-        check("imagery trace (artist scope)", False, repr(e))
-    try:
-        out = call("on_imagery", ["", "Taylor Swift"])
-        check("imagery trace empty query -> hint", "输入一个意象" in str(out[0]))
-    except Exception as e:
-        check("imagery trace empty query -> hint", False, repr(e))
-
-    # ── 4d2. 播放器工具（波形/副歌/A-B/韵脚/电台开关随音频渲染） ──
+    # ── 4d2. 播放器工具（波形/副歌/A-B/韵脚开关随音频渲染） ──
     try:
         out = call("on_song_select", ["北京昨夜下了雪"],
                    session=f"{SESSION}-tools")
         lyr = str(out[0])
         ok = ('id="ll-wave"' in lyr and "副歌" in lyr and "ll-ab-a" in lyr
-              and "ll-rhyme-toggle" in lyr and "ll-radio-toggle" in lyr
+              and "ll-rhyme-toggle" in lyr
               and lyr.count("rhyme-mark") > 10)
         check("player tools rendered for audio song", bool(ok))
     except Exception as e:

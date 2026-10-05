@@ -81,16 +81,13 @@ class LLMClient:
         self,
         system_prompt: str,
         user_message: str,
+        on_text_delta: Callable[[str], None] | None = None,
     ) -> Any:
-        resp = self.generate(system_prompt, user_message)
-        text = resp.reply_text.strip()
-        if text.startswith("```"):
-            lines = text.split("\n")
-            lines = lines[1:]  # remove ```json
-            if lines and lines[-1].strip() == "```":
-                lines = lines[:-1]
-            text = "\n".join(lines)
-        return json.loads(text)
+        """generate + parse; on_text_delta streams raw deltas (callers can
+        turn them into progress feedback for slow models)."""
+        resp = self.generate(system_prompt, user_message,
+                             on_text_delta=on_text_delta)
+        return parse_json_reply(resp.reply_text)
 
     # ------------------------------------------------------------------
     # Retry helper
@@ -313,6 +310,39 @@ class LLMClient:
         )
 
 
+def extract_json(text: str):
+    """Tolerant JSON extraction from an LLM reply, or None.
+
+    Strips a ``` fence, then falls back to the outermost {...} — models
+    (deepseek/grok 尤甚) often prefix the JSON with a sentence. The one
+    extractor behind generate_json / parse_claims / parse_report."""
+    text = (text or "").strip()
+    if text.startswith("```"):
+        lines = text.split("\n")[1:]  # remove ```json
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        text = "\n".join(lines).strip()
+    try:
+        return json.loads(text)
+    except ValueError:
+        start, end = text.find("{"), text.rfind("}")
+        if 0 <= start < end:
+            try:
+                return json.loads(text[start:end + 1])
+            except ValueError:
+                return None
+        return None
+
+
+def parse_json_reply(text: str):
+    """extract_json, but raising with context when nothing parses."""
+    data = extract_json(text)
+    if data is None:
+        raise ValueError(
+            f"LLM reply is not valid JSON: {(text or '')[:120]!r}")
+    return data
+
+
 # ── token usage accounting (⚙️ 设置页可视化) ────────────────────────────
 _USAGE_PATH = Path("data/cache/llm_usage.json")
 _usage_lock = threading.Lock()
@@ -326,9 +356,9 @@ def _record_usage(model: str, usage: dict) -> None:
     day = time.strftime("%Y-%m-%d")
     try:
         with _usage_lock:
-            try:
-                data = json.loads(_USAGE_PATH.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+            from .jsonio import read_json, write_json_atomic
+            data = read_json(_USAGE_PATH, {"total": {}, "days": {}})
+            if not isinstance(data, dict):
                 data = {"total": {}, "days": {}}
             for bucket in (data.setdefault("total", {}),
                            data.setdefault("days", {}).setdefault(day, {}),
@@ -337,9 +367,8 @@ def _record_usage(model: str, usage: dict) -> None:
                 bucket["input_tokens"] = bucket.get("input_tokens", 0) + tin
                 bucket["output_tokens"] = bucket.get("output_tokens", 0) + tout
             data["last_model"] = model
-            _USAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
-            _USAGE_PATH.write_text(json.dumps(data, ensure_ascii=False,
-                                              indent=1), encoding="utf-8")
+            # 原子写：UI 与 MCP 两个进程都会记账，绝不写半截文件
+            write_json_atomic(_USAGE_PATH, data)
     except Exception:
         logger.debug("usage accounting skipped", exc_info=True)
 

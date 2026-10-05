@@ -165,22 +165,7 @@ def test_render_favorites():
     # id-based (stable) actions, not positional indices
     assert 'data-fav="jump:' in html and 'data-fav="del:' in html
     assert 'jump:0"' not in html  # no longer index-based
-    assert "还没有收藏" in _render_favorites([])
-
-
-def test_letter_card_renders(tmp_path):
-    import pytest
-    pytest.importorskip("PIL")  # share cards are an optional extra; CI
-    # installs the slim dependency set without Pillow
-    from pathlib import Path
-
-    from lyric_agent.share_card import render_letter_card
-    body = "致《cardigan》：\n你唱过 line b echo。\n我也唱过 line a echo。\n——《betty》"
-    p = render_letter_card("betty", "cardigan", body,
-                           "line a echo", "line b echo",
-                           out_dir=str(tmp_path))
-    f = Path(p)
-    assert f.exists() and f.suffix == ".png" and f.stat().st_size > 10000
+    assert _render_favorites([]) == ""   # 空态提示已按用户要求删除
 
 
 def test_artist_overview_enriched(tmp_path):
@@ -287,7 +272,7 @@ def test_render_wordbook_escapes():
     assert "wb-ai" in html and "&lt;x&gt;" in html   # AI 解释展示且转义
     assert "①语境义：&lt;x&gt;<br>②整句：好" in html  # 换行渲染
     assert "wb-ai" not in render_wordbook([{"word": "w", "song": "s"}])
-    assert "还没有收藏的单词" in render_wordbook([])
+    assert render_wordbook([]) == ""     # 空态提示已按用户要求删除
 
 
 def _evidence_fixture(tmp_path):
@@ -693,7 +678,7 @@ def test_render_audio_html_video_branches():
     # 有 bvid + 无音频 -> 直接 iframe + 降级说明，横幅消失
     bound = _render_audio_html(dict(base, bvid="BV1xx411c7mD"), public=True)
     assert "bv-frame" in bound and "player.bilibili.com" in bound
-    assert "no-audio-hint" not in bound and "视频模式" in bound
+    assert "no-audio-hint" not in bound   # 视频模式说明已按用户要求删除
     # 候选卡渲染 + 转义
     cands = [{"bvid": "BV1xx411c7mD", "title": "<晴天> MV",
               "author": "up&主", "duration": "4:29"}]
@@ -724,20 +709,6 @@ def test_ts_to_seconds():
     assert ts_to_seconds("约 2:05 处") == 125
     assert ts_to_seconds("开头") is None
     assert ts_to_seconds("") is None
-
-
-def test_mv_render_seek_anchor():
-    from lyric_agent.mv_eggs import MvEggs, render_mv_html
-
-    m = MvEggs(known=True, director="d",
-               eggs=[("细节A", "", "1:32"), ("细节B", "", "")], caveat="")
-    # 有 bvid -> 锚点可点（data-mv-t 秒数）
-    html = render_mv_html(m, "晴天", "周杰伦", video=("晴天", "BV1xx411c7mD"))
-    assert 'data-mv-t="92"' in html and "mv-seek" in html
-    assert 'data-mv-bvid="BV1xx411c7mD"' in html
-    # 无 bvid -> 普通时间戳，不可点
-    plain = render_mv_html(m, "晴天", "周杰伦", video=None)
-    assert "data-mv-t" not in plain and "🎞️" in plain
 
 
 def test_export_anki_format():
@@ -771,14 +742,14 @@ def test_bilibili_pick_best():
 
     cands = [c("晴天 翻唱", 9_000_000), c("周杰伦《晴天》官方MV", 500_000),
              c("reaction 看晴天", 100), c("无关视频", 99_999_999)]
-    best = pick_best(cands, "晴天", "周杰伦")
-    assert best["title"] == "周杰伦《晴天》官方MV"   # 含歌手名压过高播放翻唱
-    # 无歌手命中 -> 含歌名里播放量最高
-    best2 = pick_best(cands, "晴天", "")
+    # 含歌名的候选里播放量最高者当选（用户决定：播放量优先）
+    best = pick_best(cands, "晴天")
+    assert best["title"] == "晴天 翻唱"
+    best2 = pick_best(cands, "晴天")
     assert best2["title"] == "晴天 翻唱"
     # 歌名全不含 -> 退回相关性第一条
-    assert pick_best(cands, "七里香", "周杰伦")["title"] == "晴天 翻唱"
-    assert pick_best([], "晴天", "周杰伦") is None
+    assert pick_best(cands, "七里香")["title"] == "晴天 翻唱"
+    assert pick_best([], "晴天") is None
 
 
 def test_auto_bind_missing(tmp_path, monkeypatch):
@@ -893,3 +864,252 @@ def test_llm_usage_accounting(monkeypatch, tmp_path):
                         lambda sp, msgs: seen.update(sp=sp) or resp)
     c.generate("你是测试", "hi")
     assert seen["sp"].startswith("你是测试") and "精简直接" in seen["sp"]
+
+
+def test_echo_overview_hero_and_fold():
+    from types import SimpleNamespace as NS
+    from lyric_agent.ui_helpers import _render_echo_overview
+
+    hits = [(NS(line_index=1, text="src one"),
+             NS(song="S1", album="", line="dst one", similarity=0.5)),
+            (NS(line_index=4, text="src two"),
+             NS(song="S2", album="A", line="dst two", similarity=0.9))]
+    html = _render_echo_overview(hits, "歌手")
+    assert "你可能没注意到" in html and "echo-hero" in html
+    # 最强相似度的一对成为 hero
+    assert html.index("dst two") < html.index("dst one")
+    assert "<details" in html and "展开全部 2 处" in html
+    # 单条命中时没有折叠区
+    assert "<details" not in _render_echo_overview(hits[:1], "")
+
+
+def test_word_examples_sources(tmp_path, monkeypatch):
+    import json as J
+
+    from lyric_agent import review as rv
+
+    monkeypatch.setattr(rv, "_EXAMPLES_CACHE", tmp_path / "ex.json")
+    corpus = tmp_path / "corpus.jsonl"
+    corpus.write_text(
+        J.dumps({"title": "SongX",
+                 "lyrics_lines": ["the rain falls hard", "other line"]})
+        + "\n"
+        + J.dumps({"title": "Home", "lyrics_lines": ["rain on me"]}) + "\n",
+        encoding="utf-8")
+    monkeypatch.setattr(rv, "_CORPUS_PATH", corpus)
+    # 有道成功（后备 API 不该被调用）
+    monkeypatch.setattr(rv, "_examples_from_youdao",
+                        lambda w, n: ["It began to rain."])
+    monkeypatch.setattr(rv, "_examples_from_api", lambda w, n: 1 / 0)
+    assert rv.word_examples("Rain") == ["It began to rain."]
+    # 缓存命中（两个 API 改成会炸也不该被调用）
+    monkeypatch.setattr(rv, "_examples_from_youdao", lambda w, n: 1 / 0)
+    assert rv.word_examples("rain") == ["It began to rain."]
+    # 两个 API 都失败 -> 语料退回（排除出处歌），空结果也缓存
+    (tmp_path / "ex.json").unlink()
+    out = rv.word_examples("rain", exclude_song="Home")
+    assert out and "SongX" in out[0] and "Home" not in "".join(out)
+    # 全失败 -> []
+    monkeypatch.setattr(rv, "_CORPUS_PATH", tmp_path / "nope.jsonl")
+    assert rv.word_examples("zzzneverseen") == []
+    # kill switch
+    monkeypatch.setenv("LL_WORD_EXAMPLES", "0")
+    assert rv.word_examples("rain") == []
+
+
+def test_practice_card_jump_and_examples():
+    from lyric_agent.ui_helpers import render_practice_card
+
+    entry = {"word": "rain", "translation": "n. 雨",
+             "line": "the Rain falls", "song": "SongX",
+             "label": "SongX — Artist", "line_index": 7}
+    html = render_practice_card(entry, "", "n1",
+                                examples=["Dancing in the rain."])
+    assert 'data-tp-jump="SongX' in html and 'data-tp-line="7"' in html
+    # 例句里的目标词也要被盲打遮罩
+    assert '<span class="tp-wline-word">rain</span>.' in html
+    # 没有定位信息 -> 不可点
+    entry2 = dict(entry, label="", line_index=-1)
+    assert "data-tp-jump" not in render_practice_card(entry2, "", "n2")
+
+
+def test_fanlore_progress_stage():
+    from lyric_agent.fanlore import progress_stage
+
+    assert progress_stage("") == "正在构思"
+    assert progress_stage('{"known": true, "hook": "x') == "正在写一句话看懂"
+    assert progress_stage('..."type": "a"..."type": "b"') == "正在写第 2 条线索"
+    assert progress_stage('..."type": "a"..."chain": [') == "正在整理剧情推测"
+    assert progress_stage('..."chain": []..."summary"') == "正在写收尾总结"
+
+
+def test_parse_json_reply_fence():
+    import pytest as _pytest
+
+    from lyric_agent.llm import extract_json, parse_json_reply
+
+    assert parse_json_reply('{"a": 1}') == {"a": 1}
+    assert parse_json_reply('```json\n{"a": 1}\n```') == {"a": 1}
+    # 模型在 JSON 前多说一句话也要能解析（deepseek/grok 常见）
+    assert parse_json_reply('好的，结果如下：\n{"a": 1}\n以上。') == {"a": 1}
+    assert extract_json("completely not json") is None
+    with _pytest.raises(ValueError):
+        parse_json_reply("completely not json")
+
+
+def test_parse_fanlore_defensive():
+    from lyric_agent.fanlore import parse_fanlore
+
+    assert parse_fanlore(None).known is False
+    assert parse_fanlore("garbage").known is False
+    f = parse_fanlore({
+        "known": True, "hook": " 一句话 ", "summary": "s", "caveat": "c",
+        "clues": [
+            {"type": "official", "title": "t", "body": "b",
+             "quote_a": {"song": "A", "line": "la"}},
+            {"type": "alien_source", "body": "b2"},   # 未知来源 → 最弱档
+            {"type": "fan_theory"},                    # 没 body → 丢弃
+            "not-a-dict",
+        ],
+        "chain": [{"song": "A", "beat": "x"}, {"song": "", "beat": "y"},
+                  {"beat": "z"}, 42],
+    })
+    assert f.known and f.hook == "一句话"
+    assert [c.type for c in f.clues] == ["official", "fan_theory"]
+    assert f.clues[0].quote_a == ("A", "la") and f.clues[0].quote_b is None
+    assert f.chain == [("A", "x")]
+
+
+def test_render_fanlore_html():
+    from lyric_agent.fanlore import Clue, Fanlore, render_fanlore_html
+
+    # known=False → 诚实空态
+    html = render_fanlore_html(Fanlore(known=False, caveat="太冷门"),
+                               "SongX")
+    assert "太冷门" in html and "lore-clue" not in html
+
+    def verifier(line, song_hint):
+        if line == "the rain falls":
+            return {"song_title": "SongA", "line_index": 3,
+                    "line_text": "the rain falls"}
+        return None
+
+    f = Fanlore(
+        known=True, hook="一句话看懂", summary="总结",
+        clues=[Clue(type="lyric_parallel", title="对上了", body="正文",
+                    quote_a=("SongA", "the rain falls"),
+                    quote_b=("SongB", "made up line")),
+               Clue(type="fan_theory", body="理论正文")],
+        chain=[("SongA", "第一站"), ("NotInLib", "第二站")])
+    html = render_fanlore_html(f, "SongX", verifier=verifier,
+                               label_of={"SongA": "SongA — Artist"})
+    # 验证命中 → 可点跳转；未命中 → ⚠️
+    assert 'data-cite-label="SongA — Artist"' in html
+    assert "⚠️ 未在曲库验证" in html
+    # fan_theory 自动带非官方标注
+    assert "推测，非官方" in html
+    # 剧情链/投票/总结已按用户要求不再渲染（caveat 与声明保留）
+    assert "lore-pill" not in html and "data-lore-vote" not in html
+    assert "lore-summary" not in html
+    assert "考据由 AI 整理" in html
+
+
+def test_parse_wordlist_file(tmp_path):
+    from lyric_agent.dictionary import parse_wordlist_file
+
+    # 带表头 + 乱序列
+    f = tmp_path / "a.csv"
+    f.write_text("释义,word,音标\n雨,rain,reɪn\n雪,snow,\n",
+                 encoding="utf-8")
+    rows = parse_wordlist_file(str(f))
+    assert rows[0] == {"word": "rain", "translation": "雨",
+                       "phonetic": "reɪn"}
+    assert rows[1]["word"] == "snow"
+    # 无表头 TSV：按位置
+    f2 = tmp_path / "b.tsv"
+    f2.write_text("storm\t风暴\nwind\n", encoding="utf-8")
+    rows2 = parse_wordlist_file(str(f2))
+    assert rows2[0] == {"word": "storm", "translation": "风暴",
+                        "phonetic": ""}
+    assert rows2[1]["word"] == "wind"
+    # 空行被丢弃
+    f3 = tmp_path / "c.csv"
+    f3.write_text("word\n\nrain\n", encoding="utf-8")
+    assert len(parse_wordlist_file(str(f3))) == 1
+
+
+def test_import_words_and_groups(tmp_path, monkeypatch):
+    from lyric_agent import dictionary as d
+
+    monkeypatch.setattr(d, "_WORDBOOK_PATH", tmp_path / "wb.json")
+    added, skipped = d.import_words(
+        [{"word": "rain", "translation": "", "phonetic": ""},
+         {"word": "RAIN"},          # 重复 → 跳过
+         {"word": "123"},           # 不含字母 → 跳过
+         {"word": ""},              # 空 → 跳过
+         {"word": "snow", "translation": "自定义释义"}],
+        group="四级核心")
+    assert (added, skipped) == (2, 3)
+    book = d.load_wordbook()
+    assert all(e["group"] == "四级核心" for e in book)
+    # 缺释义的查了本地词典；自带释义的保留原文
+    rain = next(e for e in book if e["word"].lower() == "rain")
+    assert rain["translation"]
+    snow = next(e for e in book if e["word"].lower() == "snow")
+    assert snow["translation"] == "自定义释义"
+    assert d.word_groups() == ["四级核心"]
+    # 再导入同词到别的组 → 仍跳过（单词本按词唯一）
+    assert d.import_words([{"word": "rain"}], "另一组") == (0, 1)
+
+
+def test_get_model_loads_once_under_concurrency(monkeypatch):
+    import sys
+    import threading
+    import types
+
+    from lyric_agent.intertextuality import search as s
+
+    calls = []
+
+    class FakeST:
+        def __init__(self, name, **kw):
+            calls.append(name)
+            import time
+            time.sleep(0.05)   # 放大竞态窗口
+
+    fake = types.ModuleType("sentence_transformers")
+    fake.SentenceTransformer = FakeST
+    monkeypatch.setitem(sys.modules, "sentence_transformers", fake)
+    monkeypatch.setattr(s, "_MODEL_CACHE", {})
+
+    threads = [threading.Thread(target=s.get_model, args=("stub-model",))
+               for _ in range(8)]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+    # 无锁时这里会是 8 份加载（用户日志里的三连加载即此竞态）
+    assert len(calls) == 1
+
+
+def test_discover_songs_exclude_cjk(tmp_path):
+    from lyric_agent.ui_helpers import _discover_songs, song_is_cjk
+
+    zh = tmp_path / "zh_song"
+    zh.mkdir()
+    (zh / "lyrics.lrc").write_text(
+        "[00:01.00] 故事的小黄花\n[00:02.00] 童年的荡秋千\n",
+        encoding="utf-8")
+    en = tmp_path / "en_song"
+    en.mkdir()
+    (en / "lyrics.lrc").write_text(
+        "[00:01.00] vintage tee brand new phone\n"
+        "[00:02.00] high heels on cobblestones\n", encoding="utf-8")
+    assert song_is_cjk(zh) and not song_is_cjk(en)
+    names = {s["name"] for s in _discover_songs(str(tmp_path))}
+    assert names == {"zh_song", "en_song"}
+    names = {s["name"]
+             for s in _discover_songs(str(tmp_path), exclude_cjk=True)}
+    assert names == {"en_song"}
+
+

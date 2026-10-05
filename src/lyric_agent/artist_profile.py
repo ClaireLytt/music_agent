@@ -5,15 +5,13 @@ motif fingerprint / per-album echo heat / album timeline.
 """
 from __future__ import annotations
 
-import html
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # heavy intertextuality deps stay lazy (embeddings extra)
     from .intertextuality.echo_map import EchoGraph
 
 
-def _esc(s: str) -> str:
-    return html.escape(str(s))
+from .evidence import cite_jump_attrs, esc_html as _esc  # noqa: E402
 
 
 _EMPTY = '<div class="chat-empty">{}</div>'
@@ -43,8 +41,7 @@ def render_motif_section(motifs: list[dict], label_of: dict[str, str]) -> str:
             f'<div class="apm-bar"><i style="width:{pct}%"></i></div>')
         for h in m["hits"][:2]:
             label = label_of.get(h["song"], "")
-            jump = (f' data-cite-label="{_esc(label)}" '
-                    f'data-cite-line="{h["line_index"]}"' if label else "")
+            jump = cite_jump_attrs(label, h["line_index"])
             cls = "apm-hit apm-hit-link" if label else "apm-hit"
             parts.append(
                 f'<div class="{cls}"{jump}>“{_esc(h["text"])}”'

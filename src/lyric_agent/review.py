@@ -7,12 +7,12 @@ keystroke loop in ui_assets; everything in this module is zero-LLM.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
 from pathlib import Path
 
-from .dictionary import load_wordbook, save_wordbook
 
 logger = logging.getLogger(__name__)
 
@@ -48,18 +48,16 @@ def round_queue(book: list[dict]) -> list[str]:
 def record_result(word: str, correct: bool,
                   now: float | None = None) -> list[dict]:
     """Persist one attempt (correct = completed with zero mistakes)."""
-    book = load_wordbook()
-    key = word.lower()
-    for e in book:
-        if e.get("word", "").lower() == key:
-            r = e.get("review") or {}
-            r["correct" if correct else "wrong"] = (
-                r.get("correct" if correct else "wrong", 0) + 1)
-            r["last_ts"] = now if now is not None else time.time()
-            e["review"] = r
-            save_wordbook(book)
-            break
-    return book
+    from .dictionary import update_entry
+
+    def _mutate(e: dict) -> None:
+        r = e.get("review") or {}
+        r["correct" if correct else "wrong"] = (
+            r.get("correct" if correct else "wrong", 0) + 1)
+        r["last_ts"] = now if now is not None else time.time()
+        e["review"] = r
+
+    return update_entry(word, _mutate)
 
 
 def book_stats(book: list[dict]) -> dict:
@@ -115,6 +113,115 @@ def export_anki(book: list[dict]) -> str:
         lines.append(f"{_anki_field(front)}\t"
                      + "<br>".join(p for p in back if p))
     return "\n".join(lines) + "\n"
+
+
+_EXAMPLES_CACHE = Path("data/cache/word_examples.json")
+_CORPUS_PATH = Path("data/corpus/discography.jsonl")
+
+
+def _examples_from_youdao(word: str, limit: int) -> list[str]:
+    """有道 jsonapi 的中英双语例句（国内可达、覆盖率高）。"""
+    import urllib.parse
+
+    from .jsonio import http_get_json
+
+    url = "https://dict.youdao.com/jsonapi?q=" + urllib.parse.quote(word)
+    data = http_get_json(url, timeout=3)
+    pairs = (data.get("blng_sents_part") or {}).get("sentence-pair") or []
+    out = []
+    for p in pairs:
+        en = (p.get("sentence") or "").strip()
+        zh = (p.get("sentence-translation") or "").strip()
+        if en:
+            out.append(f"{en} {zh}".strip())
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _examples_from_api(word: str, limit: int) -> list[str]:
+    import urllib.parse
+
+    from .jsonio import http_get_json
+
+    url = ("https://api.dictionaryapi.dev/api/v2/entries/en/"
+           + urllib.parse.quote(word))
+    data = http_get_json(url, timeout=3)
+    out = []
+    for entry in data if isinstance(data, list) else []:
+        for m in entry.get("meanings", []):
+            for d in m.get("definitions", []):
+                ex = (d.get("example") or "").strip()
+                if ex and ex not in out:
+                    out.append(ex)
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def _examples_from_corpus(word: str, exclude_song: str, limit: int,
+                          corpus_path: Path | None = None) -> list[str]:
+    pat = re.compile(rf"\b{re.escape(word)}\b", re.IGNORECASE)
+    out = []
+    with (corpus_path or _CORPUS_PATH).open(encoding="utf-8") as f:
+        for raw in f:
+            try:
+                song = json.loads(raw)
+            except ValueError:
+                continue
+            if song.get("title", "") == exclude_song:
+                continue
+            for line in song.get("lyrics_lines", []):
+                if pat.search(line):
+                    out.append(f"{line} ——《{song.get('title', '')}》")
+                    break  # 每首歌最多取一句
+            if len(out) >= limit:
+                break
+    return out
+
+
+def word_examples(word: str, exclude_song: str = "",
+                  limit: int = 3,
+                  corpus_dir: str | None = None) -> list[str]:
+    """零 LLM 真例句：有道 jsonapi（中英双语）优先，退 dictionaryapi.dev，
+    再退曲库其他歌的歌词句；全失败返回 []，绝不抛。
+    结果（含空结果）落盘缓存，离线/限流只打一次。
+    LL_WORD_EXAMPLES=0 彻底关闭（探针环境零外网请求）。"""
+    import os
+
+    word = (word or "").strip().lower()
+    if not word or os.getenv("LL_WORD_EXAMPLES", "1") == "0":
+        return []
+    from .jsonio import read_json, write_json_atomic
+    cache = read_json(_EXAMPLES_CACHE, {})
+    if not isinstance(cache, dict):
+        cache = {}
+    if word in cache:
+        return cache[word][:limit]
+    examples: list[str] = []
+    try:
+        examples = _examples_from_youdao(word, limit)
+    except Exception:
+        logger.info("youdao jsonapi unavailable for %r", word)
+    if not examples:
+        try:
+            examples = _examples_from_api(word, limit)
+        except Exception:
+            logger.info("dictionary API unavailable for %r", word)
+    if not examples:
+        corpus_path = (Path(corpus_dir) / "discography.jsonl"
+                       if corpus_dir else _CORPUS_PATH)
+        try:
+            examples = _examples_from_corpus(word, exclude_song, 2,
+                                             corpus_path)
+        except OSError:
+            pass
+    try:
+        cache[word] = examples
+        write_json_atomic(_EXAMPLES_CACHE, cache)
+    except OSError:
+        pass
+    return examples
 
 
 def synthesize_word(word: str, voice: str = TTS_VOICE) -> Path | None:

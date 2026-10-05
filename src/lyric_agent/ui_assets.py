@@ -5,6 +5,138 @@ no imports."""
 _HEAD_JS = """
 <script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.6/wavesurfer.min.js" defer></script>
 <script>
+// 🕵️ 考据页 AI 助手：默认收起，右上角 💬 按需展开
+(function() {
+  function panel() { return document.getElementById('ll-lore-chat'); }
+  function hidden() {
+    const p = panel();
+    return !!(p && p.classList.contains('ll-lc-hidden'));
+  }
+  function refreshTip(btn) {
+    const tip = btn.querySelector('.ll-sb-tip');
+    if (tip) tip.textContent = hidden() ? '展开 AI 助手' : '收起 AI 助手';
+  }
+  const t = setInterval(() => {
+    const p = panel();
+    if (!p) return;
+    clearInterval(t);
+    let shown = '';
+    try { shown = localStorage.getItem('ll_lore_chat') || ''; } catch (e) {}
+    if (shown !== '1') p.classList.add('ll-lc-hidden');   // 默认隐藏
+    const btn = document.createElement('button');
+    btn.id = 'll-lore-chat-btn';
+    btn.innerHTML = '💬<span class="ll-sb-tip"></span>';
+    btn.addEventListener('click', () => {
+      p.classList.toggle('ll-lc-hidden');
+      try {
+        localStorage.setItem('ll_lore_chat', hidden() ? '0' : '1');
+      } catch (e) {}
+      refreshTip(btn);
+    });
+    document.body.appendChild(btn);
+    refreshTip(btn);
+    setInterval(() => {   // 只在考据子页签可见时显示按钮
+      const main = document.getElementById('ll-lore-main');
+      btn.style.display = (main && main.offsetParent !== null) ? '' : 'none';
+    }, 400);
+  }, 400);
+})();
+// 🎵 歌单侧栏收起/展开（仿 Claude 网页版：左上角图标 + 黑色气泡提示 +
+// Ctrl+B 快捷键，偏好记入 localStorage）
+(function() {
+  function sidebar() { return document.getElementById('ll-sidebar'); }
+  function hidden() {
+    const sb = sidebar();
+    return !!(sb && sb.classList.contains('ll-sb-hidden'));
+  }
+  function refreshTip(btn) {
+    const tip = btn.querySelector('.ll-sb-tip');
+    if (tip) tip.innerHTML = (hidden() ? '显示歌单' : '隐藏歌单')
+      + ' <kbd>Ctrl+B</kbd>';
+  }
+  function toggle(btn) {
+    const sb = sidebar();
+    if (!sb) return;
+    sb.classList.toggle('ll-sb-hidden');
+    try {
+      localStorage.setItem('ll_sidebar', hidden() ? '0' : '1');
+    } catch (err) {}
+    refreshTip(btn);
+  }
+  const t = setInterval(() => {
+    const sb = sidebar();
+    if (!sb) return;
+    clearInterval(t);
+    try {   // 记忆：上次收起则保持收起
+      if (localStorage.getItem('ll_sidebar') === '0')
+        sb.classList.add('ll-sb-hidden');
+    } catch (err) {}
+    const btn = document.createElement('button');
+    btn.id = 'll-sb-btn';
+    btn.innerHTML = '◧<span class="ll-sb-tip"></span>';
+    btn.addEventListener('click', () => toggle(btn));
+    document.body.appendChild(btn);
+    refreshTip(btn);
+    // 只在播放解读页显示切换按钮（歌单只在那页）
+    setInterval(() => {
+      const lc = document.getElementById('lyrics-container');
+      btn.style.display = (lc && lc.offsetParent !== null) ? '' : 'none';
+    }, 400);
+    document.addEventListener('keydown', (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        toggle(btn);
+      }
+    });
+  }, 400);
+})();
+// 🎮 竞猜/拼图：Enter 两段式——未出结果时 Enter=提交，出结果后 Enter=下一题
+(function() {
+  const GAMES = [
+    {res: 'll-quiz-result', submit: '提交答案', next: '开始 / 下一题'},
+    {res: 'll-blank-result', submit: '🧩 拼好了', next: '🧩 来一题'},
+  ];
+  function visibleBtn(text) {
+    for (const b of document.querySelectorAll('button'))
+      if (b.offsetParent !== null && b.textContent.includes(text)) return b;
+    return null;
+  }
+  function activeGame() {
+    for (const g of GAMES) {
+      const res = document.getElementById(g.res);
+      if (res && res.offsetParent !== null) return g;
+    }
+    return null;
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.isComposing) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    const type = (e.target.type || '').toLowerCase();
+    // 文本输入框里的按键不抢（打字练习/聊天各有自己的行为）
+    if (tag === 'textarea'
+        || (tag === 'input' && type !== 'radio' && type !== 'checkbox'))
+      return;
+    const g = activeGame();
+    if (!g) return;
+    // 1-4 选第 N 个选项
+    if (/^[1-4]$/.test(e.key)) {
+      const opts = [...document.querySelectorAll('input[type=radio]')]
+        .filter((i) => i.offsetParent !== null
+                       && i.closest('.tabitem'));
+      const idx = Number(e.key) - 1;
+      if (opts[idx]) { e.preventDefault(); opts[idx].click(); }
+      return;
+    }
+    if (e.key !== 'Enter') return;
+    const answered = /[✅❌]/.test(
+      document.getElementById(g.res).textContent);
+    const btn = visibleBtn(answered ? g.next : g.submit);
+    if (btn) { e.preventDefault(); btn.click(); }
+  });
+})();
+window.llz = function() {   // body CSS zoom 校正系数
+  return parseFloat(getComputedStyle(document.body).zoom) || 1;
+};
 // force Gradio's light theme so the UI is always white regardless of the
 // OS dark-mode setting (Gradio otherwise follows prefers-color-scheme)
 (function() {
@@ -65,8 +197,7 @@ _HEAD_JS = """
 // popover anchored at the selection with the offline dictionary meaning,
 // an optional AI in-context explanation and a ⭐ wordbook button
 (function() {
-  let lastQuery = '';
-  let saved = null;  // {word, line, song} of the open popover
+  // 多卡并存：每张弹卡用 dataset.q 认领自己的后端结果，互不干扰
   let lastSpoken = '';  // the data.q already auto-pronounced
   // pronunciation à la qwerty-learner: youdao dictvoice, client-side only
   const voiceUrl = (w) =>
@@ -75,8 +206,43 @@ _HEAD_JS = """
   function sayWord(w) {
     if (w) new Audio(voiceUrl(w)).play().catch(() => {});
   }
-  function closePop() {
+  function closeAll() {
     document.querySelectorAll('.ll-dict-pop').forEach((p) => p.remove());
+  }
+  function wireClose(pop) {
+    const x = pop.querySelector('.dict-close');
+    if (x) x.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pop.remove();
+    });
+  }
+  // 弹卡可拖动：按住卡片空白处（按钮除外）移动
+  function makeDraggable(pop) {
+    let sx = 0, sy = 0, px = 0, py = 0, moved = false;
+    pop.addEventListener('pointerdown', (e) => {
+      // 按钮/✕ 不作为拖动起点（pointer capture 会吞掉它们的 click）
+      if (e.target.closest('button, .dict-close')) return;
+      sx = e.clientX; sy = e.clientY; moved = false;
+      const r = pop.getBoundingClientRect();
+      const z = window.llz();
+      px = r.left / z; py = r.top / z;
+      pop.setPointerCapture(e.pointerId);
+      const onMove = (ev) => {
+        const z2 = window.llz();
+        const dx = (ev.clientX - sx) / z2, dy = (ev.clientY - sy) / z2;
+        if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
+        moved = true;
+        pop.style.left = Math.max(0, px + dx) + 'px';
+        pop.style.top = Math.max(0, py + dy) + 'px';
+      };
+      const onUp = (ev) => {
+        pop.releasePointerCapture(e.pointerId);
+        pop.removeEventListener('pointermove', onMove);
+        pop.removeEventListener('pointerup', onUp);
+      };
+      pop.addEventListener('pointermove', onMove);
+      pop.addEventListener('pointerup', onUp);
+    });
   }
   function sendChannel(id, value) {
     const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
@@ -85,42 +251,69 @@ _HEAD_JS = """
     box.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
   }
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.ll-dict-pop')) closePop();
-  }, true);
-  document.addEventListener('dblclick', (e) => {
-    const lineEl = e.target.closest('.lyric-line');
-    if (!lineEl) return;
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAll();
+  });
+  function lookupSelection(e) {
     const sel = window.getSelection();
-    const word = (sel ? sel.toString() : '').trim();
-    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}$/.test(word)) return;
-    closePop();
+    // \u6b4c\u8bcd\u884c\u4ece\u300c\u9009\u533a\u300d\u53cd\u63a8\uff0c\u800c\u4e0d\u662f\u9f20\u6807\u677e\u5f00\u7684\u4f4d\u7f6e\u2014\u2014\u62d6\u51fa\u884c\u5916\u677e\u624b\u4e5f\u80fd\u67e5
+    let anchor = sel && sel.anchorNode;
+    if (anchor && anchor.nodeType === 3) anchor = anchor.parentElement;
+    const lineEl = (anchor && anchor.closest
+                    && anchor.closest('.lyric-line'))
+      || (e.target.closest && e.target.closest('.lyric-line'));
+    if (!lineEl) return;
+    const word = (sel ? sel.toString() : '').trim().replace(/\\s+/g, ' ');
+    // \u5355\u8bcd\uff0c\u6216\u62d6\u9009 2-8 \u4e2a\u8bcd\u7684\u8bcd\u7ec4
+    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}(?: [A-Za-z][A-Za-z'\u2019,.-]{0,31}){0,7}$/.test(word))
+      return;
+    const pops = document.querySelectorAll('.ll-dict-pop');
+    if (pops.length >= 4) pops[0].remove();   // 最多同屏 4 张，顶掉最旧的
     const line = (lineEl.querySelector('.lyric-text') || lineEl).textContent.trim();
     const titleEl = document.querySelector('.song-title-display');
     const song = titleEl ? titleEl.textContent.trim() : '';
-    saved = { word: word, line: line, song: song };
     const pop = document.createElement('div');
     pop.className = 'll-dict-pop';
-    pop.innerHTML = '<div class="dict-body">⏳ 查询中…</div>';
+    pop.dataset.word = word;
+    pop.dataset.line = line;
+    pop.dataset.song = song;
+    pop.innerHTML = '<div class="dict-word">' + word
+      + ' <span class="dict-close" title="关闭">✕</span></div>'
+      + '<div class="dict-body">⏳ 查询中…</div>';
+    wireClose(pop);
     let rect = lineEl.getBoundingClientRect();
     try {
       const r = sel.getRangeAt(0).getBoundingClientRect();
       if (r && r.width) rect = r;
     } catch (err) {}
-    pop.style.left = Math.min(rect.left, window.innerWidth - 300) + 'px';
-    pop.style.top = Math.min(rect.bottom + 6, window.innerHeight - 160) + 'px';
+    const z0 = window.llz();
+    pop.style.left = Math.min(rect.left / z0,
+                              window.innerWidth / z0 - 300) + 'px';
+    pop.style.top = Math.min(rect.bottom / z0 + 6,
+                             window.innerHeight / z0 - 160) + 'px';
     document.body.appendChild(pop);
-    lastQuery = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
-    sendChannel('ll-dict-pick', lastQuery);
+    makeDraggable(pop);
+    pop.dataset.q = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
+    sendChannel('ll-dict-pick', pop.dataset.q);
+  }
+  document.addEventListener('dblclick', lookupSelection);
+  document.addEventListener('mouseup', (e) => {
+    // 拖选词组：选区含空格才走这里（单词仍由 dblclick 负责）。
+    // 稍等一拍让浏览器先敲定选区，再按选区反推歌词行
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const s = (sel ? sel.toString() : '').trim();
+      if (s.includes(' ')) lookupSelection(e);
+    }, 10);
   });
-  function render(data) {
-    const pop = document.querySelector('.ll-dict-pop');
-    if (!pop || !saved) return;
+  function render(pop, data) {
+    if (!pop) return;
     const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
     let html = '<div class="dict-word">' + esc(data.word);
     if (data.phonetic) html += ' <span class="dict-phon">/' + esc(data.phonetic) + '/</span>';
     html += ' <button class="dict-btn dict-say" data-dict-say '
-          + 'title="重播发音">🔊</button></div>';
+          + 'title="重播发音">🔊</button>'
+          + ' <span class="dict-close" title="关闭">✕</span></div>';
     if (data.found) {
       html += '<div class="dict-body">'
         + esc(data.translation).split('\\n').join('<br>') + '</div>';
@@ -134,18 +327,20 @@ _HEAD_JS = """
     if (!data.ai) html += '<button class="dict-btn" data-dict-ai>✨ AI 语境解释</button>';
     html += '</div>';
     pop.innerHTML = html;
+    wireClose(pop);
     const favBtn = pop.querySelector('[data-dict-fav]');
     if (favBtn) favBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      sendChannel('ll-wb-act', 'add:' + saved.word + '\\t' + saved.line
-                  + '\\t' + saved.song + '\\t' + Date.now());
+      sendChannel('ll-wb-act', 'add:' + pop.dataset.word + '\\t'
+                  + pop.dataset.line + '\\t' + pop.dataset.song
+                  + '\\t' + Date.now());
       favBtn.textContent = '✓ 已收藏';
       favBtn.disabled = true;
     });
     const sayBtn = pop.querySelector('[data-dict-say]');
     if (sayBtn) sayBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      sayWord(saved.word);
+      sayWord(pop.dataset.word);
     });
     // auto-pronounce once per lookup (the AI reply re-renders the same q)
     if (data.q !== lastSpoken) {
@@ -157,20 +352,33 @@ _HEAD_JS = """
       e.stopPropagation();
       aiBtn.textContent = '✨ 生成中…';
       aiBtn.disabled = true;
-      lastQuery = saved.word + '\\t' + saved.line + '\\t' + saved.song
-                  + '\\t' + Date.now();
-      sendChannel('ll-dict-ai', lastQuery);
+      pop.dataset.q = pop.dataset.word + '\\t' + pop.dataset.line + '\\t'
+                      + pop.dataset.song + '\\t' + Date.now();
+      sendChannel('ll-dict-ai', pop.dataset.q);
     });
   }
   let lastSeen = '';
   setInterval(() => {
+    // 卡在「查询中」的卡片重发查询：共享输出通道上，快速连查时
+    // 前一个结果可能被后一个覆盖而没被轮询看到（查询是本地词典，重发零成本）
+    for (const p of document.querySelectorAll('.ll-dict-pop')) {
+      if (!p.querySelector('.dict-actions')
+          && Date.now() - Number(p.dataset.q.split('\\t').pop()) > 3000
+          && Number(p.dataset.retries || 0) < 3) {
+        p.dataset.retries = Number(p.dataset.retries || 0) + 1;
+        p.dataset.q = p.dataset.word + '\\t' + p.dataset.line + '\\t'
+                      + p.dataset.song + '\\t' + Date.now();
+        sendChannel('ll-dict-pick', p.dataset.q);
+      }
+    }
     const box = document.querySelector('#ll-dict-out textarea, #ll-dict-out input');
     if (!box || !box.value || box.value === lastSeen) return;
     lastSeen = box.value;
     let data;
     try { data = JSON.parse(box.value); } catch (err) { return; }
-    if (data.q !== lastQuery) return;  // stale result for a previous word
-    render(data);
+    // 把结果路由给认领这个 q 的那张卡；没有就是已关闭/过期
+    for (const p of document.querySelectorAll('.ll-dict-pop'))
+      if (p.dataset.q === data.q) { render(p, data); return; }
   }, 300);
 })();
 // ⌨️ 单词练习: qwerty-learner-style keystroke loop. The backend renders a
@@ -236,14 +444,33 @@ _HEAD_JS = """
     if (!e.target.classList || !e.target.classList.contains('ll-type-input'))
       return;
     const c = card();
-    if (!c || done) return;
+    if (!c) return;
+    if (e.key === 'Enter') {       // 跳过 / 打完后继续，都走换一词
+      e.preventDefault();
+      for (const b of document.querySelectorAll('button'))
+        if (b.textContent.includes('开始 / 换一词')) { b.click(); break; }
+      return;
+    }
+    if (done) return;              // 已完成：除 Enter 外不再吃按键
     if (e.isComposing || e.keyCode === 229) {   // CJK IME is active
       c.classList.add('tp-ime');
       e.preventDefault();
       return;
     }
     c.classList.remove('tp-ime');
-    if (e.key.length !== 1) return;             // let Tab/F5/etc through
+    if (e.key === 'Tab') {                      // 盲打模式偷看一眼（0.2 秒）
+      e.preventDefault();
+      if (c.classList.contains('tp-blind')) {
+        c.classList.remove('tp-blind');
+        const n = c.dataset.nonce;
+        setTimeout(() => {
+          const cc = card();
+          if (cc && cc.dataset.nonce === n) cc.classList.add('tp-blind');
+        }, 200);
+      }
+      return;
+    }
+    if (e.key.length !== 1) return;             // let F5/etc through
     e.preventDefault();                          // space must not scroll
     const want = c.dataset.word;
     const spans = chars(c);
@@ -252,6 +479,7 @@ _HEAD_JS = """
       pos += 1;
       if (pos >= want.length) {
         done = true;
+        c.classList.add('tp-done');
         sendChannel('ll-review-done',
                     want + '\\t' + mistakes + '\\t' + (Date.now() - t0)
                     + '\\t' + Date.now());
@@ -327,8 +555,9 @@ _HEAD_JS = """
       // span's transform would hijack the fixed containing block and the
       // list's overflow would clip the menu out of sight
       const r = btn.getBoundingClientRect();
-      menu.style.top = (r.bottom + 4) + 'px';
-      menu.style.left = Math.max(8, r.right - 150) + 'px';
+      const z = window.llz();
+      menu.style.top = (r.bottom / z + 4) + 'px';
+      menu.style.left = Math.max(8, r.right / z - 150) + 'px';
       const del = document.createElement('button');
       del.type = 'button';
       del.textContent = '🗑️ 删除这首歌';
@@ -389,9 +618,7 @@ _HEAD_JS = """
 (function() {
   let userScrolling = false, scrollTimeout = null, lastActive = -2;
   // player tools state (survives per-song re-renders of the audio block)
-  let abStart = null, abEnd = null;
-  let radioOn = false, rhymeOn = false, radioPending = false;
-  let tourOn = false;
+  let rhymeOn = false;
   let lastAudioEl = null;
 
   function getAudio() { return document.getElementById('ll-audio'); }
@@ -412,72 +639,6 @@ _HEAD_JS = """
     box.dispatchEvent(new Event('input', { bubbles: true }));
   }
 
-  // 🎧 导览: commentary card for the line that just became active
-  function maybeTourCard(idx) {
-    if (!tourOn) return;
-    const box = document.querySelector('#ll-echo-map textarea, #ll-echo-map input');
-    if (!box || !box.value) return;
-    let data;
-    try { data = JSON.parse(box.value); } catch (e) { return; }
-    const title = document.querySelector('.song-title-display');
-    if (!title || title.textContent.trim() !== data.song) return;
-    document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
-    const o = (data.lines || []).find((l) => l.i === idx);
-    if (!o) return;
-    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
-    const card = document.createElement('div');
-    card.className = 'll-tour-card';
-    let html = '<div class="tour-head">🎧 AI 导览</div>';
-    if (o.note) html += '<div class="tour-note">📝 ' + esc(o.note) + '</div>';
-    html += '<div class="tour-echo">🥚 这句呼应《' + esc(o.song) + '》';
-    if (o.target) html += '：“' + esc(o.target) + '”';
-    html += '</div><div class="tour-hint">点击卡片关闭 · 详情见右侧 🥚 面板</div>';
-    card.innerHTML = html;
-    card.addEventListener('click', () => {
-      card.remove();
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
-      restoreDuck();
-    });
-    document.body.appendChild(card);
-    setTimeout(() => { if (card.isConnected) card.remove(); }, 9000);
-    speakTour(o);
-  }
-
-  // DJ voice via the browser's own TTS — zero backend, works offline;
-  // silently absent when the platform ships no voices
-  function restoreDuck() {
-    const a = getAudio();
-    if (a && a.dataset.llBaseVol) {
-      a.volume = parseFloat(a.dataset.llBaseVol);
-      delete a.dataset.llBaseVol;
-    }
-  }
-
-  function speakTour(o) {
-    try {
-      const synth = window.speechSynthesis;
-      if (!synth) return;
-      // cancel() does NOT reliably fire the old utterance's 'end' event,
-      // so restore from the stored base volume before ducking again
-      synth.cancel();
-      restoreDuck();
-      let text = '';
-      if (o.note) text += o.note + '。';
-      text += '这句呼应了《' + o.song + '》';
-      if (o.target) text += '里的：' + o.target;
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'zh-CN';
-      u.rate = 1.15;
-      const a = getAudio();
-      if (a && !a.paused) {
-        a.dataset.llBaseVol = String(a.volume);
-        a.volume = Math.max(0.15, a.volume * 0.3);
-        u.addEventListener('end', restoreDuck);
-        u.addEventListener('error', restoreDuck);
-      }
-      synth.speak(u);
-    } catch (err) {}
-  }
 
   function applyRhyme() {
     const c = document.getElementById('lyrics-container');
@@ -539,13 +700,7 @@ _HEAD_JS = """
             });
           }
         }
-        if (idx >= 0 && idx !== undefined) maybeTourCard(idx);
         lastActive = idx;
-      }
-      // A-B loop: jump back to A whenever playback passes B
-      if (abStart !== null && abEnd !== null && !audio.paused
-          && audio.currentTime >= abEnd) {
-        audio.currentTime = abStart;
       }
       // karaoke sweep on the active line: estimated per-line progress
       // (linear between this line's timestamp and the next one's)
@@ -643,59 +798,20 @@ _HEAD_JS = """
   }, 700);
 
   // new-song watcher: the audio block is re-rendered per song, so restore
-  // toggle states, rebuild the waveform, reset the A-B loop, and (in radio
-  // mode) play the spoken intro before the song itself
+  // toggle states, rebuild the waveform
   setInterval(() => {
     const a = getAudio();
     if (!a || a === lastAudioEl) return;
     lastAudioEl = a;
-    abStart = abEnd = null;
-    const r = document.getElementById('ll-radio-toggle');
-    if (r) r.checked = radioOn;
     const y = document.getElementById('ll-rhyme-toggle');
     if (y) y.checked = rhymeOn;
-    const tg = document.getElementById('ll-tour-toggle');
-    if (tg) tg.checked = tourOn;
     applyRhyme();
     initWave(a);
-    if (radioPending) {
-      radioPending = false;
-      const intro = a.dataset.intro;
-      if (radioOn && intro) {
-        const voice = new Audio(intro);
-        voice.addEventListener('ended', () => a.play().catch(() => {}));
-        // a broken intro file fires 'error', never 'ended' — don't stall
-        voice.addEventListener('error', () => a.play().catch(() => {}));
-        voice.play().catch(() => { a.play().catch(() => {}); });
-      } else if (radioOn) {
-        a.play().catch(() => {});
-      }
-    }
   }, 500);
-
-  // radio mode: when the song ends, advance to the next one in the list
-  document.addEventListener('ended', function(e) {
-    if (!e.target || e.target.id !== 'll-audio' || !radioOn) return;
-    const inputs = Array.from(
-      document.querySelectorAll('#ll-songs input[type=radio]'));
-    if (!inputs.length) return;
-    const i = inputs.findIndex(x => x.checked);
-    radioPending = true;
-    inputs[(i + 1) % inputs.length].click();
-  }, true);  // 'ended' does not bubble — capture it
 
   // toggle listeners (delegated: the checkboxes are re-rendered per song)
   document.addEventListener('change', function(e) {
     if (!e.target) return;
-    if (e.target.id === 'll-radio-toggle') radioOn = e.target.checked;
-    if (e.target.id === 'll-tour-toggle') {
-      tourOn = e.target.checked;
-      if (!tourOn) {
-        document.querySelectorAll('.ll-tour-card').forEach((c) => c.remove());
-        if (window.speechSynthesis) window.speechSynthesis.cancel();
-        restoreDuck();
-      }
-    }
     if (e.target.id === 'll-rhyme-toggle') {
       rhymeOn = e.target.checked;
       applyRhyme();
@@ -707,32 +823,6 @@ _HEAD_JS = """
   document.addEventListener('click', function(e) {
     if (!e.target.closest) return;
     const audio = getAudio();
-    if (e.target.closest('#ll-ab-a') && audio) {
-      abStart = audio.currentTime; abEnd = null;
-      e.target.closest('#ll-ab-a').textContent = '🅰 ' + fmt(abStart);
-      const b = document.getElementById('ll-ab-b');
-      if (b) b.textContent = '🅱 循环';
-      const c = document.getElementById('ll-ab-clear');
-      if (c) c.style.display = 'none';
-      return;
-    }
-    if (e.target.closest('#ll-ab-b') && audio) {
-      if (abStart === null || audio.currentTime <= abStart + 0.3) return;
-      abEnd = audio.currentTime;
-      e.target.closest('#ll-ab-b').textContent = '🅱 ' + fmt(abEnd);
-      const c = document.getElementById('ll-ab-clear');
-      if (c) c.style.display = '';
-      return;
-    }
-    if (e.target.closest('#ll-ab-clear')) {
-      abStart = abEnd = null;
-      const a2 = document.getElementById('ll-ab-a');
-      if (a2) a2.textContent = '🅰 起点';
-      const b2 = document.getElementById('ll-ab-b');
-      if (b2) b2.textContent = '🅱 循环';
-      e.target.closest('#ll-ab-clear').style.display = 'none';
-      return;
-    }
     const del = e.target.closest('[data-del-note]');
     if (del) {
       e.stopPropagation();
@@ -754,27 +844,6 @@ _HEAD_JS = """
     }
     // 🎬 MV 彩蛋 ⏱ 锚点: switch to the song on the play tab (backend) and
     // seek its video iframe to the stamp (here, via a bounded retry loop)
-    const mvs = e.target.closest('[data-mv-t]');
-    if (mvs) {
-      const bvid = mvs.dataset.mvBvid, t = mvs.dataset.mvT;
-      writeChannel('ll-mv-seek', mvs.dataset.mvLabel + '\\t' + Date.now());
-      let tries = 0;
-      const timer = setInterval(() => {
-        const frame = document.querySelector('.bv-frame');
-        const embed = frame && (frame.dataset.embed ||
-          (frame.querySelector('iframe') || {}).src || '');
-        if (frame && embed.indexOf(bvid) !== -1) {
-          clearInterval(timer);
-          const ifr = frame.querySelector('iframe');
-          if (ifr) ifr.src = (frame.dataset.embed || embed).split('&t=')[0]
-                             + '&t=' + t;
-          frame.style.display = '';
-          const a = getAudio();
-          if (a) a.pause();
-        } else if (++tries > 30) clearInterval(timer);
-      }, 300);
-      return;
-    }
     // ✨ per-line annotation: the button is the consent gate — a native
     // confirm makes the single LLM call explicit before anything is spent
     const ga = e.target.closest('[data-gen-ann]');
@@ -783,6 +852,47 @@ _HEAD_JS = """
       ga.textContent = '✨ 生成中…';
       ga.disabled = true;
       writeChannel('ll-gen-ann', ga.dataset.genAnn + '\\t' + Date.now());
+      return;
+    }
+    const tj = e.target.closest('[data-tp-jump]');
+    if (tj) {
+      // 打字卡出处歌词 -> 切到播放页并闪烁那一句；挂一个返回按钮
+      for (const b of document.querySelectorAll('button[role="tab"]'))
+        if (b.textContent.includes('播放解读')) { b.click(); break; }
+      window.__llPendingLine = parseInt(tj.dataset.tpLine || '-1', 10);
+      writeChannel('ll-cite-jump',
+                   tj.dataset.tpJump + '\\t' + tj.dataset.tpLine
+                   + '\\t' + Date.now());
+      if (!document.getElementById('ll-back-typing')) {
+        const back = document.createElement('button');
+        back.id = 'll-back-typing';
+        back.textContent = '↩ 回到打字练习';
+        // 歌词区会随切歌整体重渲染，所以按钮挂在 body 上、
+        // 用定时器把它钉在歌词容器右上角（歌词不可见时隐藏）
+        const anchor = setInterval(() => {
+          if (!back.isConnected) { clearInterval(anchor); return; }
+          const lc = document.getElementById('lyrics-container');
+          if (!lc || lc.offsetParent === null) {
+            back.style.display = 'none';
+            return;
+          }
+          const r = lc.getBoundingClientRect();
+          const z = window.llz();
+          back.style.display = 'block';
+          back.style.left = (r.right / z - back.offsetWidth - 12) + 'px';
+          back.style.top = (r.top / z + 10) + 'px';
+        }, 300);
+        back.addEventListener('click', () => {
+          for (const b of document.querySelectorAll('button[role="tab"]'))
+            if (b.textContent.includes('歌曲寻词')) { b.click(); break; }
+          back.remove();
+          setTimeout(() => {   // 回来直接能打字/按 Enter，无需先点卡片
+            const inp = document.querySelector('.ll-type-input');
+            if (inp) inp.focus();
+          }, 400);
+        });
+        document.body.appendChild(back);
+      }
       return;
     }
     const bvu = e.target.closest('[data-bvid-unbind]');
@@ -807,6 +917,16 @@ _HEAD_JS = """
       writeChannel('ll-fav-act', fav.dataset.fav + '\\t' + Date.now());
       return;
     }
+    const wn = e.target.closest('[data-wb-note]');
+    if (wn) {
+      const txt = prompt('给「' + wn.dataset.wbNote
+                         + '」写一句我的笔记（清空 = 删除笔记）',
+                         wn.dataset.note || '');
+      if (txt === null) return;
+      writeChannel('ll-wb-act', 'note:' + wn.dataset.wbNote + '\\t'
+                   + txt.replace(/[\\t\\n]/g, ' ') + '\\t' + Date.now());
+      return;
+    }
     const wb = e.target.closest('[data-wb]');
     if (wb) {
       writeChannel('ll-wb-act', wb.dataset.wb + '\\t' + Date.now());
@@ -814,6 +934,10 @@ _HEAD_JS = """
     }
     const cite = e.target.closest('[data-cite-label]');
     if (cite) {
+      // 从考据页/竞猜结果跳转时顺带切回播放页
+      if (cite.closest('.lore-page') || cite.classList.contains('cite-go-play'))
+        for (const b of document.querySelectorAll('button[role="tab"]'))
+          if (b.textContent.includes('播放解读')) { b.click(); break; }
       const lineNo = parseInt(cite.dataset.citeLine || '-1', 10);
       const cur = document.querySelector('#ll-songs input[type=radio]:checked');
       if (cur && cur.value === cite.dataset.citeLabel) {
@@ -836,37 +960,6 @@ _HEAD_JS = """
                    + '\\t' + Date.now());
       return;
     }
-    if (e.target.closest('details.egg-more')) return;  // expand, not pick
-    const fp = e.target.closest('[data-focus-pick]');
-    if (fp) {
-      writeChannel('ll-focus-pick', fp.dataset.focusPick + '\\t' + Date.now());
-    }
-  }, true);
-
-  // 彩蛋地图 network view: hovering a song dims unrelated edges and nodes
-  // so its connections stand out (focus view has no data-ega edges, so
-  // the toggles below never fire there)
-  document.addEventListener('mouseover', (e) => {
-    const svg = e.target.closest('.egg-svg');
-    if (!svg || !svg.querySelector('.egg-edge[data-ega]')) return;
-    const g = e.target.closest('[data-focus-pick]');
-    const song = g ? g.dataset.focusPick : null;
-    const keep = new Set(song ? [song] : []);
-    svg.querySelectorAll('.egg-edge[data-ega]').forEach(p => {
-      const on = !song || p.dataset.ega === song || p.dataset.egb === song;
-      p.classList.toggle('egg-dim', !on);
-      p.classList.toggle('egg-lit', !!song && on);
-      if (song && on) { keep.add(p.dataset.ega); keep.add(p.dataset.egb); }
-    });
-    svg.querySelectorAll('[data-focus-pick]').forEach(nd => {
-      nd.classList.toggle('egg-dim', !!song && !keep.has(nd.dataset.focusPick));
-    });
-  }, true);
-  document.addEventListener('mouseout', (e) => {
-    const svg = e.target.closest('.egg-svg');
-    if (!svg || svg.contains(e.relatedTarget)) return;
-    svg.querySelectorAll('.egg-dim, .egg-lit').forEach(
-      el => el.classList.remove('egg-dim', 'egg-lit'));
   }, true);
 
   // current playback position → hidden channel (used by 听歌笔记)
@@ -982,12 +1075,102 @@ _HEAD_JS = """
     }
   });
 })();
+// 🧭 新手指引：首次进入自动播放；左下角 ❓ 随时重开。
+// 纯前端分步高亮（backdrop 阴影圈出目标元素 + 气泡说明）。
+(function() {
+  const STEPS = [
+    { sel: '#ll-songs',
+      text: '🎵 这里是歌曲列表：点歌名切歌，支持筛选和排序；每首歌的 ⋯ 菜单可删除。' },
+    { sel: '#lyrics-container',
+      text: '📖 听不懂的歌词：<b>单击</b>那一句，右侧 AI 用中文把它讲懂；'
+            + '<b>双击英文单词</b>弹词义卡 → ⭐ 收藏生词（带真例句）。' },
+    { sel: '.player-tools',
+      text: '🎚 播放器工具：跳副歌、A-B 循环、韵脚标色；'
+            + '还能开关韵脚标色辅助听歌。' },
+    { sel: 'button[role="tab"]',
+      text: '🗂 收藏的生词去 <b>🔤 歌曲寻词</b> 盲打练会（可导出 Anki）；'
+            + '🎮 互动里有歌迷考据和竞猜，➕ 添加歌曲自动配歌词和 MV，'
+            + '⚙️ 设置填 API Key。' },
+    { sel: null,
+      text: '✅ 就这些！随时点<b>左下角 ❓</b> 重新打开本指引。祝听歌愉快～' },
+  ];
+  let idx = 0, box = null, ring = null;
+  function stop() {
+    if (box) box.remove();
+    if (ring) ring.remove();
+    box = ring = null;
+    try { localStorage.setItem('ll_onboard', '1'); } catch (err) {}
+  }
+  function show(i) {
+    idx = i;
+    const s = STEPS[i];
+    if (!ring) {
+      ring = document.createElement('div');
+      ring.className = 'll-tour-ring';
+      document.body.appendChild(ring);
+    }
+    const el = s.sel ? document.querySelector(s.sel) : null;
+    if (el && el.offsetParent !== null) {
+      const r = el.getBoundingClientRect();
+      const z = window.llz();
+      ring.style.display = 'block';
+      ring.style.left = (r.left / z - 6) + 'px';
+      ring.style.top = (r.top / z - 6) + 'px';
+      ring.style.width = (r.width / z + 12) + 'px';
+      ring.style.height = (r.height / z + 12) + 'px';
+    } else {
+      ring.style.display = 'block';
+      ring.style.left = '50%'; ring.style.top = '40%';
+      ring.style.width = '0px'; ring.style.height = '0px';
+    }
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'll-onboard-box';
+      document.body.appendChild(box);
+    }
+    box.innerHTML = '<div class="ob-text">' + s.text + '</div>'
+      + '<div class="ob-nav"><span class="ob-dots">'
+      + STEPS.map((_, k) => k === i ? '●' : '○').join(' ') + '</span>'
+      + (i > 0 ? '<button class="ob-btn" data-ob="prev">上一步</button>' : '')
+      + (i < STEPS.length - 1
+         ? '<button class="ob-btn ob-main" data-ob="next">下一步</button>'
+           + '<button class="ob-btn" data-ob="skip">跳过</button>'
+         : '<button class="ob-btn ob-main" data-ob="skip">完成</button>')
+      + '</div>';
+    // 气泡固定在屏幕下方居中，避免遮住被圈出的元素
+    box.querySelectorAll('[data-ob]').forEach((b) =>
+      b.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const act = b.dataset.ob;
+        if (act === 'next') show(idx + 1);
+        else if (act === 'prev') show(idx - 1);
+        else stop();
+      }));
+  }
+  function start() { stop(); show(0); }
+  // ❓ 重开按钮 + 首次自动播放
+  const t = setInterval(() => {
+    if (!document.querySelector('#ll-songs')) return;
+    clearInterval(t);
+    const btn = document.createElement('button');
+    btn.id = 'll-onboard-btn';
+    btn.title = '新手指引';
+    btn.textContent = '❓';
+    btn.addEventListener('click', start);
+    document.body.appendChild(btn);
+    let seen = '1';
+    try { seen = localStorage.getItem('ll_onboard') || ''; } catch (err) {}
+    if (!seen) setTimeout(start, 800);
+  }, 400);
+})();
 </script>
 """
 
 # ── CSS ───────────────────────────────────────────────────
 
 _CSS = """\
+/* 整体默认缩放 75%（等效浏览器 75% 缩放，用户定的默认密度） */
+body { zoom: 0.75; }
 :root {
   --bg-primary: #ffffff;
   --bg-secondary: #f6f8fa;
@@ -1005,6 +1188,10 @@ _CSS = """\
 }
 
 body, .gradio-container { background: var(--bg-primary) !important; }
+/* 全宽布局：歌单贴屏幕最左，不留大白边 */
+.gradio-container { max-width: 100% !important;
+  padding-left: 14px !important; padding-right: 14px !important;
+  padding-bottom: 150px !important; /* 整页底部留 ~3 行滚动余量 */ }
 
 /* hide gradio footer (Runs / API / Gradio links) */
 footer, .gradio-container footer { display: none !important; }
@@ -1368,22 +1555,6 @@ footer, .gradio-container footer { display: none !important; }
 .cov-line b { color: var(--text-primary); }
 
 /* 🎧 tour commentary card */
-.ll-tour-card {
-  position: fixed; right: 18px; bottom: 18px; z-index: 1100; width: 300px;
-  padding: 12px 14px; border-radius: 12px; cursor: pointer;
-  background: var(--bg-card); border: 1px solid var(--border);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
-  font-size: 12.5px; line-height: 1.65;
-  animation: ll-tour-in .35s ease-out;
-}
-@keyframes ll-tour-in {
-  from { transform: translateY(14px); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
-.ll-tour-card .tour-head { font-weight: 700; margin-bottom: 4px; }
-.ll-tour-card .tour-note { color: var(--text-primary); margin-bottom: 4px; }
-.ll-tour-card .tour-echo { color: var(--text-primary); }
-.ll-tour-card .tour-hint { margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
 
 /* evidence card (可追溯证据) */
 .ev-card {
@@ -1409,10 +1580,15 @@ footer, .gradio-container footer { display: none !important; }
 .mv-link.ev-ok[data-cite-label]:hover { text-decoration: underline; }
 .mv-link.ev-bad { color: var(--text-secondary); }
 @keyframes ll-cite-flash {
-  0%, 60% { background: var(--accent-soft); }
-  100% { background: transparent; }
+  0%, 15% { background: var(--accent); color: #fff;
+            box-shadow: 0 0 0 3px var(--accent); }
+  70% { background: var(--accent-soft); color: inherit;
+        box-shadow: 0 0 0 2px var(--accent); }
+  100% { background: transparent; box-shadow: none; }
 }
-.lyric-line.cite-flash { animation: ll-cite-flash 2.5s ease-out; border-radius: 8px; }
+.lyric-line.cite-flash { animation: ll-cite-flash 4s ease-out;
+  border-radius: 8px; }
+.lyric-line.cite-flash .lyric-text { color: inherit; }
 
 /* mini translator popover + wordbook */
 .ll-dict-pop {
@@ -1420,8 +1596,12 @@ footer, .gradio-container footer { display: none !important; }
   background: var(--bg-card); border: 1px solid var(--border);
   border-radius: 12px; box-shadow: 0 10px 30px rgba(15, 23, 42, .18);
   font-size: .9em; line-height: 1.55;
+  cursor: move; user-select: none; touch-action: none;
 }
 .ll-dict-pop .dict-word { font-weight: 700; margin-bottom: 4px; }
+.ll-dict-pop .dict-close { float: right; cursor: pointer; padding: 0 4px;
+  color: var(--text-secondary); font-weight: 400; }
+.ll-dict-pop .dict-close:hover { color: var(--text-primary); }
 .ll-dict-pop .dict-phon { color: var(--text-secondary); font-weight: 400; }
 .ll-dict-pop .dict-body { color: var(--text-primary); max-height: 150px; overflow-y: auto; }
 .ll-dict-pop .dict-miss { color: var(--text-secondary); }
@@ -1442,17 +1622,148 @@ footer, .gradio-container footer { display: none !important; }
   position: relative; padding: 8px 26px 8px 10px; border-radius: 10px;
   background: var(--bg-card); border: 1px solid var(--border);
 }
-.wb-item .wb-word { font-weight: 700; }
+.wb-item .wb-word { font-weight: 700; font-size: 1.15em; }
 .wb-item .wb-phon { color: var(--text-secondary); font-weight: 400; font-size: .9em; }
-.wb-item .wb-meaning { font-size: .9em; color: var(--text-primary); }
-.wb-item .wb-src { font-size: .85em; color: var(--text-secondary); margin-top: 2px; }
+.wb-item .wb-meaning { font-size: 1.05em; color: var(--text-primary); }
+.wb-item .wb-src { font-size: 1em; color: var(--text-secondary); margin-top: 2px; }
 .wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
   padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
   line-height: 1.5; }
-.mv-ts.mv-seek { cursor: pointer; }
-.mv-ts.mv-seek:hover { color: var(--accent); }
 .lyric-line .lyric-trans { font-size: .82em;
   color: var(--text-secondary); margin-top: 1px; }
+/* 歌单侧栏收起（仿 Claude） */
+#ll-sidebar.ll-sb-hidden { display: none !important; }
+#ll-sb-btn {
+  position: fixed; z-index: 1270; left: 10px; top: 10px;
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); font-size: 16px; line-height: 1; }
+#ll-sb-btn:hover { color: var(--text-primary);
+  background: var(--bg-card-hover); }
+#ll-sb-btn .ll-sb-tip {
+  display: none; position: absolute; left: 0; top: 40px;
+  white-space: nowrap; padding: 7px 10px; border-radius: 8px;
+  background: #1f2328; color: #fff; font-size: 12.5px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .3); }
+#ll-sb-btn:hover .ll-sb-tip { display: block; }
+#ll-sb-btn .ll-sb-tip kbd {
+  margin-left: 8px; padding: 1px 6px; border-radius: 4px;
+  background: #3a3f45; color: #c8cdd3; font-family: inherit;
+  font-size: 11.5px; }
+#ll-review-stats { text-align: right; }
+#ll-review-hint { text-align: center; }
+/* 歌曲寻词整页与互动同级放大 */
+.tabitem:has(#ll-review-hint) { zoom: 1.25; }
+/* 添加歌曲：整块居中 + 同级放大 */
+.tabitem:has(#ll-add-head) { zoom: 1.25; }
+.tabitem:has(#ll-add-head) > * { max-width: 980px; margin-left: auto;
+  margin-right: auto; text-align: center; }
+/* 练习范围：窄、贴提示行 */
+#ll-review-group { max-width: 280px; margin-left: 24%; margin-right: auto; }
+/* 去掉下拉旁拉通整行的灰底容器 */
+.form:has(> #ll-review-group) { background: transparent; border: none;
+  box-shadow: none; }
+/* ⋯ 面板：竖排窄浮层，展开时覆盖在页面上，不挤压单词卡片 */
+#ll-review-topright { position: relative; }
+#ll-review-more { position: absolute; right: 0; top: 34px;
+  width: 400px; z-index: 60; background: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .15); }
+#ll-review-more .label-wrap { justify-content: flex-end; }
+/* 开始按钮：小、蓝底白字、贴卡片右缘 */
+#ll-review-startrow { max-width: 720px; margin: 6px auto 0;
+  display: flex; justify-content: flex-end; }
+#ll-review-startrow button { flex: 0 0 auto; }
+/* 🎮 竞猜/拼图：整块居中 + 放大（互动页空间大、原字号太小） */
+#ll-quiz-wrap, #ll-blank-wrap { max-width: 860px; margin: 0 auto;
+  text-align: center; zoom: 1.3; }
+/* 🕵️ 考据：选歌下拉居中收窄，正文整体放大 */
+.tabitem:has(#ll-lore-main) { zoom: 1.15; }
+/* 生成按钮与选歌下拉等宽居中 */
+#ll-lore-gen { max-width: 560px; margin: 8px auto 0; display: block; }
+/* 考据 AI 助手默认收起，💬 图标按需展开 */
+#ll-lore-chat.ll-lc-hidden { display: none !important; }
+#ll-lore-chat-btn {
+  position: fixed; z-index: 1270; right: 14px; top: 10px;
+  width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); font-size: 16px; line-height: 1; }
+#ll-lore-chat-btn:hover { color: var(--text-primary);
+  background: var(--bg-card-hover); }
+#ll-lore-chat-btn .ll-sb-tip {
+  display: none; position: absolute; right: 0; top: 40px;
+  white-space: nowrap; padding: 7px 10px; border-radius: 8px;
+  background: #1f2328; color: #fff; font-size: 12.5px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, .3); }
+#ll-lore-chat-btn:hover .ll-sb-tip { display: block; }
+#ll-lore-main .chat-empty { text-align: center; }
+#ll-lore-song { max-width: 560px; margin: 0 auto; }
+.form:has(> #ll-lore-song) { background: transparent; border: none;
+  box-shadow: none; max-width: 580px; margin: 0 auto; }
+#ll-quiz-wrap fieldset, #ll-blank-wrap fieldset {
+  justify-content: center; }
+#ll-quiz-wrap .quiz-line, #ll-blank-wrap .quiz-line {
+  text-align: center; }
+/* 🧭 新手指引 */
+.ll-tour-ring {
+  position: fixed; z-index: 1290; pointer-events: none; border-radius: 12px;
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 9999px rgba(15, 23, 42, .45);
+  transition: all .3s ease; }
+.ll-onboard-box {
+  position: fixed; z-index: 1300; left: 50%; bottom: 60px;
+  transform: translateX(-50%); width: min(460px, 92vw);
+  padding: 14px 16px; border-radius: 14px; background: var(--bg-card);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .25);
+  font-size: 13.5px; line-height: 1.7; }
+.ll-onboard-box .ob-nav { margin-top: 10px; display: flex; gap: 8px;
+  align-items: center; }
+.ll-onboard-box .ob-dots { margin-right: auto;
+  color: var(--text-secondary); letter-spacing: 2px; }
+.ll-onboard-box .ob-btn { padding: 4px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg-card);
+  cursor: pointer; font-size: 12.5px; color: var(--text-primary); }
+.ll-onboard-box .ob-btn.ob-main { background: var(--accent); color: #fff;
+  border-color: var(--accent); }
+#ll-onboard-btn {
+  position: fixed; z-index: 1280; left: 14px; bottom: 14px;
+  width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-secondary); font-size: 15px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .15); }
+#ll-onboard-btn:hover { color: var(--accent); border-color: var(--accent); }
+/* 🕵️ 歌迷考据 */
+.lore-page { max-width: 760px; margin: 0 auto; text-align: center; }
+.lore-head { font-size: 18px; font-weight: 800; margin: 8px 0; }
+.lore-hook { padding: 12px 16px; border-left: 4px solid var(--accent);
+  background: var(--accent-soft); border-radius: 0 10px 10px 0;
+  font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+.lore-sec { font-weight: 700; margin: 16px 0 8px; }
+.lore-clue { padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: 12px; background: var(--bg-card); margin-bottom: 10px;
+  line-height: 1.75; }
+.lore-badge { display: inline-block; font-size: 11px; font-weight: 700;
+  padding: 2px 8px; border-radius: 999px; margin-bottom: 6px; }
+.lore-badge.lore-official { background: #dafbe1; color: #116329; }
+.lore-badge.lore-parallel { background: var(--accent-soft);
+  color: var(--accent); }
+.lore-badge.lore-theory { background: #fff1e5; color: #953800; }
+.lore-clue-title { font-weight: 700; margin: 2px 0 4px; }
+.lore-clue-body { color: var(--text-primary); }
+.lore-quote { margin-top: 8px; padding: 8px 12px; border-radius: 8px;
+  background: var(--bg-main); font-style: italic; }
+.lore-quote.ev-ok { cursor: pointer; }
+.lore-quote.ev-ok:hover { background: var(--bg-card-hover); }
+.lore-quote-src { font-style: normal; font-size: 12px; margin-left: 8px;
+  color: var(--text-secondary); }
+.lore-theory-note { margin-top: 6px; font-size: 11.5px;
+  color: var(--text-secondary); }
+.lore-caveat { margin-top: 8px; font-size: 12px;
+  color: var(--text-secondary); }
+.lore-disclaim { margin-top: 14px; font-size: 11.5px;
+  color: var(--text-secondary); border-top: 1px dashed var(--border);
+  padding-top: 8px; }
 /* 点句批注卡 */
 .ann-card { padding: 12px 14px; border: 1px solid var(--border);
   border-radius: 12px; background: var(--bg-card); margin-bottom: 10px;
@@ -1490,14 +1801,35 @@ footer, .gradio-container footer { display: none !important; }
 .ll-type-card .ll-type-input { position: absolute; opacity: 0;
   width: 1px; height: 1px; border: 0; padding: 0; }
 .ll-type-card .wb-meaning, .ll-type-card .wb-src, .ll-type-card .wb-ai {
-  margin-top: 6px; }
+  margin-top: 8px; font-size: 1.3em; line-height: 1.7; }
 .ll-type-card .tp-ime-hint { display: none; color: #cf222e;
   font-size: .85em; margin-top: 4px; }
 .ll-type-card.tp-ime .tp-ime-hint { display: block; }
-.ll-type-card .tp-blurhint { font-size: .8em; color: var(--text-secondary);
-  margin-top: 10px; }
+.ll-type-card .tp-donehint { display: none; color: var(--accent);
+  font-weight: 700; font-size: 1.1em; margin-top: 8px; }
+.ll-type-card.tp-done .tp-donehint { display: block; }
+.ll-type-card .tp-ch.tp-space { min-width: .55em;
+  display: inline-block; }
 .ll-type-card .tp-wline-word { background: var(--accent-soft);
   border-radius: 4px; padding: 0 2px; }
+.ll-type-card .wb-src[data-tp-jump] { cursor: pointer; }
+.ll-type-card .wb-src[data-tp-jump]:hover { color: var(--accent); }
+.ll-example-card { padding: 14px 20px; border: 1px solid var(--border);
+  border-radius: 14px; background: var(--bg-card); max-width: 720px;
+  margin: 10px auto 0; text-align: center; }
+.ll-example-card .wb-example { margin-top: 6px; font-size: 1.15em;
+  line-height: 1.7; color: var(--text-secondary); }
+/* 盲打时例句卡里的目标词同样遮住（跟随主卡的 tp-blind 状态） */
+.ll-type-card.tp-blind + .ll-example-card .tp-wline-word {
+  background: var(--text-secondary); color: transparent;
+  border-radius: 4px; }
+#ll-back-typing {
+  position: fixed; z-index: 1280;
+  padding: 8px 16px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--accent); background: var(--bg-card);
+  color: var(--accent); font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, .15); }
+#ll-back-typing:hover { background: var(--accent); color: #fff; }
 .ll-type-card.tp-blind .tp-ch { color: transparent;
   border-bottom: 2px solid var(--karaoke-rest); }
 .ll-type-card.tp-blind .tp-ch.ok { color: var(--accent);
@@ -1516,6 +1848,13 @@ footer, .gradio-container footer { display: none !important; }
   color: var(--text-secondary); padding: 0 4px; border-radius: 6px;
 }
 .wb-item .wb-del:hover { color: #dc2626; background: var(--bg-card-hover); }
+.wb-item .wb-note-btn {
+  position: absolute; right: 32px; top: 8px; cursor: pointer;
+  padding: 0 4px; border-radius: 6px; font-size: 12px;
+}
+.wb-item .wb-note-btn:hover { background: var(--bg-card-hover); }
+.wb-item .wb-note { font-size: .9em; color: var(--accent);
+  margin-top: 4px; }
 
 /* lyric favorites */
 .fav-list { display: flex; flex-direction: column; gap: 6px;
@@ -1523,8 +1862,8 @@ footer, .gradio-container footer { display: none !important; }
 .fav-item { padding: 8px 12px; border: 1px solid var(--border);
   border-radius: 10px; background: var(--bg-card); cursor: pointer; }
 .fav-item:hover { border-color: var(--accent); }
-.fav-line { font-size: 13px; font-style: italic; color: var(--text-primary); }
-.fav-song { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+.fav-line { font-size: 17px; font-style: italic; color: var(--text-primary); }
+.fav-song { font-size: 14.5px; color: var(--text-secondary); margin-top: 3px; }
 .fav-del { float: right; color: var(--text-secondary); padding: 0 4px; }
 .fav-del:hover { color: #cf222e; }
 
@@ -1544,29 +1883,16 @@ footer, .gradio-container footer { display: none !important; }
 }
 .quiz-meta { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
 
-/* whole-song easter-egg overview (🗺️ 本歌彩蛋总览) */
-.echo-ov-head { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
-.echo-ov-list { max-height: 40vh; overflow-y: auto; scrollbar-width: thin; }
-.echo-ov-item {
-  padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px;
-  background: var(--bg-card); margin-bottom: 6px; cursor: pointer;
-  transition: border-color 0.15s ease;
-}
-.echo-ov-item:hover { border-color: var(--accent); }
-.echo-ov-src { font-size: 13px; font-style: italic; color: var(--text-primary); }
-.echo-ov-dst { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
-.echo-ov-sim { margin-left: 6px; font-size: 11px; color: var(--accent); }
-
 /* ── Card hover ──
    clickable cards lift & brighten; static info cards only brighten
    (no lift = no false affordance); list rows brighten like tracklist rows.
    (.uni-* / .egg-pair live in other CSS constants but share this sheet.) */
-.search-hit, .echo-ov-item, .note-item, .egg-pair,
+.search-hit, .note-item, .egg-pair,
 .echo-card, .uni-char-card, .uni-event, .quiz-line {
   transition: transform 0.2s ease, background 0.2s ease,
     border-color 0.2s ease;
 }
-.search-hit.seekable:hover, .echo-ov-item:hover, .note-item:hover,
+.search-hit.seekable:hover, .note-item:hover,
 .egg-pair:hover {
   transform: translateY(-3px);
   background: var(--bg-card-hover);

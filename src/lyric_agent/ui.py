@@ -2,7 +2,7 @@
 
 页签 1  🎧 播放解读 — 同步歌词、点一句歌词、右侧问 AI 助手
 页签 2  🗺️ 艺术家图谱 — 艺术家演化地图
-页签 3  🥚 彩蛋地图 — 同歌手全曲库歌词互文网络图（含意象追踪）
+页签 3  🕵️ 歌迷考据 — AI 把官方信息/歌词呼应/推测整理成考据故事
 页签 4  📊 曲库洞察 — 每日一句 / 词云 / 情绪地图 / 歌单故事线
 页签 5  🎮 互动   — 歌词竞猜 / 歌名拼图 / 单词练习
 页签 6  ➕ 添加歌曲 — 用户自行添加歌曲（LRC + 元数据 + 可选音频）
@@ -39,7 +39,7 @@ from .debate import DebateSession, speak as ai_speak
 from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
                          remove_word)
 from .archaeology import mine_motifs
-from .evidence import QuoteIndex, parse_claims, render_evidence_card
+from .evidence import QuoteIndex, cite_jump_attrs
 from .ui_helpers import (_ANN_HINT, _file_url, render_annotation_card,
                          render_practice_card, render_wordbook)
 from .lrc_parser import parse_lrc
@@ -60,7 +60,6 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _render_favorites,
     _save_favorites,
     _CHAT_TOPIC_DEFAULT,
-    _ECHO_HINT,
     _ECHO_NO_INDEX,
     _ECHO_OVERVIEW_EMPTY,
     _ECHO_SCAN_CACHE_DIR,
@@ -78,16 +77,14 @@ from .ui_helpers import (  # noqa: F401 — re-exported for cli.py & handlers
     _load_notes,
     _load_song_data,
     _render_chat,
-    _render_echo_html,
     _render_echo_overview,
     _render_intro,
     _render_lyrics_html,
     _render_notes,
-    _render_search_results,
     _save_chat_history,
     _save_notes,
 )
-from .mv_eggs import MV_CSS, MV_EMPTY
+from .fanlore import FANLORE_EMPTY
 from .ui_assets import _CSS, _HEAD_JS
 
 # ── App factory ───────────────────────────────────────────
@@ -95,7 +92,7 @@ from .ui_assets import _CSS, _HEAD_JS
 def launch_kwargs() -> dict:
     """Style/head kwargs for app.launch() (Gradio 6 moved them off Blocks)."""
     return {
-        "css": (_CSS + ECHO_MAP_CSS + MV_CSS),
+        "css": (_CSS + ECHO_MAP_CSS),
         "head": _HEAD_JS,
         "theme": gr.themes.Base(primary_hue="blue", neutral_hue="slate"),
     }
@@ -107,11 +104,14 @@ def create_app(settings: Settings) -> gr.Blocks:
 
     def refresh_library() -> None:
         ctx.pop("overview_html", None)  # library changed -> stale overviews
+        ctx.pop("lyrics_blobs", None)   # 筛选框的歌词索引同步失效
         # hackathon-playlist material is licensed for offline demo only —
         # never expose it on a public deployment
         songs = _discover_songs(
             settings.songs_dir,
-            exclude_sources={HACKATHON_PLAYLIST_SOURCE} if public else None)
+            exclude_sources={HACKATHON_PLAYLIST_SOURCE} if public else None,
+            # 产品定位：英文歌学英语——中文歌默认隐藏（数据保留）
+            exclude_cjk=os.getenv("LL_SHOW_CJK", "") != "1")
         ctx["songs"] = songs
         searcher = LyricsSearcher(songs, model_name=settings.embedding_model,
                                   corpus_dir=settings.corpus_dir)
@@ -163,6 +163,37 @@ def create_app(settings: Settings) -> gr.Blocks:
 
     ctx["kick_autobind"] = _kick_autobind
 
+    def _kick_corpus_rebuild() -> None:
+        """新增歌曲后后台重建语料+embeddings（本地模型，零 LLM），
+        让回声时刻/彩蛋把新歌纳入回声池，无需手跑命令或重启。"""
+        if os.getenv("LL_CORPUS_REBUILD", "1") == "0":
+            return  # probe/tests: keep runs from mutating the real corpus
+        if ctx.get("corpus_rebuilding"):
+            return
+        ctx["corpus_rebuilding"] = True
+
+        def _run() -> None:
+            try:
+                from .intertextuality.corpus import build_corpus
+                from .intertextuality.embeddings import generate_embeddings
+                n_songs, n_lines = build_corpus(
+                    settings.songs_dir, settings.corpus_dir,
+                    catalog_path="data/catalog/catalog.json")
+                generate_embeddings(settings.corpus_dir,
+                                    model_name=settings.embedding_model)
+                # 让 echo 索引下次访问时重新加载（扫描缓存键含
+                # embeddings mtime，自动失效）
+                ctx.pop("echo_index", None)
+                logger.info("corpus rebuilt: %d songs, %d lines",
+                            n_songs, n_lines)
+            except Exception:
+                logger.exception("background corpus rebuild failed")
+            finally:
+                ctx["corpus_rebuilding"] = False
+
+        threading.Thread(target=_run, daemon=True,
+                         name="ll-corpus-rebuild").start()
+
     def song_choice_label(s: dict) -> str:
         # titles are the identity in every handler; when two library songs
         # share a title (cross-artist covers), disambiguate with the artist
@@ -208,15 +239,20 @@ def create_app(settings: Settings) -> gr.Blocks:
             model_name=model,
         )
 
+    _echo_index_lock = threading.Lock()
+
     def _echo_index():
-        if "echo_index" not in ctx:
-            try:
-                from .intertextuality.embeddings import load_embeddings
-                ctx["echo_index"] = load_embeddings(
-                    settings.corpus_dir, settings.embedding_model)
-            except Exception:
-                logger.exception("Intertextuality index unavailable")
-                ctx["echo_index"] = None
+        if "echo_index" in ctx:
+            return ctx["echo_index"]
+        with _echo_index_lock:   # 启动窗口多路并发首查，只加载一份
+            if "echo_index" not in ctx:
+                try:
+                    from .intertextuality.embeddings import load_embeddings
+                    ctx["echo_index"] = load_embeddings(
+                        settings.corpus_dir, settings.embedding_model)
+                except Exception:
+                    logger.exception("Intertextuality index unavailable")
+                    ctx["echo_index"] = None
         return ctx["echo_index"]
 
     def find_echoes(line_text: str, info: dict) -> list[dict] | None:
@@ -263,7 +299,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             settings.embedding_model,
             settings.echo_min_similarity,
             settings.echo_min_similarity_cjk,
-            "tour-v3",  # + target/note; filler-only lines dropped
+            "tour-v5",  # overview: hero 置顶 + 折叠列表
         ]
         cache = ctx.setdefault("echo_maps", {})
         cached = cache.get(song_dir)
@@ -313,7 +349,9 @@ def create_app(settings: Settings) -> gr.Blocks:
             "song": info.get("title", ""),
             "lines": [
                 {"i": ln.line_index, "song": e.song, "sim": e.similarity,
-                 "target": e.line[:80], "note": _note(ln.line_index)}
+                 "target": e.line[:80], "note": _note(ln.line_index),
+                 "ti": e.line_index,
+                 "label": _label_of().get(e.song, "")}
                 for ln, e in hits
             ],
         }, ensure_ascii=False)
@@ -356,7 +394,8 @@ def create_app(settings: Settings) -> gr.Blocks:
     threading.Thread(target=_warm_up, daemon=True,
                      name="ll-warmup").start()
 
-    with gr.Blocks(title="歌词透镜 — AI 歌词批注播放器") as app:
+    with gr.Blocks(title="歌词透镜 — AI 歌词批注播放器",
+                   fill_width=True) as app:
         # per-visitor LLM config, persisted in the visitor's own browser
         user_llm = gr.BrowserState(
             {"api_key": "", "llm_provider": "openai",
@@ -364,7 +403,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             storage_key="lyric_lens_llm")
         gr.HTML(
             '<div class="app-header"><h1>🔍 歌词透镜</h1>'
-            '<p>点一句歌词，问懂一句歌词</p></div>'
+            '<p>听英文歌，点一句歌词问懂它，把生词练会带走</p></div>'
         )
         # backend -> JS: the login role ("admin"/"viewer"); _HEAD_JS hides
         # the management tabs for non-admins (gradio 6 ignores Tab
@@ -373,17 +412,19 @@ def create_app(settings: Settings) -> gr.Blocks:
                               elem_classes=["ll-hidden"], show_label=False,
                               container=False)
 
-        with gr.Tabs() as tabs:
+        with gr.Tabs():
             # ══ 页签 1: 播放解读 ══
             with gr.Tab("🎧 播放解读", id="play"):
                 with gr.Row():
                     # ── 左栏: 歌曲 + 搜索 ──
-                    with gr.Column(scale=1, min_width=230):
+                    with gr.Column(scale=1, min_width=230,
+                                   elem_id="ll-sidebar"):
                         choices = song_choices()
-                        # 黄金路径：默认落在主打歌《晴天》（不在库时回退第一首）
+                        # 黄金路径：默认落在主打歌 cardigan（不在库时回退第一首）
                         default_choice = next(
                             (c for c in choices
-                             if c == "晴天" or c.startswith("晴天 — ")),
+                             if c == "cardigan"
+                             or c.startswith("cardigan — ")),
                             choices[0] if choices else None,
                         )
                         with gr.Accordion(
@@ -392,7 +433,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 open=True, elem_id="ll-songs-acc"):
                             with gr.Row(elem_id="ll-filter-row"):
                                 song_filter = gr.Textbox(
-                                    placeholder="筛选歌名 / 歌手 …",
+                                    placeholder="筛选歌名 / 歌手 / 搜歌词 …",
                                     show_label=False, container=False,
                                     elem_id="ll-song-filter", scale=5)
                                 filter_clear_btn = gr.Button(
@@ -405,47 +446,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 elem_id="ll-songs",
                             )
                         if not public:
-                            with gr.Accordion("🎵 为当前歌曲上传音频", open=False,
-                                              elem_id="ll-audio-up"):
-                                audio_file_up = gr.File(
-                                    label="拖拽 mp3 / wav / flac 文件到这里",
-                                    file_types=[".mp3", ".wav", ".flac",
-                                                ".ogg", ".m4a"])
-                                audio_up_status = gr.Markdown("")
-                            trans_btn = gr.Button(
-                                "🀄 中文翻译对照（英文歌·首次生成调用 LLM，"
-                                "之后永久缓存，可再点关闭）", size="sm")
-                            with gr.Accordion("🎚 歌词时间校准", open=False):
-                                gr.Markdown(
-                                    "歌词快/慢半拍时微调（正值 = 歌词提前）。"
-                                    "拖动即实时预览，满意后保存。", elem_id=None)
-                                offset_slider = gr.Slider(
-                                    minimum=-5000, maximum=5000, step=50,
-                                    value=0, label="偏移 (ms)")
-                                offset_save_btn = gr.Button("保存偏移",
-                                                            size="sm")
-                                offset_status = gr.Markdown("")
-                            # backend -> JS: 偏移实时预览值
-                            offset_box = gr.Textbox(
-                                value="", visible=True,
-                                elem_id="ll-offset-set",
-                                elem_classes=["ll-hidden"], show_label=False,
-                                container=False)
-                            with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
-                                              open=False):
-                                bvid_input = gr.Textbox(
-                                    placeholder="粘贴 BV 号或视频链接；"
-                                                "留空保存 = 解绑",
-                                    show_label=False, container=False)
-                                bvid_save_btn = gr.Button("保存", size="sm")
-                                bvid_status = gr.Markdown("")
-                            # JS -> backend: 视频搜索/候选绑定
-                            # ("search\t<ts>" / "pick\t<bvid>\t<ts>")
-                            bvid_box = gr.Textbox(
-                                value="", visible=True,
-                                elem_id="ll-bvid-act",
-                                elem_classes=["ll-hidden"], show_label=False,
-                                container=False)
                             # delete rides the per-song ⋯ menu (JS):
                             # the menu confirms, then writes the label here
                             del_box = gr.Textbox(
@@ -453,9 +453,20 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 elem_id="ll-del-song",
                                 elem_classes=["ll-hidden"],
                                 show_label=False, container=False)
-                            manage_refresh_btn = gr.Button(
-                                "🔄 刷新曲库（手动增删过歌曲目录后同步）",
-                                size="sm", elem_id="ll-refresh-btn")
+                            # 隐藏通道必须常驻 DOM：之前随工具搬进 ⚙️
+                            # 懒加载子页签后，歌词区按钮写通道静默落空
+                            # backend -> JS: 偏移实时预览值
+                            offset_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-offset-set",
+                                elem_classes=["ll-hidden"],
+                                show_label=False, container=False)
+                            # JS -> backend: 视频 搜索/候选/解绑
+                            bvid_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-bvid-act",
+                                elem_classes=["ll-hidden"],
+                                show_label=False, container=False)
                         sort_mode = gr.Radio(
                             choices=[
                                 ("添加顺序（最早在前）", "added_asc"),
@@ -464,17 +475,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 ("歌手（按字母排序）", "artist_asc"),
                             ],
                             value="added_desc", label="🎛️ 排序")
-                        search_box = gr.Textbox(
-                            label="🔍 全库歌词搜索", elem_id="ll-search")
-                        search_mode = gr.Radio(
-                            choices=[("关键词", "kw"), ("语义", "sem")],
-                            value="kw", show_label=False,
-                        )
-                        with gr.Row():
-                            search_btn = gr.Button("搜索", size="sm", scale=1)
-                            search_clear = gr.Button("✕ 清除", size="sm", scale=1)
-                        search_results = gr.HTML("")
-
                     # ── 中栏: 歌词 ──
                     with gr.Column(scale=3):
                         lyrics_html = gr.HTML("")
@@ -483,12 +483,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                     with gr.Column(scale=2, min_width=320):
                         gr.HTML('<div class="side-panel-title">💬 AI 助手</div>')
                         chat_state = gr.State(None)
-                        ann_html = gr.HTML(_ANN_HINT)
-                        # JS -> backend: 确认后为本句生成批注 ("<idx>	<ts>")
-                        gen_ann_box = gr.Textbox(
-                            value="", visible=True, elem_id="ll-gen-ann",
-                            elem_classes=["ll-hidden"], show_label=False,
-                            container=False)
                         chat_topic = gr.HTML(_CHAT_TOPIC_DEFAULT)
                         chat_html = gr.HTML(_CHAT_HINT)
                         with gr.Row():
@@ -501,29 +495,18 @@ def create_app(settings: Settings) -> gr.Blocks:
                         # on #ll-side-dock)
                         with gr.Tabs(elem_id="ll-side-dock",
                                      elem_classes=["ll-icon-dock"]):
-                            with gr.Tab("🥚"):
-                                with gr.Column(elem_id="ll-echo"):
+                            with gr.Tab("✏️"):
+                                with gr.Column(elem_id="ll-ann"):
                                     gr.HTML('<div class="side-panel-title">'
-                                            '🥚 彩蛋 · 互文追踪</div>')
-                                    echo_state = gr.State(None)
-                                    echo_html = gr.HTML(_ECHO_HINT)
-                                    with gr.Row():
-                                        echo_btn = gr.Button(
-                                            "✨ 让 AI 解释这些呼应",
-                                            size="sm", scale=1)
-                                        echo_card_btn = gr.Button(
-                                            "🖼️ 彩蛋对照卡", size="sm", scale=1)
-                                    echo_out = gr.HTML(
-                                        "", elem_classes=["echo-explain"])
-                                    echo_card_status = gr.Markdown("")
-                                    echo_card_img = gr.Image(
-                                        label="长按/右键保存图片",
-                                        type="filepath", visible=False)
-                            with gr.Tab("🗺️"):
-                                with gr.Column(elem_id="ll-echo-overview"):
-                                    gr.HTML('<div class="side-panel-title">'
-                                            '🗺️ 本歌彩蛋总览</div>')
-                                    echo_overview = gr.HTML(_ECHO_OVERVIEW_EMPTY)
+                                            '✏️ 本句 AI 批注</div>')
+                                    ann_html = gr.HTML(_ANN_HINT)
+                                    # JS -> backend: 确认后为本句生成批注
+                                    # ("<idx>	<ts>")
+                                    gen_ann_box = gr.Textbox(
+                                        value="", visible=True,
+                                        elem_id="ll-gen-ann",
+                                        elem_classes=["ll-hidden"],
+                                        show_label=False, container=False)
                             with gr.Tab("📖"):
                                 with gr.Column(elem_id="ll-intro"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -537,35 +520,17 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     with gr.Column(elem_id="ll-favs"):
                                         gr.HTML('<div class="side-panel-title">'
                                                 '⭐ 歌词收藏夹</div>')
-                                        gr.Markdown(
-                                            "点选左侧一句歌词 → 点下面的按钮收藏。"
-                                            "收藏**只在这首歌**打开时显示。",
-                                            elem_classes=["wb-hint"])
                                         fav_add_btn = gr.Button(
                                             "⭐ 收藏当前选中的歌词", size="sm")
                                         fav_status = gr.Markdown("")
                                         favs_html = gr.HTML(
                                             _render_favorites(_load_favorites()))
-                                        gr.HTML('<div class="side-panel-title" '
-                                                'style="margin-top:14px">'
-                                                '📒 单词本</div>')
-                                        gr.Markdown(
-                                            "**双击**歌词里的英文单词即可查词，"
-                                            "弹窗里点 ⭐ 收藏到这里；"
-                                            "单词**只在收藏它的那首歌**里显示。",
-                                            elem_classes=["wb-hint"])
-                                        wordbook_html = gr.HTML(
-                                            render_wordbook(load_wordbook()))
-                            with gr.Tab("🖼️"):
-                                with gr.Column(elem_id="ll-card"):
+                            with gr.Tab("📒"):
+                                with gr.Column(elem_id="ll-wordbook"):
                                     gr.HTML('<div class="side-panel-title">'
-                                            '🖼️ 分享卡片</div>')
-                                    card_btn = gr.Button("生成歌词金句卡",
-                                                         size="sm")
-                                    card_status = gr.Markdown("")
-                                    card_img = gr.Image(
-                                        label="长按/右键保存图片",
-                                        type="filepath", visible=False)
+                                            '📒 单词本</div>')
+                                    wordbook_html = gr.HTML(
+                                        render_wordbook(load_wordbook()))
                             with gr.Tab("📝"):
                                 with gr.Column(elem_id="ll-notes"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -579,28 +544,43 @@ def create_app(settings: Settings) -> gr.Blocks:
                                         note_add_btn = gr.Button(
                                             "添加", scale=1, size="sm")
                             if not public:
-                                with gr.Tab("📻"):
-                                    with gr.Column(elem_id="ll-radio-acc"):
-                                        gr.HTML('<div class="side-panel-title">'
-                                                '📻 AI 电台</div>')
+                                with gr.Tab("⚙️"):
+                                    with gr.Accordion("🎵 为当前歌曲上传音频", open=False,
+                                                      elem_id="ll-audio-up"):
+                                        audio_file_up = gr.File(
+                                            label="拖拽 mp3 / wav / flac 文件到这里",
+                                            file_types=[".mp3", ".wav", ".flac",
+                                                        ".ogg", ".m4a"])
+                                        audio_up_status = gr.Markdown("")
+                                    with gr.Accordion("🎚 歌词时间校准", open=False):
                                         gr.Markdown(
-                                            "勾选播放器下方的「📻 电台模式」后，"
-                                            "歌曲播完会自动切到下一首；为歌曲生成过"
-                                            "**串场语音**（把「歌曲导读」朗读成"
-                                            " DJ 播报）的话，进歌前会先播报再放歌。")
-                                        radio_gen_btn = gr.Button(
-                                            "🎙️ 为本歌生成串场语音（需先有导读）",
-                                            size="sm")
-                                        radio_status = gr.Markdown("")
+                                            "歌词快/慢半拍时微调（正值 = 歌词提前）。"
+                                            "拖动即实时预览，满意后保存。", elem_id=None)
+                                        offset_slider = gr.Slider(
+                                            minimum=-5000, maximum=5000, step=50,
+                                            value=0, label="偏移 (ms)")
+                                        offset_save_btn = gr.Button("保存偏移",
+                                                                    size="sm")
+                                        offset_status = gr.Markdown("")
+                                    with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
+                                                      open=False):
+                                        bvid_input = gr.Textbox(
+                                            placeholder="粘贴 BV 号或视频链接；"
+                                                        "留空保存 = 解绑",
+                                            show_label=False, container=False)
+                                        bvid_save_btn = gr.Button("保存", size="sm")
+                                        bvid_status = gr.Markdown("")
+                                    trans_btn = gr.Button(
+                                        "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
+                                        "之后永久缓存）", size="sm")
+                                    manage_refresh_btn = gr.Button(
+                                        "🔄 刷新曲库（手动增删过歌曲目录后同步）",
+                                        size="sm", elem_id="ll-refresh-btn")
                         line_pick = gr.Textbox(
                             value="", visible=True, elem_id="ll-line-pick",
                             elem_classes=["ll-hidden"], show_label=False,
                             container=False)
                         # backend -> JS channel: whole-song echo map (🥚 markers)
-                        echo_map_box = gr.Textbox(
-                            value="", visible=True, elem_id="ll-echo-map",
-                            elem_classes=["ll-hidden"], show_label=False,
-                            container=False)
                         # JS -> backend: current audio position (for notes)
                         cur_time_box = gr.Textbox(
                             value="0", visible=True, elem_id="ll-cur-time",
@@ -654,150 +634,115 @@ def create_app(settings: Settings) -> gr.Blocks:
                             container=False)
 
             if not public:
-                with gr.Tab("🔤 歌曲寻词"):
+                with gr.Tab("🔤 歌曲寻词") as review_tab:
                     gr.Markdown(
-                        "打字练收藏的单词（qwerty-learner 式）：看释义"
-                        "和出处歌词盲打单词，**打错一个键整词重来**，"
-                        "练对的字母会亮起；错得多的词会更频繁出现。")
+                        "💡 打错整词重来 · Tab 偷看单词 · "
+                        "Enter 跳过换词 · 点卡片可继续输入；"
+                        "错得多的词会更频繁出现。",
+                        elem_id="ll-review-hint")
+                    with gr.Row():
+                        with gr.Column(scale=3):
+                            review_group_dd = gr.Dropdown(
+                                choices=["全部", "📖 歌词收藏",
+                                     "🔤 单词", "🧩 词组"], value="全部",
+                                label="练习范围", allow_custom_value=True,
+                                elem_id="ll-review-group")
+                        with gr.Column(scale=2,
+                                       elem_id="ll-review-topright"):
+                            review_stats_md = gr.Markdown(
+                                "", elem_id="ll-review-stats")
+                            # 展开时浮在页面上方（CSS absolute），
+                            # 不把下方的单词卡片往下挤
+                            with gr.Accordion("⋯ 导入 / 导出 / 分组管理",
+                                              open=False,
+                                              elem_id="ll-review-more"):
+                                gr.Markdown(
+                                    "**📥 导入单词表**：第 1 列单词，"
+                                    "第 2 列释义、第 3 列音标均可省；"
+                                    "缺释义自动查本地词典补全。"
+                                    "Excel 直接传 .xlsx，或另存为 CSV。")
+                                import_file = gr.File(
+                                    label="选择 .csv / .tsv / .txt / .xlsx",
+                                    file_types=[".csv", ".tsv", ".txt",
+                                                ".xlsx"])
+                                import_group_box = gr.Textbox(
+                                    label="分组名（留空 = 文件名）")
+                                import_btn = gr.Button("📥 导入到单词本",
+                                                       size="sm")
+                                group_del_btn = gr.Button(
+                                    "🗑 删除当前分组", size="sm")
+                                review_export_btn = gr.Button(
+                                    "📤 导出 qwerty-learner 词典",
+                                    size="sm")
+                                anki_export_btn = gr.Button(
+                                    "🗂️ 导出 Anki 牌组", size="sm")
+                                review_download = gr.DownloadButton(
+                                    "⬇️ 下载词典 JSON", visible=False)
+                                anki_download = gr.DownloadButton(
+                                    "⬇️ 下载 Anki TSV", visible=False)
+                                import_status = gr.Markdown("")
+                                review_export_status = gr.Markdown("")
                     review_state = gr.State(
                         {"word": "", "words": 0, "perfect": 0,
-                         "chars": 0, "ms": 0, "queue": []})
+                         "chars": 0, "ms": 0, "queue": [], "group": "全部"})
                     review_html = gr.HTML("")
-                    review_stats_md = gr.Markdown("")
-                    with gr.Row():
+                    with gr.Row(elem_id="ll-review-startrow"):
                         review_start_btn = gr.Button(
-                            "⌨️ 开始 / 换一词", variant="primary",
-                            scale=1)
-                        review_export_btn = gr.Button(
-                            "📤 导出 qwerty-learner 词典", scale=1)
-                        anki_export_btn = gr.Button(
-                            "🗂️ 导出 Anki 牌组", scale=1)
-                    review_download = gr.DownloadButton(
-                        "⬇️ 下载词典 JSON", visible=False)
-                    anki_download = gr.DownloadButton(
-                        "⬇️ 下载 Anki TSV", visible=False)
-                    review_export_status = gr.Markdown("")
-                    # JS -> backend: word done ("word\tmistakes\tms\tts")
+                            "⌨️ 开始 / 换一词", size="sm",
+                            variant="primary", min_width=130)
+                    # JS -> backend: word done ("word	mistakes	ms	ts")
                     review_done_box = gr.Textbox(
                         value="", visible=True,
                         elem_id="ll-review-done",
                         elem_classes=["ll-hidden"], show_label=False,
                         container=False)
 
-            # ══ 页签 3: 彩蛋地图 ══
-            with gr.Tab("🥚 彩蛋地图"):
-                gr.Markdown(
-                    "「彩蛋」= 歌手在不同歌曲里埋下的互相呼应的歌词——"
-                    "同一句话、同一个意象在两首歌里遥相呼应。这个页签把所选歌手的"
-                    "**全部曲库歌曲**两两比对，自动找出这些呼应。"
-                    "默认「⭐ 单曲聚焦」：以一首歌为中心，下方卡片逐对列出呼应歌词；"
-                    "「🕸️ 整体网络」看全貌。歌手选「🌐 跨歌手引用」则只看"
-                    "**不同歌手之间**的呼应（引用/致敬）。"
-                )
-                with gr.Tabs():
-                    with gr.Tab("🗺️ 呼应地图"):
-                        with gr.Row():
-                            map_artist = gr.Dropdown(
-                                choices=[], value=None, label="选择歌手",
-                                # choices arrive via app.load; custom values
-                                # keep direct API calls (self_test) from
-                                # tripping server-side checks
-                                allow_custom_value=True, scale=2,
-                                elem_id="ll-map-artist")
-                            map_focus = gr.Dropdown(
-                                choices=[], value=None,
-                                label="聚焦歌曲（按呼应数排序）",
-                                allow_custom_value=True, scale=3,
-                                elem_id="ll-map-focus")
-                        map_view = gr.Radio(
-                            choices=[("⭐ 单曲聚焦（简明）", "focus"),
-                                     ("🕸️ 整体网络", "net")],
-                            value="focus", show_label=False)
-                        echo_map_html = gr.HTML("")
-                        # JS -> backend: clicked song on the map (refocus)
-                        focus_pick_box = gr.Textbox(
-                            value="", visible=True, elem_id="ll-focus-pick",
-                            elem_classes=["ll-hidden"], show_label=False,
-                            container=False)
-                        map_explain_btn = gr.Button(
-                            "✨ 让 AI 解读这张彩蛋网络", size="sm")
-                        map_explain_out = gr.Markdown(
-                            "", elem_classes=["echo-explain"])
-                    with gr.Tab("🔍 意象追踪"):
-                        gr.Markdown(
-                            "输入一个意象或母题（如：雨、scarf、童年、月光），"
-                            "看它在所选范围的曲库里如何反复出现与演变"
-                            "（按专辑分组）。")
-                        with gr.Row():
-                            imagery_box = gr.Textbox(
-                                show_label=False,
-                                placeholder="输入意象，如：雨 / scarf / 童年",
-                                scale=4, container=False)
-                            imagery_btn = gr.Button("追踪", scale=1,
-                                                    variant="primary")
-                        imagery_html = gr.HTML("")
-                    with gr.Tab("🎬 MV 彩蛋") as mv_tab:
-                        gr.Markdown("选一首歌，AI 整理它官方 MV 的导演、"
-                                    "隐藏细节与歌词呼应（结果按歌缓存）。")
-                        mv_song_dd = gr.Dropdown(
-                            choices=song_choices(), value=None,
-                            label="选择歌曲", allow_custom_value=True,
-                            elem_id="ll-mv-song")
-                        with gr.Column(elem_id="ll-mv"):
-                            mv_html = gr.HTML(MV_EMPTY)
-                        if not public:
-                            mv_btn = gr.Button("🎬 生成 MV 彩蛋", size="sm")
-                        # library may grow while the app runs — refresh the
-                        # song picker whenever this sub-tab is opened
-                        mv_tab.select(
-                            lambda: gr.Dropdown(choices=song_choices()),
-                            None, [mv_song_dd])
-
-                        def _on_mv_song(choice: str, user_cfg):
-                            from .mv_eggs import (load_mv, parse_mv,
-                                                  render_mv_html)
-                            if not choice:
-                                return MV_EMPTY
-                            info = find_song(choice)
-                            model = _request_settings(user_cfg).model_name
-                            cached = load_mv(info["dir"], model)
-                            if cached is None:
-                                return (MV_EMPTY if not public else
-                                        '<div class="chat-empty">该歌曲还没有'
-                                        'MV 彩蛋（公开版不提供现场生成）。</div>')
-                            return render_mv_html(
-                                parse_mv(cached), info.get("title", ""),
-                                info.get("artist", ""),
-                                verifier=_quote_verifier(),
-                                label_of=_label_of(),
-                                video=((choice, info["bvid"])
-                                       if info.get("bvid") else None))
-                        mv_song_dd.change(_on_mv_song, [mv_song_dd, user_llm],
-                                          [mv_html])
-                        # JS -> backend: ⏱ 锚点点击 → 切歌进播放页，
-                        # iframe 定位由 JS 侧完成 ("<label>\t<ts>")
-                        mv_seek_box = gr.Textbox(
-                            value="", visible=True, elem_id="ll-mv-seek",
-                            elem_classes=["ll-hidden"], show_label=False,
-                            container=False)
-
-                        def on_mv_seek(payload: str):
-                            label = (payload or "").split("\t")[0].strip()
-                            if (not label
-                                    or label not in _label_of().values()):
-                                return gr.skip(), gr.skip()
-                            return (gr.Radio(value=label),
-                                    gr.Tabs(selected="play"))
-
-                        mv_seek_box.change(on_mv_seek, [mv_seek_box],
-                                           [song_radio, tabs])
-
             # ══ 页签 5: 互动（竞猜 / 拼图 / 单词练习） ══
             with gr.Tab("🎮 互动"):
                 with gr.Tabs():
-                    with gr.Tab("🎯 歌词竞猜"):
+                    with gr.Tab("🕵️ 歌迷考据") as lore_tab:
+                        gr.Markdown(
+                            "像看粉丝解析视频一样看一首歌：AI 把**官方信息**、曲库"
+                            "检索出的**歌词呼应**和**基于歌词的 AI 推测**整理成一页考据故事。"
+                            "每条线索都带来源标签；歌词引用经曲库程序验证"
+                            "（✅ 可点击跳转，⚠️ 表示未验证）。"
+                        )
+                        with gr.Row():
+                            with gr.Column(scale=3,
+                                           elem_id="ll-lore-main"):
+                                lore_song_dd = gr.Dropdown(
+                                    choices=song_choices(), value=None,
+                                    label="选择歌曲", allow_custom_value=True,
+                                    elem_id="ll-lore-song")
+                                lore_html = gr.HTML(FANLORE_EMPTY)
+                                if not public:
+                                    lore_btn = gr.Button(
+                                        "🕵️ 生成考据故事（调用 1 次 LLM，"
+                                        "之后永久缓存）", size="sm",
+                                        elem_id="ll-lore-gen")
+                            with gr.Column(scale=1, elem_id="ll-lore-chat"):
+                                gr.HTML('<div class="side-panel-title">'
+                                        '💬 AI 助手</div>')
+                                _LORE_CHAT_HINT = ('<div class="chat-empty">考据页'
+                                                   '哪里看不懂，随时在这里问——'
+                                                   'AI 会结合本页内容回答。</div>')
+                                lore_chat_state = gr.State(None)
+                                lore_chat_html = gr.HTML(_LORE_CHAT_HINT)
+                                with gr.Row():
+                                    lore_chat_input = gr.Textbox(
+                                        placeholder="针对本页考据提问 ...",
+                                        show_label=False, scale=4, container=False)
+                                    lore_chat_send = gr.Button(
+                                        "提问", scale=1, variant="primary")
+                        # library may grow while the app runs
+                        lore_tab.select(
+                            lambda: gr.Dropdown(choices=song_choices()),
+                            None, [lore_song_dd])
+                    with gr.Tab("🎯 歌词竞猜"),                             gr.Column(elem_id="ll-quiz-wrap"):
                         gr.Markdown("从你的歌曲列表随机抽一句歌词，"
-                                    "猜猜它出自哪首歌。")
+                                    "猜猜它出自哪首歌。**按 1-4 选选项**、"
+                                    "**Enter 提交答案**，看完答案再按一次 "
+                                    "**Enter 下一题**。")
                         quiz_state = gr.State(
                             {"score": 0, "total": 0, "answer": ""})
                         quiz_html = gr.HTML(
@@ -810,10 +755,12 @@ def create_app(settings: Settings) -> gr.Blocks:
                             quiz_new_btn = gr.Button("🎲 开始 / 下一题",
                                                      variant="primary", scale=1)
                             quiz_submit_btn = gr.Button("提交答案", scale=1)
-                        quiz_result = gr.Markdown("")
-                    with gr.Tab("🧩 歌名拼图"):
+                        quiz_result = gr.HTML("", elem_id="ll-quiz-result")
+                    with gr.Tab("🧩 歌名拼图"),                             gr.Column(elem_id="ll-blank-wrap"):
                         gr.Markdown("歌名被挖掉了一块——从选项里把它"
-                                    "拼回完整。")
+                                    "拼回完整。**按 1-4 选选项**、"
+                                    "**Enter 提交**，看完答案再按一次 "
+                                    "**Enter 下一题**。")
                         blank_state = gr.State(
                             {"score": 0, "total": 0, "answer": "", "reveal": ""})
                         blank_html = gr.HTML(
@@ -826,7 +773,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                             blank_new_btn = gr.Button("🧩 来一题",
                                                       variant="primary", scale=1)
                             blank_submit_btn = gr.Button("🧩 拼好了", scale=1)
-                        blank_result = gr.Markdown("")
+                        blank_result = gr.Markdown("", elem_id="ll-blank-result")
             # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
             if not public:
                 with gr.Tab("➕ 添加歌曲"):
@@ -837,28 +784,30 @@ def create_app(settings: Settings) -> gr.Blocks:
                         f"搜索会同时覆盖**内置曲库（{len(catalog)} 首）"
                         "**和**你已添加的歌**；已在列表里的会标注"
                         "「✓ 已在列表」且不可重复勾选。勾选一首或多首后"
-                        "一键添加。"
+                        "一键添加。",
+                        elem_id="ll-add-head",
                     )
-                    cat_search = gr.Textbox(
-                        label="搜索曲库（歌名 / 歌手 / 专辑）", elem_id="ll-cat-search")
-                    with gr.Row():
-                        cat_all_btn = gr.Button("☑️ 全选", size="sm", scale=1)
-                        cat_none_btn = gr.Button("⬜ 取消全选", size="sm", scale=1)
-                    cat_radio = gr.CheckboxGroup(
-                        choices=cat_labels, value=[],
-                        label=f"曲库歌曲（{len(cat_labels)} 首）",
-                        elem_id="ll-catalog")
-                    cat_add_btn = gr.Button("＋ 添加勾选的歌曲", variant="primary")
+                    with gr.Accordion(
+                            f"📚 从内置曲库挑选（{len(cat_labels)} 首）",
+                            open=False):
+                        cat_search = gr.Textbox(
+                            label="搜索曲库（歌名 / 歌手 / 专辑）",
+                            elem_id="ll-cat-search")
+                        with gr.Row():
+                            cat_all_btn = gr.Button("☑️ 全选", size="sm",
+                                                    scale=1)
+                            cat_none_btn = gr.Button("⬜ 取消全选", size="sm",
+                                                     scale=1)
+                        cat_radio = gr.CheckboxGroup(
+                            choices=cat_labels, value=[],
+                            label=f"曲库歌曲（{len(cat_labels)} 首）",
+                            elem_id="ll-catalog")
+                        cat_add_btn = gr.Button("＋ 添加勾选的歌曲",
+                                                variant="primary")
                     add_status = gr.Markdown("", elem_classes=["add-status"])
                     add_state = gr.State("")  # last added song dir name
-                    gen_btn = gr.Button("🪄 为刚添加的歌曲生成 AI 批注（需 API Key，耗时约 1-3 分钟）")
 
                     with gr.Accordion("✍️ 手动添加曲库以外的歌曲", open=False):
-                        gr.Markdown(
-                            "**只有「歌曲标题」是必填项**，其余全部可以留空。\n"
-                            "不填歌词时，会根据歌名和歌手自动尝试从 LRCLIB 获取带时间戳的歌词；"
-                            "获取失败则先创建占位歌词，之后可随时编辑歌曲目录下的 `lyrics.lrc`。"
-                        )
                         with gr.Row():
                             add_title = gr.Textbox(label="歌曲标题（必填）",
                                                    elem_id="ll-add-title")
@@ -889,58 +838,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                     "计入；按模型方计费口径为准）。")
                         usage_md = gr.Markdown("")
                         usage_refresh_btn = gr.Button("🔄 刷新", size="sm")
-                        with gr.Accordion("💰 设置单价（看金额用）",
-                                          open=False):
-                            gr.Markdown("填你服务商计费页上的单价"
-                                        "（元/百万 tokens），按模型保存。")
-                            with gr.Row():
-                                price_model = gr.Dropdown(
-                                    choices=[], value=None, label="模型",
-                                    allow_custom_value=True, scale=2)
-                                price_in = gr.Number(
-                                    label="输入单价", value=None, scale=1)
-                                price_out = gr.Number(
-                                    label="输出单价", value=None, scale=1)
-                            price_save_btn = gr.Button("保存单价", size="sm")
-
-                        _PRICES_PATH = Path("data/cache/llm_prices.json")
-
-                        def _load_prices() -> dict:
-                            try:
-                                return json.loads(_PRICES_PATH.read_text(
-                                    encoding="utf-8"))
-                            except (OSError, ValueError):
-                                return {}
-
-                        def on_price_models():
-                            from .llm import load_usage
-                            models = sorted(load_usage().get("models", {}))
-                            return gr.Dropdown(
-                                choices=models,
-                                value=models[-1] if models else None)
-
-                        def on_price_save(model, pin, pout):
-                            model = (model or "").strip()
-                            if not model or pin is None or pout is None:
-                                gr.Warning("模型名和两个单价都要填。")
-                                return gr.skip()
-                            prices = _load_prices()
-                            prices[model] = {"in": float(pin),
-                                             "out": float(pout)}
-                            _PRICES_PATH.parent.mkdir(parents=True,
-                                                      exist_ok=True)
-                            _PRICES_PATH.write_text(
-                                json.dumps(prices, ensure_ascii=False,
-                                           indent=1), encoding="utf-8")
-                            gr.Info(f"💰 已保存 {model} 的单价。")
-                            return on_usage_refresh()
-
-                        price_save_btn.click(
-                            on_price_save,
-                            [price_model, price_in, price_out], [usage_md])
-                        usage_refresh_btn.click(on_price_models, None,
-                                                [price_model])
-                        app.load(on_price_models, None, [price_model])
 
                         def on_usage_refresh():
                             from .llm import load_usage
@@ -948,46 +845,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                             tot = u.get("total", {})
                             if not tot.get("calls"):
                                 return "还没有任何 LLM 调用记录。"
-                            # 单价表（服务商/中转价格差异大，不内置猜测）：
-                            # data/cache/llm_prices.json
-                            # {"模型名": {"in": 元/百万输入, "out": 元/百万输出}}
-                            try:
-                                prices = json.loads(Path(
-                                    "data/cache/llm_prices.json"
-                                ).read_text(encoding="utf-8"))
-                            except (OSError, ValueError):
-                                prices = {}
-
-                            def _cost(model, b):
-                                p = prices.get(model)
-                                if not p:
-                                    return "—"
-                                yuan = (b.get("input_tokens", 0)
-                                        * p.get("in", 0)
-                                        + b.get("output_tokens", 0)
-                                        * p.get("out", 0)) / 1_000_000
-                                return f"¥{yuan:.4f}"
-
                             day = time.strftime("%Y-%m-%d")
                             today = u.get("days", {}).get(day, {})
-                            rows = ["| | 调用 | 输入 tokens | 输出 tokens | 费用 |",
-                                    "|---|---|---|---|---|"]
+                            rows = ["| | 调用 | 输入 tokens | 输出 tokens |",
+                                    "|---|---|---|---|"]
                             for label, b in (("今天", today), ("累计", tot)):
                                 rows.append(
                                     f"| {label} | {b.get('calls', 0)} | "
                                     f"{b.get('input_tokens', 0):,} | "
-                                    f"{b.get('output_tokens', 0):,} | — |")
+                                    f"{b.get('output_tokens', 0):,} |")
                             for model, b in sorted(
                                     u.get("models", {}).items()):
                                 rows.append(
                                     f"| `{model}` | {b.get('calls', 0)} | "
                                     f"{b.get('input_tokens', 0):,} | "
-                                    f"{b.get('output_tokens', 0):,} | "
-                                    f"{_cost(model, b)} |")
-                            if not prices:
-                                rows.append(
-                                    "\n💡 想看金额：在下方「💰 设置单价」里"
-                                    "选模型、填两个数、保存即可。")
+                                    f"{b.get('output_tokens', 0):,} |")
                             return "\n".join(rows)
 
                         usage_refresh_btn.click(on_usage_refresh, None,
@@ -1057,20 +929,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                             rebuild_btn = gr.Button(
                                 "🔨 重建语料库索引（含新添加的歌曲）")
                             rebuild_status = gr.Markdown("")
-                        with gr.Tab("🧪"):
-                            gr.Markdown(
-                                "### 🧪 UI 自检（开发者）\n"
-                                "启动一个**独立的**巡检服务器实例，"
-                                "用真实浏览器逐页签走查 22+ 项交互"
-                                "（含 JS 报错与服务端异常收集），约 2-3 分钟。"
-                                "发现问题后可在终端运行 "
-                                "`python scripts/ui_agent.py` 进入自动修复闭环"
-                                "（改代码需重启，故修复环节不在网页内进行）。"
-                            )
-                            probe_btn = gr.Button("🧪 运行 UI 巡检")
-                            probe_out = gr.Markdown("")
-                            probe_table = gr.HTML("")
-
         # ── Handlers ──
 
         def _collections_for(title: str) -> tuple:
@@ -1083,8 +941,7 @@ def create_app(settings: Settings) -> gr.Blocks:
         def on_song_select(choice: str):
             if not ctx["songs"]:
                 return ("", None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
-                        None, _ECHO_HINT, "", "", gr.Image(visible=False),
-                        _INTRO_EMPTY, "", gr.Image(visible=False),
+                        _INTRO_EMPTY,
                         _render_notes([]), _ANN_HINT) + _collections_for("")
             info = find_song(choice)
             audio = resolve_audio(info["dir"])
@@ -1093,27 +950,21 @@ def create_app(settings: Settings) -> gr.Blocks:
             lyrics = _render_lyrics_html(data, info, public=public)
             intro = _render_intro(_load_intro(info["dir"]))
             return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
-                    None, _ECHO_HINT, "", "", gr.Image(visible=False),
-                    intro, "", gr.Image(visible=False), _notes_for(info),
+                    intro, _notes_for(info),
                     _ANN_HINT) + _collections_for(info["title"])
 
         song_outputs = [lyrics_html, chat_state, chat_topic, chat_html,
-                        echo_state, echo_html, echo_out, card_status, card_img,
-                        intro_html, echo_card_status, echo_card_img, notes_html,
+                        intro_html, notes_html,
                         ann_html]
         if not public:
             # the two per-song collections re-render on every song switch
             song_outputs += [favs_html, wordbook_html]
 
-        def on_echo_map(choice: str) -> tuple[str, str]:
-            if not ctx["songs"]:
-                return "", _ECHO_OVERVIEW_EMPTY
-            return build_echo_map(find_song(choice))
 
-        song_radio.change(on_song_select, [song_radio], song_outputs).then(
-            on_echo_map, [song_radio], [echo_map_box, echo_overview])
+        song_radio.change(on_song_select, [song_radio], song_outputs)
 
         # ── 彩蛋地图（歌手级互文网络）──
+
 
         def _corpus_artists() -> list[str]:
             """Distinct primary artists in the corpus (display-name order)."""
@@ -1128,242 +979,211 @@ def create_app(settings: Settings) -> gr.Blocks:
                     names.setdefault(key, line.artist)
             return sorted(names.values(), key=str.lower)
 
-        # dropdown sentinel for the cross-artist (references between artists) mode
-        _CROSS_ARTIST_CHOICE = "🌐 跨歌手引用（全部歌手）"
+        # ── 🕵️ 歌迷考据 ──
 
-        _GRAPH_CACHE_DIR = Path("data/cache/echo_graphs")
+        def _render_lore(info: dict) -> str:
+            from .fanlore import (load_fanlore, parse_fanlore,
+                                  render_fanlore_html)
+            cached = load_fanlore(info["dir"])
+            if cached is None:
+                return (FANLORE_EMPTY if not public else
+                        '<div class="chat-empty">该歌曲还没有考据'
+                        '（公开版不提供现场生成）。</div>')
+            return render_fanlore_html(
+                parse_fanlore(cached), info.get("title", ""),
+                verifier=_quote_verifier(), label_of=_label_of())
 
-        def _graph_cache_key(choice: str) -> list:
-            corpus_p = Path(settings.corpus_dir) / "discography.jsonl"
-            emb_p = Path(settings.corpus_dir) / "embeddings.npy"
-            return [
-                corpus_p.stat().st_mtime if corpus_p.exists() else 0,
-                emb_p.stat().st_mtime if emb_p.exists() else 0,
-                settings.embedding_model,
-                settings.echo_min_similarity,
-                settings.echo_min_similarity_cjk,
-                settings.echo_map_max_nodes,
-                sorted(s["title"] for s in ctx["songs"]),
-                choice,
-            ]
+        # 生成放后台线程 + 定时器轮询取结果：长 LLM 调用的最后一个 yield
+        # 在长连接上经常送不到（SSE 断/用户刷新），同步阻塞还会在重启时
+        # 白白丢掉整次调用（CLAUDE.md「长耗时 LLM 调用的交付铁律」）
+        _LORE_WAIT = ('<div class="chat-empty">🕵️ AI 正在整理这首歌的'
+                      '官方信息、歌词呼应与 AI 推测——生成在服务器后台'
+                      '进行，切歌/刷新页面都不会中断；慢的模型可能要一两'
+                      '分钟，完成后本页自动显示结果。</div>')
 
-        def _map_graph(choice: str):
-            """Build (or fetch cached) EchoGraph + rendered HTML for a choice.
+        def _lore_state(song_dir: str) -> dict | None:
+            return (ctx.get("lore_inflight") or {}).get(song_dir)
 
-            Two cache layers: per-session memory, then disk — the
-            cross-artist graph costs 10-20s to build, and the disk layer
-            (echo-scan pattern: mtimes + model + thresholds in the key)
-            survives server restarts."""
-            index = _echo_index()
-            if index is None:
-                return None, _ECHO_NO_INDEX
-            cache = ctx.setdefault("echo_graphs", {})
-            if choice not in cache:
-                from .intertextuality.echo_map import (
-                    build_echo_graph, graph_from_dict, graph_to_dict,
-                    render_echo_map_html)
-                key = _graph_cache_key(choice)
-                slug = re.sub(r"[^\w\u4e00-\u9fff-]+", "_", choice)
-                disk = _GRAPH_CACHE_DIR / f"{slug}.json"
-                graph = None
-                try:
-                    saved = json.loads(disk.read_text(encoding="utf-8"))
-                    if saved.get("key") == key:
-                        graph = graph_from_dict(saved["graph"])
-                except (OSError, ValueError, KeyError, TypeError):
-                    graph = None
-                if graph is None:
-                    embeddings, corpus = index
-                    artist = (None if choice == _CROSS_ARTIST_CHOICE
-                              else choice)
-                    graph = build_echo_graph(
-                        embeddings, corpus, artist,
-                        min_similarity=settings.echo_min_similarity,
-                        min_similarity_cjk=settings.echo_min_similarity_cjk,
-                        max_nodes=settings.echo_map_max_nodes,
-                        library_titles={s["title"] for s in ctx["songs"]},
-                    )
-                    try:
-                        _GRAPH_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-                        disk.write_text(
-                            json.dumps({"key": key,
-                                        "graph": graph_to_dict(graph)},
-                                       ensure_ascii=False),
-                            encoding="utf-8")
-                    except OSError:
-                        logger.warning("echo graph cache write failed",
-                                       exc_info=True)
-                cache[choice] = (graph, render_echo_map_html(graph))
-            return cache[choice]
+        def on_lore_song(choice: str):
+            # 切歌：换内容 + 重置右侧助手会话
+            info = find_song(choice) if choice else {}
+            if not info.get("dir"):
+                return FANLORE_EMPTY, None, _LORE_CHAT_HINT
+            st = _lore_state(info["dir"])
+            html = (_LORE_WAIT if st and st.get("status") == "running"
+                    else _render_lore(info))
+            return html, None, _LORE_CHAT_HINT
 
-        def _render_map(artist: str, view: str, focus: str) -> str:
-            graph, net_html = _map_graph(artist)
-            if graph is None or view == "net":
-                return net_html
-            from .intertextuality.echo_map import render_focus_html
-            return render_focus_html(graph, focus or "")
+        lore_song_dd.change(on_lore_song, [lore_song_dd],
+                            [lore_html, lore_chat_state, lore_chat_html])
 
-        def _focus_dd(graph, preferred: str | None = None):
-            """Focus dropdown update + effective focus value for a graph."""
-            if graph is None:
-                return gr.Dropdown(choices=[], value=None), ""
-            from .intertextuality.echo_map import focus_choices
-            songs = focus_choices(graph)
-            value = preferred if preferred in songs else \
-                (songs[0] if songs else None)
-            return gr.Dropdown(choices=songs, value=value), value or ""
+        def _lore_session(choice: str):
+            """助手会话：把本页考据内容作为上下文（无考据时退回歌名）。"""
+            info = find_song(choice) if choice else {}
+            if not info.get("dir"):
+                return None
+            from .fanlore import load_fanlore, parse_fanlore
+            cached = load_fanlore(info["dir"])
+            ctx_txt = ""
+            if cached is not None:
+                f = parse_fanlore(cached)
+                bits = []
+                if f.hook:
+                    bits.append(f"一句话看懂：{f.hook}")
+                bits += [f"线索[{c.type}]{c.title}：{c.body}"
+                         for c in f.clues]
+                if f.chain:
+                    bits.append("剧情推测链：" + " → ".join(
+                        f"《{s}》（{b}）" for s, b in f.chain))
+                if f.summary:
+                    bits.append(f"总结：{f.summary}")
+                ctx_txt = ("用户正在看的考据页内容：\n"
+                           + "\n".join(bits))[:1500]
+            return DebateSession(
+                lyric_line="（用户在看这首歌的考据页，可能就页面任何内容提问）",
+                song_title=info.get("title", ""),
+                artist=info.get("artist", ""),
+                annotation_context=ctx_txt)
 
-        def on_map_artist(artist: str, view: str):
-            if not artist:
-                return gr.skip(), "", ""
-            graph, _net = _map_graph(artist)
-            dd, focus = _focus_dd(graph)
-            # switching scope also resets the AI interpretation
-            return dd, _render_map(artist, view, focus), ""
-
-        def on_map_view(view: str, artist: str, focus: str):
-            return (gr.Dropdown(visible=view == "focus"),
-                    _render_map(artist, view, focus))
-
-        def on_map_focus(focus: str, artist: str, view: str) -> str:
-            return _render_map(artist, view, focus)
-
-        def init_echo_map(choice: str):
-            """Populate the dropdowns; default to the current song's artist
-            and, when possible, focus on the current song itself."""
-            artists = _corpus_artists()
-            if not artists:
-                return (gr.Dropdown(choices=[], value=None),
-                        gr.Dropdown(choices=[], value=None), _ECHO_NO_INDEX)
-            from .intertextuality.search import artist_matches
-            info = find_song(choice) if ctx["songs"] else {}
-            current = info.get("artist", "")
-            value = next(
-                (a for a in artists if current and artist_matches(a, current)),
-                artists[0])
-            graph, _net = _map_graph(value)
-            dd, focus = _focus_dd(graph, preferred=info.get("title"))
-            all_choices = artists + [_CROSS_ARTIST_CHOICE]
-            return (gr.Dropdown(choices=all_choices, value=value),
-                    dd, _render_map(value, "focus", focus))
-
-        def on_focus_pick(payload: str, artist: str):
-            """Map-node click: refocus on that song (and switch to focus view)."""
-            song = (payload or "").split("\t")[0].strip()
-            if not song or not artist:
-                return gr.skip(), gr.skip(), gr.skip()
-            graph, _net = _map_graph(artist)
-            if graph is None:
-                return gr.skip(), gr.skip(), gr.skip()
-            from .intertextuality.echo_map import focus_choices
-            songs = focus_choices(graph)
-            if song not in songs:
-                return gr.skip(), gr.skip(), gr.skip()
-            # visible=True: the click may arrive from the network view,
-            # where the focus dropdown is hidden
-            return (gr.Dropdown(choices=songs, value=song, visible=True),
-                    gr.Radio(value="focus"),
-                    _render_map(artist, "focus", song))
-
-        # .change (not .input): .input silently drops events for some
-        # components in this gradio build. init_echo_map's programmatic
-        # updates DO re-trigger these handlers now; on_map_artist recomputes
-        # the same default focus it was given, so the net render is identical
-        # shared concurrency_id: these four all repaint echo_map_html.
-        # Without it gradio may run them in parallel, and a slow render
-        # (first cross-artist build) can finish AFTER a fast one and paint
-        # a stale graph over the fresh one.
-        map_artist.change(on_map_artist, [map_artist, map_view],
-                         [map_focus, echo_map_html, map_explain_out],
-                         concurrency_id="echo-map")
-        map_view.change(on_map_view, [map_view, map_artist, map_focus],
-                       [map_focus, echo_map_html],
-                       concurrency_id="echo-map")
-        map_focus.change(on_map_focus, [map_focus, map_artist, map_view],
-                        [echo_map_html],
-                        concurrency_id="echo-map")
-        focus_pick_box.change(on_focus_pick, [focus_pick_box, map_artist],
-                              [map_focus, map_view, echo_map_html],
-                              concurrency_id="echo-map")
-        app.load(init_echo_map, [song_radio],
-                 [map_artist, map_focus, echo_map_html])
-
-        def on_map_explain(artist: str, user_cfg):
-            """LLM interpretation of the strongest pairs on the current map."""
-            if not artist:
-                yield "⚠️ 请先选择歌手。"
+        def on_lore_chat(session, user_text: str, choice: str, user_cfg):
+            text = (user_text or "").strip()
+            if not text:
+                yield session, gr.skip(), user_text
                 return
-            graph, _html = _map_graph(artist)
-            if graph is None or not graph.edges:
-                yield "⚠️ 当前范围没有可解读的彩蛋呼应。"
+            if session is None:
+                session = _lore_session(choice)
+            if session is None:
+                yield (None, '<div class="chat-empty">请先选择一首歌。</div>',
+                       user_text)
                 return
             req_settings = _request_settings(user_cfg)
             if public and not req_settings.api_key:
-                yield _PUBLIC_KEY_HINT
+                yield (session, _render_chat(session, live=_PUBLIC_KEY_HINT),
+                       user_text)
                 return
-            yield "🤔 AI 正在解读这张彩蛋网络……"
-            pair_lines = "\n".join(
-                f"- 《{e.song_a}》↔《{e.song_b}》（{e.count} 处呼应）："
-                f"“{e.example.line_a}” ↔ “{e.example.line_b}”"
-                f"（相似度 {e.example.similarity}）"
-                for e in graph.edges[:8]
-            )
-            scope = graph.artist or "多位歌手之间（跨歌手引用）"
-            user_msg = (
-                f"检索范围：{scope}\n"
-                f"以下是曲库中呼应最强的歌曲对及代表歌词：\n{pair_lines}\n\n"
-                "请从歌词创作的角度解读这张互文网络：哪些是真正有意味的呼应"
-                "（重复意象、母题、自我引用或跨歌手致敬），哪些只是字面撞车？"
-                "指出 2-3 条最值得听众注意的线索，用简体中文，200 字以内。"
-            )
-            from .llm import LLMClient
-            try:
-                resp = LLMClient(req_settings).generate(
-                    system_prompt=("你是精通歌词文本分析的音乐评论人，"
-                                   "用简体中文回答，简洁自然。"),
-                    user_message=user_msg,
-                )
-                yield (resp.reply_text or "").strip() or "⚠️ AI 未返回内容，请重试。"
-            except Exception as exc:
-                logger.exception("Map explain failed")
-                yield f"⚠️ LLM 调用失败：{str(exc)[:200]}"
+            session.history.append({"speaker": "user", "text": text})
+            partial = ""
+            for delta in ai_speak(req_settings, session, "assistant",
+                                  user_prompt=text):
+                partial += delta
+                yield session, _render_chat(session, live=partial), ""
+            if partial and session.history \
+                    and session.history[-1]["speaker"] == "user":
+                session.history.append({"speaker": "🤖 AI 助手",
+                                        "text": partial})
+            yield session, _render_chat(session), ""
 
-        map_explain_btn.click(on_map_explain, [map_artist, user_llm],
-                              [map_explain_out])
+        lore_chat_send.click(
+            on_lore_chat,
+            [lore_chat_state, lore_chat_input, lore_song_dd, user_llm],
+            [lore_chat_state, lore_chat_html, lore_chat_input])
+        lore_chat_input.submit(
+            on_lore_chat,
+            [lore_chat_state, lore_chat_input, lore_song_dd, user_llm],
+            [lore_chat_state, lore_chat_html, lore_chat_input])
 
-        # ── 意象追踪 ──
+        if not public:
+            def _lore_generate_bg(info: dict, req) -> None:
+                """Daemon-thread worker: LLM call + disk cache; the timer
+                below delivers the result to whoever is looking."""
+                from .fanlore import fanlore_messages, save_fanlore
+                flight = ctx.setdefault("lore_inflight", {})
+                try:
+                    # 曲库呼应 = 喂给模型的硬证据
+                    payload, _ov = build_echo_map(info)
+                    try:
+                        lines = (json.loads(payload).get("lines", [])
+                                 if payload else [])
+                    except ValueError:
+                        lines = []
+                    data = _load_song_data(info["dir"])
+                    by_idx = {ln.line_index: ln.text
+                              for ln in data["timed_lines"]}
+                    pairs = [(by_idx.get(o["i"], ""), o["song"],
+                              o.get("target", ""))
+                             for o in sorted(
+                                 lines,
+                                 key=lambda o: -o.get("sim", 0))[:5]]
+                    from .intertextuality.search import artist_matches
+                    titles = [s["title"] for s in ctx["songs"]
+                              if artist_matches(info.get("artist", ""),
+                                                s.get("artist", ""))]
+                    system, user_msg = fanlore_messages(
+                        info.get("title", ""), info.get("artist", ""),
+                        info.get("album", ""), info.get("year"),
+                        echo_pairs=pairs, library_titles=titles)
+                    from .llm import LLMClient
 
-        def on_imagery(query: str, artist: str) -> str:
-            index = _echo_index()
-            if index is None:
-                return _ECHO_NO_INDEX
-            query = (query or "").strip()
-            from .intertextuality.echo_map import render_imagery_timeline
-            if not query:
-                return render_imagery_timeline("", [], artist="")
-            from .intertextuality.search import trace_imagery
-            embeddings, corpus = index
-            scope = None if (not artist or artist == _CROSS_ARTIST_CHOICE) \
-                else artist
-            hits = trace_imagery(
-                query, embeddings, corpus,
-                model_name=settings.embedding_model,
-                artist=scope,
-                min_similarity=settings.echo_search_min_similarity,
-                min_similarity_cjk=settings.echo_search_min_similarity_cjk,
-            )
-            # album chronology where known (era registry), alphabetical otherwise
-            from .evolution.engine import ERA_REGISTRY
-            album_order = {
-                album.lower(): idx
-                for idx, era in enumerate(ERA_REGISTRY)
-                for album in era.get("albums", [])
-            }
-            return render_imagery_timeline(
-                query, hits, album_order=album_order, artist=scope or "")
+                    buf: list[str] = []
 
-        imagery_btn.click(on_imagery, [imagery_box, map_artist], [imagery_html])
-        imagery_box.submit(on_imagery, [imagery_box, map_artist], [imagery_html])
+                    def _on_delta(piece: str) -> None:
+                        # 流式进度：timer 把它实时刷到页面，像聊天一样能
+                        # 看到模型在动（JSON 半成品不直接展示，翻译成人话）
+                        from .fanlore import progress_stage
+                        buf.append(piece)
+                        s = "".join(buf)
+                        flight[info["dir"]] = {
+                            "status": "running",
+                            "progress": progress_stage(s),
+                            "chars": len(s),
+                        }
+
+                    verdict = LLMClient(req).generate_json(
+                        system, user_msg, on_text_delta=_on_delta)
+                    save_fanlore(info["dir"], verdict, req.model_name)
+                    flight[info["dir"]] = {"status": "done"}
+                except Exception as exc:
+                    logger.exception("fanlore generation failed")
+                    flight[info["dir"]] = {"status": "error",
+                                           "msg": str(exc)[:150]}
+
+            def on_gen_lore(choice: str, user_cfg):
+                from .fanlore import load_fanlore
+                info = find_song(choice) if choice else {}
+                if not info.get("dir"):
+                    return '<div class="chat-empty">⚠️ 请先选择一首歌。</div>'
+                if load_fanlore(info["dir"]) is not None:
+                    return _render_lore(info)   # 已有缓存：零调用直接展示
+                st = _lore_state(info["dir"])
+                if st and st.get("status") == "running":
+                    return _LORE_WAIT           # 已在生成，别重复起线程
+                req = _request_settings(user_cfg)
+                if not req.api_key:
+                    return ('<div class="chat-empty">⚠️ 未配置 API Key，'
+                            '无法生成。请到「⚙️ 设置」页签填写。</div>')
+                ctx.setdefault("lore_inflight", {})[info["dir"]] = \
+                    {"status": "running"}
+                threading.Thread(target=_lore_generate_bg,
+                                 args=(dict(info), req), daemon=True,
+                                 name="ll-fanlore").start()
+                return _LORE_WAIT
+
+            lore_btn.click(on_gen_lore, [lore_song_dd, user_llm],
+                           [lore_html])
+
+            # 轮询交付：只在状态翻转（done/error）时各刷一次 UI
+            lore_timer = gr.Timer(2.0)
+
+            def on_lore_tick(choice: str):
+                info = find_song(choice) if choice else {}
+                st = _lore_state(info.get("dir", ""))
+                if not info.get("dir") or not st:
+                    return gr.skip()
+                if st.get("status") == "done":
+                    ctx["lore_inflight"].pop(info["dir"], None)
+                    return _render_lore(info)
+                if st.get("status") == "error":
+                    ctx["lore_inflight"].pop(info["dir"], None)
+                    return (f'<div class="chat-empty">⚠️ 生成失败：'
+                            f'{_esc(st.get("msg", ""))}</div>')
+                if st.get("chars"):   # 流式进度实时可见
+                    return ('<div class="chat-empty">🕵️ '
+                            f'{_esc(st.get("progress", "正在生成"))}…'
+                            f'（已生成 {st["chars"]} 字 · 后台进行，'
+                            '切歌/刷新不中断）</div>')
+                return gr.skip()
+
+            lore_timer.tick(on_lore_tick, [lore_song_dd], [lore_html])
 
         # ── 歌词竞猜 ──
 
@@ -1387,7 +1207,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                         '<div class="chat-empty">歌曲列表至少需要 2 首歌'
                         '才能出题。</div>',
                         gr.Radio(choices=[], visible=False), "")
-            state = dict(state or {}, answer=q.answer)
+            state = dict(state or {}, answer=q.answer,
+                         line_index=q.line_index)
             passage = _esc(q.line).replace("\n", "<br>")
             html_q = (f'<div class="quiz-line">“{passage}”</div>'
                       f'<div class="quiz-meta">歌手：{_esc(q.artist)}</div>')
@@ -1404,12 +1225,19 @@ def create_app(settings: Settings) -> gr.Blocks:
             state["total"] = state.get("total", 0) + 1
             if choice == answer:
                 state["score"] = state.get("score", 0) + 1
-                verdict = f"✅ 答对了！正是《{answer}》。"
+                verdict = f"✅ 答对了！正是《{_esc(answer)}》。"
             else:
-                verdict = f"❌ 不对，这句出自《{answer}》。"
+                verdict = f"❌ 不对，这句出自《{_esc(answer)}》。"
+            # 「去听这句」：跳到对应歌曲的那一行（复用 cite 跳转委托，
+            # cite-go-play 让委托顺带切回播放页）
+            label = _label_of().get(answer, "")
+            jump = (f' <button class="ptool cite-go-play"'
+                    f'{cite_jump_attrs(label, state.get("line_index", -1))}>'
+                    '🎧 去听这句</button>' if label else "")
             state["answer"] = ""  # one submission per question
-            return (state, f"{verdict}　当前战绩 "
-                    f"**{state.get('score', 0)} / {state['total']}**")
+            return (state, f'<div>{verdict}{jump}　当前战绩 '
+                    f'<b>{state.get("score", 0)} / {state["total"]}</b>'
+                    '</div>')
 
         quiz_new_btn.click(on_quiz_new, [quiz_state],
                            [quiz_state, quiz_html, quiz_options, quiz_result])
@@ -1478,9 +1306,22 @@ def create_app(settings: Settings) -> gr.Blocks:
                              f"{s['mastered']} 熟练")
                 return " ｜ ".join(parts)
 
-            def _review_next(state, exclude: str = ""):
+            def _review_next(state, exclude: str = "",
+                             group: str = "全部"):
                 from .review import round_queue, synthesize_word
                 book = load_wordbook()
+                if group == "📖 歌词收藏":
+                    book = [e for e in book if not e.get("group")]
+                elif group == "🔤 单词":   # 不含空格的纯单词
+                    book = [e for e in book
+                            if " " not in e.get("word", "")]
+                elif group == "🧩 词组":   # 拖选收藏的多词词组
+                    book = [e for e in book if " " in e.get("word", "")]
+                elif group and group != "全部":
+                    book = [e for e in book if e.get("group") == group]
+                if state.get("group") != group:   # 换范围 → 重开一轮
+                    state["group"] = group
+                    state["queue"] = []
                 titles = {e.get("word", "").lower() for e in book}
                 # 本轮队列：收藏的词各打一遍、按优先级排序；打完重排开下一轮
                 queue = [w for w in state.get("queue", [])
@@ -1499,21 +1340,30 @@ def create_app(settings: Settings) -> gr.Blocks:
                 state["queue"] = queue
                 if entry is None:
                     state["word"] = ""
+                    hint = ("这个分组没有单词。" if group not in ("全部",)
+                            else "单词本是空的——先去「🎧 播放解读」双击"
+                            "歌词里的英文单词收藏几个，或在下方导入"
+                            "单词表。")
                     return (state,
-                            '<div class="chat-empty">单词本是空的——先去'
-                            '「🎧 播放解读」双击歌词里的英文单词收藏几个。'
-                            '</div>', _review_stats_line(state))
+                            f'<div class="chat-empty">{hint}</div>',
+                            _review_stats_line(state))
                 mp3 = synthesize_word(entry["word"])
                 url = _file_url(mp3) if mp3 else ""
                 state["word"] = entry["word"]
+                from .review import word_examples
+                examples = word_examples(
+                    entry["word"], exclude_song=entry.get("song", ""),
+                    corpus_dir=settings.corpus_dir)
                 return (state,
-                        render_practice_card(entry, url, uuid.uuid4().hex),
+                        render_practice_card(entry, url, uuid.uuid4().hex,
+                                             examples=examples),
                         _review_stats_line(state))
 
-            def on_review_start(state):
-                return _review_next(state, exclude=state.get("word", ""))
+            def on_review_start(state, group: str):
+                return _review_next(state, exclude=state.get("word", ""),
+                                    group=group or "全部")
 
-            def on_review_done(payload: str, state):
+            def on_review_done(payload: str, state, group: str):
                 parts = (payload or "").split("\t")
                 if len(parts) < 3:
                     return gr.skip(), gr.skip(), gr.skip()
@@ -1530,7 +1380,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                     state["ms"] += max(0, int(ms))
                 except ValueError:
                     pass
-                return _review_next(state, exclude=word)
+                # 不自动跳下一个词：用户按 Enter 才换（JS 侧放行）
+                return state, gr.skip(), _review_stats_line(state)
 
             def on_review_export():
                 from .review import export_qwerty
@@ -1548,11 +1399,85 @@ def create_app(settings: Settings) -> gr.Blocks:
                         "qwerty-learner 的 `public/dicts/` 并在 "
                         "`resources/dictionary.ts` 注册即可使用。")
 
-            review_start_btn.click(on_review_start, [review_state],
+            def _group_choices() -> list[str]:
+                from .dictionary import word_groups
+                return (["全部", "📖 歌词收藏", "🔤 单词", "🧩 词组"]
+                        + word_groups())
+
+            def on_review_tab_select(group: str):
+                choices = _group_choices()
+                return gr.Dropdown(
+                    choices=choices,
+                    value=group if group in choices else "全部")
+
+            review_tab.select(on_review_tab_select, [review_group_dd],
+                              [review_group_dd])
+
+            def on_import_words(file, group_name: str, state):
+                from .dictionary import import_words, parse_wordlist_file
+                if not file:
+                    return ("⚠️ 请先选择一个单词表文件。",
+                            gr.skip(), gr.skip(), gr.skip(), gr.skip())
+                group = (group_name or "").strip() or Path(file).stem
+                try:
+                    rows = parse_wordlist_file(file)
+                except ValueError as exc:
+                    return (f"⚠️ {exc}", gr.skip(), gr.skip(),
+                            gr.skip(), gr.skip())
+                except Exception:
+                    logger.exception("wordlist parse failed")
+                    return ("⚠️ 文件解析失败——请确认是 CSV/TSV/XLSX，"
+                            "第 1 列为单词。", gr.skip(), gr.skip(),
+                            gr.skip(), gr.skip())
+                added, skipped = import_words(rows, group)
+                if not added:
+                    return (f"⚠️ 没有新词可导入（跳过 {skipped} 行："
+                            "空词/非英文/已在单词本）。",
+                            gr.skip(), gr.skip(), gr.skip(), gr.skip())
+                # 导入成功：切到该分组并立刻发一张练习卡
+                state, card, stats = _review_next(state, group=group)
+                return (f"✅ 已导入 **{added}** 个词到分组「{group}」"
+                        f"（跳过 {skipped} 行）。已切到该分组，"
+                        "直接开打！",
+                        gr.Dropdown(choices=_group_choices(), value=group),
+                        state, card, stats)
+
+            import_btn.click(on_import_words,
+                             [import_file, import_group_box, review_state],
+                             [import_status, review_group_dd,
+                              review_state, review_html, review_stats_md])
+
+            def on_delete_group(group: str, state):
+                from .dictionary import delete_group
+                if not (group or "").strip() or group in ("全部",
+                                                          "📖 歌词收藏"):
+                    gr.Warning("先在「练习范围」选中一个导入的分组。")
+                    return (gr.skip(), gr.skip(), gr.skip(),
+                            gr.skip(), gr.skip())
+                n = delete_group(group)
+                if not n:
+                    gr.Warning(f"分组「{group}」没有单词。")
+                    return (gr.skip(), gr.skip(), gr.skip(),
+                            gr.skip(), gr.skip())
+                gr.Info(f"🗑 已删除分组「{group}」的 {n} 个单词。")
+                state, card, stats = _review_next(state, group="全部")
+                return (f"🗑 已删除分组「{group}」（{n} 个词）。",
+                        gr.Dropdown(choices=_group_choices(), value="全部"),
+                        state, card, stats)
+
+            group_del_btn.click(on_delete_group,
+                                [review_group_dd, review_state],
+                                [import_status, review_group_dd,
+                                 review_state, review_html,
+                                 review_stats_md])
+
+            review_start_btn.click(on_review_start,
+                                   [review_state, review_group_dd],
                                    [review_state, review_html,
                                     review_stats_md])
             review_done_box.change(on_review_done,
-                                   [review_done_box, review_state],
+                                   [review_done_box, review_state,
+                                    review_group_dd],
                                    [review_state, review_html,
                                     review_stats_md])
             review_export_btn.click(on_review_export, None,
@@ -1694,20 +1619,25 @@ def create_app(settings: Settings) -> gr.Blocks:
             # ── 🀄 中文翻译对照（用户点按钮才生成/显示；译文永久缓存）──
             trans_state = gr.State("")   # 当前开着翻译的歌名，"" = 关
 
+            _TRANS_SHOW = ("🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
+                           "之后永久缓存）")
+            _TRANS_HIDE = "🙈 隐藏中文翻译"
+
             def on_trans_toggle(cur: str, choice: str, user_cfg):
                 info = find_song(choice)
                 if not info.get("dir"):
-                    return cur, gr.skip()
+                    return cur, gr.skip(), gr.skip()
                 data = _load_song_data(info["dir"])
                 title = info.get("title", "")
                 if cur == title:   # 已开 → 关
-                    return "", _render_lyrics_html(data, info, public=public)
+                    return ("", _render_lyrics_html(data, info, public=public),
+                            gr.Button(value=_TRANS_SHOW))
                 from .ui_helpers import load_translation
                 if not load_translation(info["dir"]):
                     req = _request_settings(user_cfg)
                     if not req.api_key:
                         gr.Warning("需要 API Key 才能生成翻译（⚙️ 设置）。")
-                        return cur, gr.skip()
+                        return cur, gr.skip(), gr.skip()
                     gr.Info("🀄 正在生成整首中文翻译……")
                     lines = data["timed_lines"]
                     out: dict[str, str] = {}
@@ -1733,13 +1663,15 @@ def create_app(settings: Settings) -> gr.Blocks:
                     except Exception as exc:
                         logger.exception("translation failed")
                         gr.Warning(f"翻译失败：{str(exc)[:120]}")
-                        return cur, gr.skip()
-                return title, _render_lyrics_html(data, info, public=public,
-                                                  show_trans=True)
+                        return cur, gr.skip(), gr.skip()
+                return (title,
+                        _render_lyrics_html(data, info, public=public,
+                                            show_trans=True),
+                        gr.Button(value=_TRANS_HIDE))
 
             trans_btn.click(on_trans_toggle,
                             [trans_state, song_radio, user_llm],
-                            [trans_state, lyrics_html])
+                            [trans_state, lyrics_html, trans_btn])
 
             # ── 🎚 歌词时间校准 ──
             def on_offset_preview(v):
@@ -1777,14 +1709,29 @@ def create_app(settings: Settings) -> gr.Blocks:
             # 切歌时带出当前偏移（独立监听，不动 on_song_select 的输出位序）
             song_radio.change(on_offset_load, [song_radio], [offset_slider])
 
+        def _lyrics_blob(label: str) -> str:
+            """某首歌的全部歌词小写拼接（懒加载，随曲库刷新失效）。"""
+            cache = ctx.setdefault("lyrics_blobs", {})
+            if label not in cache:
+                info = find_song(label)
+                try:
+                    data = _load_song_data(info["dir"])
+                    cache[label] = " ".join(
+                        ln.text for ln in data["timed_lines"]).casefold()
+                except Exception:
+                    cache[label] = ""
+            return cache[label]
+
         def _filtered_labels(sort: str, q: str) -> list[str]:
             labels = song_choices(sort)
             q = (q or "").strip().casefold()
             if q:
+                # 歌名/歌手命中之外，也搜整首歌词——粘一句歌词就能找到歌
                 labels = [
                     l for l in labels
                     if q in l.casefold()
                     or q in find_song(l).get("artist", "").casefold()
+                    or q in _lyrics_blob(l)
                 ]
             return labels
 
@@ -1807,24 +1754,6 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         sort_mode.change(on_sort, [sort_mode, song_radio, song_filter],
                          [song_radio])
-
-        def on_search_clear():
-            return "", ""
-
-        search_clear.click(on_search_clear, None, [search_box, search_results])
-
-        def on_search(query: str, mode: str, choice: str):
-            if not query.strip():
-                return ""
-            current = find_song(choice).get("name", "")
-            if mode == "sem":
-                hits, used = ctx["searcher"].semantic(query)
-            else:
-                hits, used = ctx["searcher"].keyword(query), "keyword"
-            return _render_search_results(hits, current, used)
-
-        search_btn.click(on_search, [search_box, search_mode, song_radio], [search_results])
-        search_box.submit(on_search, [search_box, search_mode, song_radio], [search_results])
 
         # ── AI 助手（行级问答）──
 
@@ -1895,19 +1824,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                 line_index=idx,
                 history=history,
             )
-            if echoes is None:
-                echo, echo_render = None, _ECHO_NO_INDEX
-            else:
-                echo = {"line": line.text, "song": info.get("title", ""),
-                        "artist": info.get("artist", ""), "results": echoes}
-                echo_render = _render_echo_html(echoes, info.get("artist", ""))
             return (session, _chat_topic_html(line.text), _render_chat(session),
-                    echo, echo_render, "",
                     render_annotation_card(ann, idx, can_generate=not public))
 
         line_pick.change(on_line_pick, [line_pick, song_radio, chat_state],
-                         [chat_state, chat_topic, chat_html,
-                          echo_state, echo_html, echo_out, ann_html])
+                         [chat_state, chat_topic, chat_html, ann_html])
 
         def on_gen_ann(payload: str, choice: str, user_cfg):
             """「✨ 为本句生成」按钮：用户点击确认后才发生的唯一一次调用。"""
@@ -2039,47 +1960,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                 logger.exception("Failed saving intro")
             yield _render_intro(text)
 
-        def on_gen_mv(choice: str, user_cfg):
-            from .mv_eggs import (
-                load_mv, mv_messages, parse_mv, render_mv_html, save_mv)
-            if not ctx["songs"]:
-                yield MV_EMPTY
-                return
-            if not choice:
-                yield '<div class="chat-empty">⚠️ 请先选择一首歌。</div>'
-                return
-            info = find_song(choice)
-            title = info.get("title", "")
-            artist = info.get("artist", "")
-            req_settings = _request_settings(user_cfg)
-            existing = load_mv(info["dir"], req_settings.model_name)
-            if existing is not None:
-                yield render_mv_html(
-                    parse_mv(existing), title, artist,
-                    verifier=_quote_verifier(), label_of=_label_of(),
-                    video=(choice, info["bvid"]) if info.get("bvid") else None)
-                return
-            if not req_settings.api_key:
-                yield ('<div class="chat-empty">⚠️ 未配置 API Key，无法生成。'
-                       '请到「⚙️ 设置」页签填写。</div>')
-                return
-            yield ('<div class="chat-empty">🎬 AI 正在回忆这支 MV 的'
-                   '导演、意象与彩蛋……</div>')
-            system, user_msg = mv_messages(
-                title, artist, info.get("album", ""), info.get("year"))
-            from .llm import LLMClient
-            try:
-                data = LLMClient(req_settings).generate_json(system, user_msg)
-            except Exception as exc:
-                logger.exception("MV eggs generation failed")
-                yield (f'<div class="chat-empty">⚠️ 生成失败：'
-                       f'{_esc(str(exc)[:150])}</div>')
-                return
-            save_mv(info["dir"], data, req_settings.model_name)
-            yield render_mv_html(
-                parse_mv(data), title, artist,
-                verifier=_quote_verifier(), label_of=_label_of(),
-                video=(choice, info["bvid"]) if info.get("bvid") else None)
+
 
         # ── 歌词收藏夹 ──
 
@@ -2164,6 +2045,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 .replace("\\n", "\n")),
                 "found": hit is not None,
                 "canFav": not public,
+                # 之前生成过的 AI 语境解释直接带出（弹卡被关/重开也不丢）
+                "ai": _cached_dict_ai(word, parts[1] if len(parts) > 1 else ""),
             }
             return gr.Textbox(value=json.dumps(result, ensure_ascii=False))
 
@@ -2175,7 +2058,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             """The popup's AI explanation for word+line, if one was generated
             (same cache key derivation as on_dict_ai)."""
             import hashlib
-            key = hashlib.md5(f"v2:{word}\x00{line}".encode()).hexdigest()
+            key = hashlib.md5(f"v3:{word}\x00{line}".encode()).hexdigest()
             try:
                 cache = json.loads(_AI_CACHE_PATH.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -2201,8 +2084,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                               "⚠️ AI 语境解释需要配置 API Key（⚙️ 设置）。")
                 return gr.Textbox(value=json.dumps(base, ensure_ascii=False))
             import hashlib
-            # v2: the prompt now includes a usage/example section
-            key = hashlib.md5(f"v2:{word}\x00{line}".encode()).hexdigest()
+            # v3: strict three-line template with a few-shot example
+            key = hashlib.md5(f"v3:{word}\x00{line}".encode()).hexdigest()
             try:
                 cache = json.loads(_AI_CACHE_PATH.read_text(encoding="utf-8"))
             except (OSError, ValueError):
@@ -2213,11 +2096,20 @@ def create_app(settings: Settings) -> gr.Blocks:
                     resp = LLMClient(req_settings).generate(
                         system_prompt=(
                             "你是英语歌词阅读助手。用户双击了歌词里的一个单词。"
-                            "用简体中文回答，不超过 120 字，不要客套，按三行输出："
-                            "①语境义：这个词在这句歌词里的含义；"
-                            "②整句：这句歌词的通顺翻译；"
-                            "③用法：这个词的常见用法/搭配，附一个简短英文例句"
-                            "和中文翻译。"),
+                            "用简体中文回答，不超过 120 字。严格按下面模板输出"
+                            "三行，不得增删行、加标题、加 markdown 或任何"
+                            "模板外内容：\n"
+                            "①语境义：<这个词在这句歌词里的含义>\n"
+                            "②整句：<这句歌词的通顺翻译>\n"
+                            "③用法：<常见用法/搭配>。例：<简短英文例句> "
+                            "<例句中文翻译>\n"
+                            "示例（单词 resist，歌词句 'Cause I can't "
+                            "resist it no more）：\n"
+                            "①语境义：再也忍不住、无法克制（想挣脱的冲动）\n"
+                            "②整句：因为我再也忍不住了\n"
+                            "③用法：can't resist (doing) sth 忍不住做某事。"
+                            "例：I can't resist checking my phone. "
+                            "我忍不住看手机。"),
                         user_message=(f"单词：{word}\n"
                                       f"歌词句：{line}\n出自：《{song}》"),
                     )
@@ -2255,6 +2147,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                         ai=_cached_dict_ai(word, line))
                     gr.Info(f"📒 已收藏单词 {word}。")
                     return render_wordbook(book, song_title=cur)
+                if head.startswith("note:"):
+                    from .dictionary import set_note
+                    book = set_note(head[5:],
+                                    act[1] if len(act) > 1 else "")
+                    return render_wordbook(book, song_title=cur)
                 if head.startswith("del:"):
                     book = remove_word(head[4:])
                     return render_wordbook(book, song_title=cur)
@@ -2265,30 +2162,9 @@ def create_app(settings: Settings) -> gr.Blocks:
 
         if not public:
             intro_btn.click(on_gen_intro, [song_radio, user_llm], [intro_html])
-            mv_btn.click(on_gen_mv, [mv_song_dd, user_llm], [mv_html])
 
         # ── 彩蛋对照卡 ──
 
-        def on_echo_card(echo, choice: str):
-            if not echo or not echo.get("results"):
-                return ("⚠️ 请先点击一句有彩蛋呼应的歌词，再生成对照卡。",
-                        gr.Image(visible=False))
-            top = echo["results"][0]
-            try:
-                from .share_card import render_echo_card
-                path = render_echo_card(
-                    artist=echo.get("artist", ""),
-                    song_a=echo.get("song", ""), line_a=echo.get("line", ""),
-                    song_b=top["song"], line_b=top["line"],
-                    similarity=top.get("similarity", 0.0),
-                )
-            except Exception as exc:
-                logger.exception("Echo card failed")
-                return f"⚠️ 卡片生成失败：{str(exc)[:120]}", gr.Image(visible=False)
-            return "", gr.Image(value=path, visible=True)
-
-        echo_card_btn.click(on_echo_card, [echo_state, song_radio],
-                            [echo_card_status, echo_card_img])
 
         # ── 听歌笔记 ──
 
@@ -2347,90 +2223,6 @@ def create_app(settings: Settings) -> gr.Blocks:
         note_del_box.change(on_del_note, [note_del_box, song_radio],
                             [notes_html])
 
-        # ── AI 电台串场语音 ──
-
-        def on_gen_radio_intro(choice: str):
-            info = find_song(choice)
-            if not info.get("dir"):
-                return "⚠️ 请先选择一首歌。", gr.skip()
-            intro_text = _load_intro(info["dir"])
-            if not intro_text:
-                return ("⚠️ 本歌还没有导读文本 —— 先在「📖 歌曲导读」里点"
-                        "「生成 30 秒导读」，再来生成串场语音。"), gr.skip()
-            from .radio import synthesize_intro
-            try:
-                speech = (f"接下来这首，是{info.get('artist', '')}的"
-                          f"《{info.get('title', '')}》。{intro_text}")
-                synthesize_intro(info["dir"], speech)
-            except Exception as exc:
-                logger.exception("TTS failed")
-                return f"⚠️ 串场语音生成失败：{str(exc)[:150]}", gr.skip()
-            data = _load_song_data(info["dir"])
-            audio = resolve_audio(info["dir"])
-            info["audio_type"], info["audio_src"] = \
-                audio.type, audio.path_or_url or ""
-            return ("✅ 串场语音已生成。勾选播放器下方「📻 电台模式」，"
-                    "自动切到这首歌时会先播报再进歌。",
-                    _render_lyrics_html(data, info, public=public))
-
-        if not public:
-            radio_gen_btn.click(on_gen_radio_intro, [song_radio],
-                                [radio_status, lyrics_html])
-
-        def on_echo_explain(echo, user_cfg):
-            if not echo or not echo.get("results"):
-                yield "⚠️ 请先点击一句歌词，检索到呼应结果后再让 AI 解释。"
-                return
-            req_settings = _request_settings(user_cfg)
-            if public and not req_settings.api_key:
-                yield _PUBLIC_KEY_HINT
-                return
-            yield "🤔 AI 正在分析这些呼应关系……"
-            hits = "\n".join(
-                f"- 《{r['song']}》(专辑：{r['album'] or '未知'})："
-                f"“{r['line']}”（相似度 {r['similarity']}）"
-                for r in echo["results"]
-            )
-            user_msg = (
-                f"歌手：{echo['artist']}\n"
-                f"当前歌曲：《{echo['song']}》\n"
-                f"当前歌词行：“{echo['line']}”\n\n"
-                f"在这位歌手的其他作品中检索到以下相似歌词：\n{hits}\n\n"
-                "请分析这句歌词与上面哪些歌构成了真正的呼应或互文，"
-                "只讨论列表中出现的歌曲，并输出 JSON（不要多余文字）：\n"
-                '{"conclusion": "2-3 句总结这组呼应讲了什么",\n'
-                ' "quotes": [{"text": "逐字照抄的歌词原句", '
-                '"song": "出处歌名"}, ...],\n'
-                ' "facts": ["可查证的事实背景（专辑/年份），没有就留空列表"],\n'
-                ' "speculation": ["明确属于推测/粉丝理论的内容"]}\n'
-                "要求：quotes 里的 text 必须逐字照抄上面给出的歌词，"
-                "不得改写、翻译或缩略；无实质关联的检索结果不要引用。"
-            )
-            from .llm import LLMClient
-            try:
-                resp = LLMClient(req_settings).generate(
-                    system_prompt=("你是精通歌词文本分析的音乐评论人。"
-                                   "严格按用户要求的 JSON 结构输出，"
-                                   "用简体中文。"),
-                    user_message=user_msg,
-                )
-                text = (resp.reply_text or "").strip()
-                claims = parse_claims(text)
-                if claims is None:
-                    # structured check failed -> degrade to plain text
-                    yield ("⚠️ 本次输出未通过结构化校验，以下为原始回答：\n\n"
-                           + (text or "（空）"))
-                    return
-                idx = ctx.get("quote_index")
-                if idx is None or idx._songs is not ctx["songs"]:
-                    idx = QuoteIndex(ctx["songs"])
-                    ctx["quote_index"] = idx
-                yield render_evidence_card(claims, idx, _label_of())
-            except Exception as exc:
-                logger.exception("Echo explain failed")
-                yield f"⚠️ LLM 调用失败：{str(exc)[:200]}"
-
-        echo_btn.click(on_echo_explain, [echo_state, user_llm], [echo_out])
 
         # ── 证据卡引用跳转：切歌并高亮那一行（行号由 JS 记忆并滚动）──
 
@@ -2445,19 +2237,37 @@ def create_app(settings: Settings) -> gr.Blocks:
             return {s.get("title", ""): song_choice_label(s)
                     for s in ctx["songs"]}
 
+        def _resolve_jump_label(key: str, sort: str, q: str) -> str:
+            """跳转键 → 当前歌单 label（歌迷考据的做法抽成公共函数）。
+
+            key 可以是实时 label、歌名、或收藏时存下的陈旧 label
+            （格式/曲库变化后会失配）——一律按当前状态重新解析。"""
+            key = (key or "").strip()
+            if not key:
+                return ""
+            labels = _filtered_labels(sort, q)
+            if key in labels:
+                return key
+            by_title = _label_of()
+            label = by_title.get(key, "")           # key 是歌名
+            if label in labels:
+                return label
+            # 陈旧 label（如 "title — artist"）：取歌名部分再解析
+            label = by_title.get(key.split(" — ")[0], "")
+            return label if label in labels else ""
+
         def on_cite_jump(payload: str, sort: str, q: str):
-            parts = (payload or "").split("\t")
-            label = parts[0].strip() if parts else ""
-            if label and label in _filtered_labels(sort, q):
-                return gr.Radio(value=label)
+            key = (payload or "").split("\t")[0].strip()
+            label = _resolve_jump_label(key, sort, q)
             if label:
+                return gr.Radio(value=label)
+            if key:
                 gr.Warning("该歌曲不在当前列表中（可能被筛选或已删除）。")
             return gr.skip()
 
         cite_box.change(
             on_cite_jump, [cite_box, sort_mode, song_filter], [song_radio],
-        ).then(on_song_select, [song_radio], song_outputs
-        ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+        ).then(on_song_select, [song_radio], song_outputs)
 
         if not public:
             # ── MCP 播放命令通道（lyric-agent mcp 写命令文件，这里轮询）──
@@ -2492,37 +2302,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                          if MCP_COMMAND_PATH.exists() else 0.0),
                 None, [mcp_seen])
 
-        def on_share_card(session, choice: str):
-            if session is None or not getattr(session, "lyric_line", ""):
-                return ("⚠️ 请先点击一句歌词再生成卡片。",
-                        gr.Image(visible=False))
-            info = find_song(choice)
-            insight = next(
-                (t["text"] for t in reversed(session.history)
-                 if t["speaker"] != "user"), "")
-            if not insight:
-                data = _load_song_data(info["dir"]) if info.get("dir") else {}
-                ann = data.get("annotations", {}).get(session.line_index)
-                if ann:
-                    insight = " ".join(
-                        x for x in (ann.summary, ann.metaphor_analysis) if x)
-            if not insight:
-                insight = "一句值得反复品味的歌词。"
-            try:
-                from .share_card import render_share_card
-                path = render_share_card(
-                    song_title=info.get("title", session.song_title),
-                    artist=info.get("artist", ""),
-                    lyric_line=session.lyric_line,
-                    insight=insight,
-                )
-            except Exception as exc:
-                logger.exception("Share card failed")
-                return f"⚠️ 卡片生成失败：{str(exc)[:120]}", gr.Image(visible=False)
-            return "", gr.Image(value=path, visible=True)
-
-        card_btn.click(on_share_card, [chat_state, song_radio],
-                       [card_status, card_img])
 
         # ── 添加歌曲 ──
 
@@ -2585,13 +2364,16 @@ def create_app(settings: Settings) -> gr.Blocks:
                 shutil.copy(audio_file, d / f"audio{ext}")
 
             refresh_library()
+            _kick_corpus_rebuild()
             new_song = next((s for s in ctx["songs"] if s["name"] == slug), None)
             new_label = song_choice_label(new_song) if new_song else None
             status = (
                 f"✅ 已添加《{title}》（{lrc_note}）到 `data/songs/{slug}/`。\n\n"
                 "已切到「最新在前」排序，它就在左侧歌曲列表**最上方**并已打开。"
-                "目前还没有 AI 批注 —— 点击下方按钮生成，"
-                f"或在终端运行 `lyric-agent generate data/songs/{slug}`。"
+                "回声索引正在后台重建（本地计算，约一分钟），完成后"
+                "💫 回声时刻/彩蛋会自动把这首歌纳入。"
+                "需要整歌 AI 批注的话在终端运行 "
+                f"`lyric-agent generate data/songs/{slug}`。"
             )
             return (status,
                     gr.Radio(choices=song_choices("added_desc"),
@@ -2610,7 +2392,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                 # NOT an output: clearing it cascades through on_song_filter
                 # and re-sorts the list, undoing the newest-first order
                 on_song_select, [song_radio], song_outputs,
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview]
             ).then(lambda: gr.Radio(value="added_desc"), None, [sort_mode])
 
         # ── 曲库 ──
@@ -2767,32 +2548,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                 # newest-first choices + explicit load; song_filter left out
                 # on purpose (see on_add_song wiring)
                 on_song_select, [song_radio], song_outputs,
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview]
             ).then(lambda: gr.Radio(value="added_desc"), None, [sort_mode])
-
-        def on_generate_ann(slug: str):
-            if not slug:
-                return "⚠️ 请先在上方保存一首歌曲。", gr.skip()
-            if not settings.api_key:
-                return ("⚠️ 未配置 API Key，无法生成批注。"
-                        "请到「⚙️ 设置」页签填写 API Key 并保存。"), gr.skip()
-            d = Path(settings.songs_dir) / slug
-            if not d.exists():
-                return f"⚠️ 找不到歌曲目录 `{slug}`。", gr.skip()
-            from .annotator.engine import generate_annotations
-            try:
-                song = generate_annotations(settings, d)
-            except Exception as exc:
-                return f"⚠️ 生成失败：{exc}", gr.skip()
-            refresh_library()
-            new_choices = song_choices()
-            new_song = next((s for s in ctx["songs"] if s["name"] == slug), None)
-            new_label = song_choice_label(new_song) if new_song else None
-            return (f"✅ 已为《{song.metadata.title}》生成 {len(song.annotations)} 条批注。",
-                    gr.Radio(choices=new_choices, value=new_label))
-
-        if not public:
-            gen_btn.click(on_generate_ann, [add_state], [add_status, song_radio])
 
         # ── 管理歌曲列表 ──
 
@@ -2831,6 +2587,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             _SONG_DATA_CACHE.pop(info["dir"], None)
             ctx.setdefault("echo_maps", {}).pop(info["dir"], None)
             refresh_library()
+            _kick_corpus_rebuild()
             gr.Info(f"🗑️ 已删除《{label}》。")
             return _library_updates(None, sort, q)
 
@@ -2842,13 +2599,11 @@ def create_app(settings: Settings) -> gr.Blocks:
             manage_refresh_btn.click(
                 on_manage_refresh, [song_radio, sort_mode, song_filter],
                 [song_radio],
-            ).then(on_song_select, [song_radio], song_outputs
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            ).then(on_song_select, [song_radio], song_outputs)
             del_box.change(
                 on_del_song, [del_box, sort_mode, song_filter],
                 [song_radio],
-            ).then(on_song_select, [song_radio], song_outputs
-            ).then(on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            ).then(on_song_select, [song_radio], song_outputs)
 
         # ── 语料库索引重建 ──
 
@@ -2898,64 +2653,6 @@ def create_app(settings: Settings) -> gr.Blocks:
         if not public:
             rebuild_btn.click(on_rebuild, [emb_model_dd], [rebuild_status])
 
-        # ── UI 自检（开发者） ──
-
-        def on_ui_probe():
-            import subprocess
-            import sys as _sys
-            root = Path(__file__).resolve().parents[2]
-            script = root / "scripts" / "ui_probe.py"
-            if not script.exists():
-                yield "⚠️ 未找到 scripts/ui_probe.py（需在源码仓库内运行）。", ""
-                return
-            import importlib.util
-            if importlib.util.find_spec("playwright") is None:
-                yield ("⚠️ 需要 playwright：`pip install playwright && "
-                       "playwright install chromium`"), ""
-                return
-            yield "⏳ 正在启动独立巡检服务器并打开无头浏览器（约 2-3 分钟）……", ""
-            proc = subprocess.Popen(
-                [_sys.executable, str(script)], cwd=str(root),
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace")
-            done = failed = 0
-            for line in proc.stdout:
-                line = line.strip()
-                if line.startswith(("[PASS]", "[FAIL]")):
-                    done += 1
-                    failed += line.startswith("[FAIL]")
-                    yield (f"⏳ 已完成 {done} 项（失败 {failed}）—— "
-                           f"`{line[:90]}`"), gr.skip()
-            proc.wait()
-            report_path = root / "data" / "ui_probe" / "report.json"
-            if not report_path.exists():
-                yield "⚠️ 巡检未产出报告，请查看终端输出。", ""
-                return
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            rows = []
-            for c in report["checks"]:
-                mark = "✅" if c["ok"] else "❌"
-                detail = _esc(c["detail"][:160]) if not c["ok"] else ""
-                rows.append(
-                    f'<tr><td>{mark}</td><td>{_esc(c["id"])}</td>'
-                    f'<td>{_esc(c["name"])}</td>'
-                    f'<td class="probe-detail">{detail}</td></tr>')
-            table = (
-                '<table class="probe-table"><tr><th></th><th>ID</th>'
-                '<th>检查项</th><th>失败详情</th></tr>'
-                + "".join(rows) + "</table>")
-            if report["failed"]:
-                summary = (f"❌ 巡检完成：{report['passed']} 通过 / "
-                           f"**{report['failed']} 失败**。失败截图在 "
-                           "`data/ui_probe/`；在终端运行 "
-                           "`python scripts/ui_agent.py` 可进入自动修复闭环。")
-            else:
-                summary = f"✅ 巡检完成：{report['passed']} 项全部通过。"
-            yield summary, table
-
-        if not public:
-            probe_btn.click(on_ui_probe, None, [probe_out, probe_table])
-
         # ── 设置 ──
 
         def on_save_settings(provider: str, key: str, base: str, model: str):
@@ -2995,8 +2692,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                      [set_provider, set_key, set_base, set_model])
 
         if ctx["songs"]:
-            app.load(on_song_select, [song_radio], song_outputs).then(
-                on_echo_map, [song_radio], [echo_map_box, echo_overview])
+            app.load(on_song_select, [song_radio], song_outputs)
 
         if not public:
             # suggest existing artists in the manual-add artist field
