@@ -63,7 +63,6 @@ lyric-agent serve
   可生成两句对照的**彩蛋对照卡** PNG；全曲 🥚 标记 + 本歌彩蛋总览（点击跳行）
 - **📝 听歌笔记**：带播放位置时间戳的感想，点笔记跳回该位置
 - **📻 AI 电台**：播完自动切下一首；配合 edge-tts 生成的**串场语音**，进歌前先 DJ 播报
-- **🖼️ 分享卡片**：歌词金句卡（歌词 + AI 解读排版成图）
 
 ### 🥚 彩蛋地图
 - **⭐ 单曲聚焦**（默认）：一首歌为中心的星形图，辐条带呼应数徽章，
@@ -216,7 +215,6 @@ src/lyric_agent/
 ├── fingerprint.py         # 听歌识曲（声纹指纹）
 ├── radio.py               # 电台串场语音（edge-tts）
 ├── doctor.py              # 曲库健康检查
-├── share_card.py          # 金句卡 / 彩蛋对照卡渲染
 └── search.py / lrc_parser.py / audio_provider.py
 ```
 

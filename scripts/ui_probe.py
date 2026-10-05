@@ -183,18 +183,6 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                     c_line_click)
 
 
-        def c_share_guard():
-            # switch to a different song: resets the chat session so the
-            # guard path (no picked line) is what gets exercised
-            pg.get_by_role("radio", name="exile").check()
-            pg.wait_for_timeout(2500)
-            probe.tab("🖼️")
-            pg.get_by_role("button", name="生成歌词金句卡").click()
-            pg.wait_for_timeout(1500)
-            must("请先点击" in pg.locator("#ll-card").inner_text(),
-                 "share-card guard hint missing")
-        probe.check("share_guard", "share card without picked line -> guard",
-                    c_share_guard)
 
         def c_audio_tools():
             pg.get_by_role("radio", name=AUDIO_SONG).check()
@@ -312,7 +300,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 pg.locator(".ll-dict-pop .dict-close").first.click()
                 probe.wait_until(lambda: count(".ll-dict-pop") == 0,
                                  msg="dict popover did not close via ✕")
-                probe.tab("⭐")
+                probe.tab("📒")   # 单词本已拆成独立图标
                 probe.wait_until(lambda: count(".wb-item") >= 1,
                                  msg="word not added to wordbook")
                 item = pg.locator(".wb-item", has_text=word).first

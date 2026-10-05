@@ -168,21 +168,6 @@ def test_render_favorites():
     assert "还没有收藏" in _render_favorites([])
 
 
-def test_letter_card_renders(tmp_path):
-    import pytest
-    pytest.importorskip("PIL")  # share cards are an optional extra; CI
-    # installs the slim dependency set without Pillow
-    from pathlib import Path
-
-    from lyric_agent.share_card import render_letter_card
-    body = "致《cardigan》：\n你唱过 line b echo。\n我也唱过 line a echo。\n——《betty》"
-    p = render_letter_card("betty", "cardigan", body,
-                           "line a echo", "line b echo",
-                           out_dir=str(tmp_path))
-    f = Path(p)
-    assert f.exists() and f.suffix == ".png" and f.stat().st_size > 10000
-
-
 def test_artist_overview_enriched(tmp_path):
     """Overview shows stat tiles + imagery words + per-album line counts."""
     from lyric_agent.ui_helpers import render_artist_overview

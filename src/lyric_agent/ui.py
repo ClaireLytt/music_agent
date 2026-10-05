@@ -529,26 +529,17 @@ def create_app(settings: Settings) -> gr.Blocks:
                                         fav_status = gr.Markdown("")
                                         favs_html = gr.HTML(
                                             _render_favorites(_load_favorites()))
-                                        gr.HTML('<div class="side-panel-title" '
-                                                'style="margin-top:14px">'
-                                                '📒 单词本</div>')
-                                        gr.Markdown(
-                                            "**双击**歌词里的英文单词即可查词，"
-                                            "弹窗里点 ⭐ 收藏到这里；"
-                                            "单词**只在收藏它的那首歌**里显示。",
-                                            elem_classes=["wb-hint"])
-                                        wordbook_html = gr.HTML(
-                                            render_wordbook(load_wordbook()))
-                            with gr.Tab("🖼️"):
-                                with gr.Column(elem_id="ll-card"):
+                            with gr.Tab("📒"):
+                                with gr.Column(elem_id="ll-wordbook"):
                                     gr.HTML('<div class="side-panel-title">'
-                                            '🖼️ 分享卡片</div>')
-                                    card_btn = gr.Button("生成歌词金句卡",
-                                                         size="sm")
-                                    card_status = gr.Markdown("")
-                                    card_img = gr.Image(
-                                        label="长按/右键保存图片",
-                                        type="filepath", visible=False)
+                                            '📒 单词本</div>')
+                                    gr.Markdown(
+                                        "**双击**歌词里的英文单词即可查词，"
+                                        "弹窗里点 ⭐ 收藏到这里；"
+                                        "单词**只在收藏它的那首歌**里显示。",
+                                        elem_classes=["wb-hint"])
+                                    wordbook_html = gr.HTML(
+                                        render_wordbook(load_wordbook()))
                             with gr.Tab("📝"):
                                 with gr.Column(elem_id="ll-notes"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -570,9 +561,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                             file_types=[".mp3", ".wav", ".flac",
                                                         ".ogg", ".m4a"])
                                         audio_up_status = gr.Markdown("")
-                                    trans_btn = gr.Button(
-                                        "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
-                                        "之后永久缓存）", size="sm")
                                     with gr.Accordion("🎚 歌词时间校准", open=False):
                                         gr.Markdown(
                                             "歌词快/慢半拍时微调（正值 = 歌词提前）。"
@@ -591,6 +579,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                                             show_label=False, container=False)
                                         bvid_save_btn = gr.Button("保存", size="sm")
                                         bvid_status = gr.Markdown("")
+                                    trans_btn = gr.Button(
+                                        "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
+                                        "之后永久缓存）", size="sm")
                                     manage_refresh_btn = gr.Button(
                                         "🔄 刷新曲库（手动增删过歌曲目录后同步）",
                                         size="sm", elem_id="ll-refresh-btn")
@@ -958,7 +949,6 @@ def create_app(settings: Settings) -> gr.Blocks:
         def on_song_select(choice: str):
             if not ctx["songs"]:
                 return ("", None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
-                        "", gr.Image(visible=False),
                         _INTRO_EMPTY,
                         _render_notes([]), _ANN_HINT) + _collections_for("")
             info = find_song(choice)
@@ -968,12 +958,10 @@ def create_app(settings: Settings) -> gr.Blocks:
             lyrics = _render_lyrics_html(data, info, public=public)
             intro = _render_intro(_load_intro(info["dir"]))
             return (lyrics, None, _CHAT_TOPIC_DEFAULT, _CHAT_HINT,
-                    "", gr.Image(visible=False),
                     intro, _notes_for(info),
                     _ANN_HINT) + _collections_for(info["title"])
 
         song_outputs = [lyrics_html, chat_state, chat_topic, chat_html,
-                        card_status, card_img,
                         intro_html, notes_html,
                         ann_html]
         if not public:
@@ -2289,37 +2277,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                          if MCP_COMMAND_PATH.exists() else 0.0),
                 None, [mcp_seen])
 
-        def on_share_card(session, choice: str):
-            if session is None or not getattr(session, "lyric_line", ""):
-                return ("⚠️ 请先点击一句歌词再生成卡片。",
-                        gr.Image(visible=False))
-            info = find_song(choice)
-            insight = next(
-                (t["text"] for t in reversed(session.history)
-                 if t["speaker"] != "user"), "")
-            if not insight:
-                data = _load_song_data(info["dir"]) if info.get("dir") else {}
-                ann = data.get("annotations", {}).get(session.line_index)
-                if ann:
-                    insight = " ".join(
-                        x for x in (ann.summary, ann.metaphor_analysis) if x)
-            if not insight:
-                insight = "一句值得反复品味的歌词。"
-            try:
-                from .share_card import render_share_card
-                path = render_share_card(
-                    song_title=info.get("title", session.song_title),
-                    artist=info.get("artist", ""),
-                    lyric_line=session.lyric_line,
-                    insight=insight,
-                )
-            except Exception as exc:
-                logger.exception("Share card failed")
-                return f"⚠️ 卡片生成失败：{str(exc)[:120]}", gr.Image(visible=False)
-            return "", gr.Image(value=path, visible=True)
-
-        card_btn.click(on_share_card, [chat_state, song_radio],
-                       [card_status, card_img])
 
         # ── 添加歌曲 ──
 

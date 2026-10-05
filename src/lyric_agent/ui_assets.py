@@ -1560,10 +1560,10 @@ footer, .gradio-container footer { display: none !important; }
   position: relative; padding: 8px 26px 8px 10px; border-radius: 10px;
   background: var(--bg-card); border: 1px solid var(--border);
 }
-.wb-item .wb-word { font-weight: 700; }
+.wb-item .wb-word { font-weight: 700; font-size: 1.15em; }
 .wb-item .wb-phon { color: var(--text-secondary); font-weight: 400; font-size: .9em; }
-.wb-item .wb-meaning { font-size: .9em; color: var(--text-primary); }
-.wb-item .wb-src { font-size: .85em; color: var(--text-secondary); margin-top: 2px; }
+.wb-item .wb-meaning { font-size: 1.05em; color: var(--text-primary); }
+.wb-item .wb-src { font-size: 1em; color: var(--text-secondary); margin-top: 2px; }
 .wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
   padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
   line-height: 1.5; }
@@ -1772,8 +1772,8 @@ footer, .gradio-container footer { display: none !important; }
 .fav-item { padding: 8px 12px; border: 1px solid var(--border);
   border-radius: 10px; background: var(--bg-card); cursor: pointer; }
 .fav-item:hover { border-color: var(--accent); }
-.fav-line { font-size: 13px; font-style: italic; color: var(--text-primary); }
-.fav-song { font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+.fav-line { font-size: 15.5px; font-style: italic; color: var(--text-primary); }
+.fav-song { font-size: 13.5px; color: var(--text-secondary); margin-top: 3px; }
 .fav-del { float: right; color: var(--text-secondary); padding: 0 4px; }
 .fav-del:hover { color: #cf222e; }
 
