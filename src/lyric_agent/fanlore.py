@@ -27,17 +27,18 @@ MAX_CLUES = 4
 MAX_CHAIN = 6
 
 FANLORE_EMPTY = ('<div class="chat-empty">点「🕵️ 生成考据故事」，让 AI '
-                 '把这首歌的官方信息、歌词呼应与粉丝理论整理成一页考据。'
+                 '把这首歌的官方信息、歌词呼应与 AI 推测整理成一页考据。'
                  '</div>')
 
 _CLUE_TYPES = ("official", "lyric_parallel", "fan_theory")
 
 FANLORE_SYSTEM = (
-    "你是资深歌迷社区的考据作者。你把一首歌的零散线索整理成好读的考据页，"
+    "你是资深的歌词考据作者。你把一首歌的零散线索整理成好读的考据页，"
     "但有铁律："
     "① official 类线索只写你确实掌握的公开事实（创作灵感来源、歌手自述、"
     "公开报道），没把握的事实绝不写；"
-    "② fan_theory 类必须用「粉丝理论」「有人提出」的口吻，绝不写成事实；"
+    "② fan_theory 类是你基于歌词文本的大胆推测（联想、剧情解读），"
+    "必须以明确的推测口吻书写，不得冒充事实或粉丝共识；"
     "③ lyric_parallel 类优先使用用户提供的曲库呼应对（那是程序算出的硬"
     "证据），引用歌词必须逐字照抄，不得改写/翻译；"
     "④ 对这首歌没有可靠考据时把 known 设为 false 并在 caveat 说明，"
@@ -51,13 +52,13 @@ _FANLORE_SCHEMA = (
     '  "known": true/false,  // 是否确实有值得讲的考据\n'
     '  "hook": "一句话看懂这首歌（抓人，<=40字）",\n'
     '  "clues": [\n'
-    '    {"type": "official | lyric_parallel | fan_theory",\n'
+    '    {"type": "official | lyric_parallel | fan_theory"  （fan_theory = 基于歌词的推测）,\n'
     '     "title": "线索小标题（像粉丝视频的小节名）",\n'
     '     "body": "60-100字，讲成有发现感的小故事，惜字如金",\n'
     '     "quote_a": {"song": "歌名", "line": "歌词原句，逐字"},  // 可省\n'
     '     "quote_b": {"song": "歌名", "line": "歌词原句，逐字"}}  // 可省\n'
     "  ],\n"
-    '  "chain": [  // 粉丝提出的多首歌连续剧情理论；没有可靠理论则为 []\n'
+    '  "chain": [  // 基于歌词推测的多首歌连续剧情；没有可讲的则为 []\n'
     '    {"song": "歌名", "beat": "这一站的一句剧情"}\n'
     "  ],\n"
     '  "summary": "粉丝视频式收尾：这首歌最有意思的地方（<=80字）",\n'
@@ -73,7 +74,7 @@ def progress_stage(buffer: str) -> str:
     if '"summary"' in buffer:
         return "正在写收尾总结"
     if '"chain"' in buffer:
-        return "正在整理粉丝剧情理论"
+        return "正在整理剧情推测"
     n = buffer.count('"type"')
     if n:
         return f"正在写第 {n} 条线索"
@@ -105,7 +106,7 @@ def fanlore_messages(title: str, artist: str, album: str = "",
         meta += ("\n曲库中该歌手的其他歌（chain 尽量用这些歌名）："
                  + "、".join(sorted(library_titles)[:40]) + "\n")
     user = (meta + "\n请把这首歌的考据整理成一页：官方信息、歌词呼应、"
-            "粉丝理论，各归各的标签。\n\n" + _FANLORE_SCHEMA)
+            "基于歌词的推测，各归各的标签。\n\n" + _FANLORE_SCHEMA)
     return FANLORE_SYSTEM, user
 
 
@@ -211,12 +212,12 @@ def _esc(t) -> str:
 _BADGES = {
     "official": ("📖 官方信息", "lore-official"),
     "lyric_parallel": ("🔎 歌词对照", "lore-parallel"),
-    "fan_theory": ("🧵 粉丝理论", "lore-theory"),
+    "fan_theory": ("💭 AI 推测", "lore-theory"),
 }
 
 _DISCLAIM = ('<div class="lore-disclaim">考据由 AI 整理：歌词对照经曲库'
-             '验证（✅ 可点击跳转）；官方信息与粉丝理论来自 AI 训练语料，'
-             '可能有误 · 粉丝理论非官方设定</div>')
+             '验证（✅ 可点击跳转）；官方信息来自 AI 训练语料、可能有误，'
+             '推测仅基于歌词 · 均非官方设定</div>')
 
 
 def _quote_html(q: tuple[str, str], verifier, label_of: dict) -> str:
@@ -251,8 +252,8 @@ def render_fanlore_html(f: Fanlore, title: str,
     if f.hook:
         parts.append(f'<div class="lore-hook">{_esc(f.hook)}</div>')
     if f.clues:
-        parts.append(f'<div class="lore-sec">🔎 粉丝发现了 '
-                     f'{len(f.clues)} 条有意思的线索</div>')
+        parts.append(f'<div class="lore-sec">🔎 {len(f.clues)} 条'
+                     '有意思的线索</div>')
     for c in f.clues:
         badge, cls = _BADGES[c.type]
         inner = [f'<span class="lore-badge {cls}">{badge}</span>']
@@ -264,8 +265,8 @@ def render_fanlore_html(f: Fanlore, title: str,
             if q:
                 inner.append(_quote_html(q, verifier, label_of or {}))
         if c.type == "fan_theory":
-            inner.append('<div class="lore-theory-note">⚠️ 粉丝理论，'
-                         '非官方设定</div>')
+            inner.append('<div class="lore-theory-note">⚠️ AI 基于歌词'
+                         '的推测，非官方设定</div>')
         parts.append(f'<div class="lore-clue">{"".join(inner)}</div>')
     if f.chain:
         pills = []
@@ -283,7 +284,7 @@ def render_fanlore_html(f: Fanlore, title: str,
                              f'《{_esc(song)}》</span>')
         beats = "".join(f'<div class="lore-beat">《{_esc(s)}》：{_esc(b)}'
                         '</div>' for s, b in f.chain)
-        parts.append('<div class="lore-sec">🧵 粉丝的连续剧情理论</div>'
+        parts.append('<div class="lore-sec">💭 多首歌连续剧情推测（AI）</div>'
                      f'<div class="lore-chain">{" → ".join(pills)}</div>'
                      f'{beats}'
                      '<div class="lore-vote">🤔 你觉得这个理论成立吗？'

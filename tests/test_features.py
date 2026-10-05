@@ -975,7 +975,7 @@ def test_fanlore_progress_stage():
     assert progress_stage("") == "正在构思"
     assert progress_stage('{"known": true, "hook": "x') == "正在写一句话看懂"
     assert progress_stage('..."type": "a"..."type": "b"') == "正在写第 2 条线索"
-    assert progress_stage('..."type": "a"..."chain": [') == "正在整理粉丝剧情理论"
+    assert progress_stage('..."type": "a"..."chain": [') == "正在整理剧情推测"
     assert progress_stage('..."chain": []..."summary"') == "正在写收尾总结"
 
 
@@ -1036,7 +1036,7 @@ def test_render_fanlore_html():
     assert 'data-cite-label="SongA — Artist"' in html
     assert "⚠️ 未在曲库验证" in html
     # fan_theory 自动带非官方标注
-    assert "粉丝理论，非官方" in html
+    assert "推测，非官方" in html
     # 剧情链：库内可点、库外灰显
     assert "lore-pill-out" in html and html.count("data-lore-vote") == 3
     assert "考据由 AI 整理" in html
