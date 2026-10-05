@@ -255,12 +255,17 @@ window.llz = function() {   // body CSS zoom 校正系数
     if (e.key === 'Escape') closeAll();
   });
   function lookupSelection(e) {
-    const lineEl = e.target.closest('.lyric-line');
-    if (!lineEl) return;
     const sel = window.getSelection();
+    // \u6b4c\u8bcd\u884c\u4ece\u300c\u9009\u533a\u300d\u53cd\u63a8\uff0c\u800c\u4e0d\u662f\u9f20\u6807\u677e\u5f00\u7684\u4f4d\u7f6e\u2014\u2014\u62d6\u51fa\u884c\u5916\u677e\u624b\u4e5f\u80fd\u67e5
+    let anchor = sel && sel.anchorNode;
+    if (anchor && anchor.nodeType === 3) anchor = anchor.parentElement;
+    const lineEl = (anchor && anchor.closest
+                    && anchor.closest('.lyric-line'))
+      || (e.target.closest && e.target.closest('.lyric-line'));
+    if (!lineEl) return;
     const word = (sel ? sel.toString() : '').trim().replace(/\\s+/g, ' ');
-    // \u5355\u8bcd\uff0c\u6216\u62d6\u9009 2-6 \u4e2a\u8bcd\u7684\u8bcd\u7ec4
-    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}(?: [A-Za-z][A-Za-z'\u2019-]{0,31}){0,5}$/.test(word))
+    // \u5355\u8bcd\uff0c\u6216\u62d6\u9009 2-8 \u4e2a\u8bcd\u7684\u8bcd\u7ec4
+    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}(?: [A-Za-z][A-Za-z'\u2019,.-]{0,31}){0,7}$/.test(word))
       return;
     const pops = document.querySelectorAll('.ll-dict-pop');
     if (pops.length >= 4) pops[0].remove();   // 最多同屏 4 张，顶掉最旧的
@@ -293,10 +298,13 @@ window.llz = function() {   // body CSS zoom 校正系数
   }
   document.addEventListener('dblclick', lookupSelection);
   document.addEventListener('mouseup', (e) => {
-    // 拖选词组：选区含空格才走这里（单词仍由 dblclick 负责）
-    const sel = window.getSelection();
-    const s = (sel ? sel.toString() : '').trim();
-    if (s.includes(' ')) lookupSelection(e);
+    // 拖选词组：选区含空格才走这里（单词仍由 dblclick 负责）。
+    // 稍等一拍让浏览器先敲定选区，再按选区反推歌词行
+    setTimeout(() => {
+      const sel = window.getSelection();
+      const s = (sel ? sel.toString() : '').trim();
+      if (s.includes(' ')) lookupSelection(e);
+    }, 10);
   });
   function render(pop, data) {
     if (!pop) return;
@@ -1182,7 +1190,8 @@ body { zoom: 0.75; }
 body, .gradio-container { background: var(--bg-primary) !important; }
 /* 全宽布局：歌单贴屏幕最左，不留大白边 */
 .gradio-container { max-width: 100% !important;
-  padding-left: 14px !important; padding-right: 14px !important; }
+  padding-left: 14px !important; padding-right: 14px !important;
+  padding-bottom: 150px !important; /* 整页底部留 ~3 行滚动余量 */ }
 
 /* hide gradio footer (Runs / API / Gradio links) */
 footer, .gradio-container footer { display: none !important; }
@@ -1334,8 +1343,7 @@ footer, .gradio-container footer { display: none !important; }
 }
 #lyrics-container::-webkit-scrollbar { width: 6px; }
 #lyrics-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-#lyrics-scroll { display: flex; flex-direction: column; gap: 2px;
-  padding-bottom: 140px; /* 拖到底后再留 ~3 行空间 */ }
+#lyrics-scroll { display: flex; flex-direction: column; gap: 2px; }
 
 .lyric-line {
   padding: 8px 16px; border-radius: 8px; cursor: pointer;

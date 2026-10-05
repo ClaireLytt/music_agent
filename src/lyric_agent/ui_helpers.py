@@ -194,8 +194,7 @@ _ECHO_SCAN_CACHE_DIR = Path("data/cache/echo_scans")
 
 # whole-song AI intro, generated once and cached in the song directory
 _INTRO_FILENAME = "intro.txt"
-_INTRO_EMPTY = ('<div class="chat-empty">尚未生成本歌导读 — '
-                '点击下方按钮由 AI 生成（需 API Key，几秒钟）。</div>')
+_INTRO_EMPTY = ""
 
 
 def _load_intro(song_dir: str | Path) -> str:
@@ -409,8 +408,8 @@ def _render_favorites(favs: list[dict], song_title: str | None = None) -> str:
     def _jump_attr(f: dict, fid: str) -> str:
         # exact-line jump (cite pipeline) when the entry knows its line;
         # legacy entries fall back to the song-level jump
-        if f.get("line_index", -1) >= 0 and f.get("label"):
-            return (f'data-cite-label="{_esc(f["label"])}" '
+        if f.get("line_index", -1) >= 0 and f.get("title"):
+            return (f'data-cite-label="{_esc(f["title"])}" '
                     f'data-cite-line="{f["line_index"]}"')
         return f'data-fav="jump:{_esc(fid)}"'
 
@@ -695,7 +694,7 @@ def render_wordbook(entries: list[dict],
                      if phon else "")
         if src and e.get("line_index", -1) >= 0 and e.get("label"):
             src_html = (f'<div class="wb-src wb-jump" '
-                        f'data-cite-label="{_esc(e["label"])}" '
+                        f'data-cite-label="{_esc(e.get("song", ""))}" '
                         f'data-cite-line="{e["line_index"]}" '
                         f'title="点击跳到这句歌词">「{_esc(src)}」</div>')
         elif src:
@@ -800,11 +799,11 @@ def render_practice_card(entry: dict, mp3_url: str, nonce: str,
         # 目标单词嵌在原句里高亮；盲打模式下由 CSS 遮住
         src = _mask_word(entry["line"], word)
         # 条目带定位信息时整行可点：跳到那首歌的那一句（JS 委托）
-        label = entry.get("label", "")
+        song = entry.get("song", "")
         line_idx = entry.get("line_index", -1)
-        jump = (f' data-tp-jump="{_esc(label)}" data-tp-line="{line_idx}" '
+        jump = (f' data-tp-jump="{_esc(song)}" data-tp-line="{line_idx}" '
                 'title="点击去歌里听这句"'
-                if label and line_idx >= 0 else "")
+                if song and line_idx >= 0 else "")
         rows.append(f'<div class="wb-src"{jump}>「{src}」'
                     f'·《{_esc(entry.get("song", ""))}》</div>')
     ai = (entry.get("ai", "") or "").strip()

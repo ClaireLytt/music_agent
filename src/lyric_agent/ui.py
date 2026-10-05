@@ -808,11 +808,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                     add_state = gr.State("")  # last added song dir name
 
                     with gr.Accordion("✍️ 手动添加曲库以外的歌曲", open=False):
-                        gr.Markdown(
-                            "**只有「歌曲标题」是必填项**，其余全部可以留空。\n"
-                            "不填歌词时，会根据歌名和歌手自动尝试从 LRCLIB 获取带时间戳的歌词；"
-                            "获取失败则先创建占位歌词，之后可随时编辑歌曲目录下的 `lyrics.lrc`。"
-                        )
                         with gr.Row():
                             add_title = gr.Textbox(label="歌曲标题（必填）",
                                                    elem_id="ll-add-title")
@@ -2242,12 +2237,31 @@ def create_app(settings: Settings) -> gr.Blocks:
             return {s.get("title", ""): song_choice_label(s)
                     for s in ctx["songs"]}
 
+        def _resolve_jump_label(key: str, sort: str, q: str) -> str:
+            """跳转键 → 当前歌单 label（歌迷考据的做法抽成公共函数）。
+
+            key 可以是实时 label、歌名、或收藏时存下的陈旧 label
+            （格式/曲库变化后会失配）——一律按当前状态重新解析。"""
+            key = (key or "").strip()
+            if not key:
+                return ""
+            labels = _filtered_labels(sort, q)
+            if key in labels:
+                return key
+            by_title = _label_of()
+            label = by_title.get(key, "")           # key 是歌名
+            if label in labels:
+                return label
+            # 陈旧 label（如 "title — artist"）：取歌名部分再解析
+            label = by_title.get(key.split(" — ")[0], "")
+            return label if label in labels else ""
+
         def on_cite_jump(payload: str, sort: str, q: str):
-            parts = (payload or "").split("\t")
-            label = parts[0].strip() if parts else ""
-            if label and label in _filtered_labels(sort, q):
-                return gr.Radio(value=label)
+            key = (payload or "").split("\t")[0].strip()
+            label = _resolve_jump_label(key, sort, q)
             if label:
+                return gr.Radio(value=label)
+            if key:
                 gr.Warning("该歌曲不在当前列表中（可能被筛选或已删除）。")
             return gr.skip()
 
