@@ -453,6 +453,20 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 elem_id="ll-del-song",
                                 elem_classes=["ll-hidden"],
                                 show_label=False, container=False)
+                            # 隐藏通道必须常驻 DOM：之前随工具搬进 ⚙️
+                            # 懒加载子页签后，歌词区按钮写通道静默落空
+                            # backend -> JS: 偏移实时预览值
+                            offset_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-offset-set",
+                                elem_classes=["ll-hidden"],
+                                show_label=False, container=False)
+                            # JS -> backend: 视频 搜索/候选/解绑
+                            bvid_box = gr.Textbox(
+                                value="", visible=True,
+                                elem_id="ll-bvid-act",
+                                elem_classes=["ll-hidden"],
+                                show_label=False, container=False)
                         sort_mode = gr.Radio(
                             choices=[
                                 ("添加顺序（最早在前）", "added_asc"),
@@ -569,12 +583,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                         offset_save_btn = gr.Button("保存偏移",
                                                                     size="sm")
                                         offset_status = gr.Markdown("")
-                                    # backend -> JS: 偏移实时预览值
-                                    offset_box = gr.Textbox(
-                                        value="", visible=True,
-                                        elem_id="ll-offset-set",
-                                        elem_classes=["ll-hidden"], show_label=False,
-                                        container=False)
                                     with gr.Accordion("📺 关联 B 站视频（BV 号/链接）",
                                                       open=False):
                                         bvid_input = gr.Textbox(
@@ -583,13 +591,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                                             show_label=False, container=False)
                                         bvid_save_btn = gr.Button("保存", size="sm")
                                         bvid_status = gr.Markdown("")
-                                    # JS -> backend: 视频搜索/候选绑定
-                                    # ("search\t<ts>" / "pick\t<bvid>\t<ts>")
-                                    bvid_box = gr.Textbox(
-                                        value="", visible=True,
-                                        elem_id="ll-bvid-act",
-                                        elem_classes=["ll-hidden"], show_label=False,
-                                        container=False)
                                     manage_refresh_btn = gr.Button(
                                         "🔄 刷新曲库（手动增删过歌曲目录后同步）",
                                         size="sm", elem_id="ll-refresh-btn")
@@ -753,7 +754,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                             None, [lore_song_dd])
                     with gr.Tab("🎯 歌词竞猜"):
                         gr.Markdown("从你的歌曲列表随机抽一句歌词，"
-                                    "猜猜它出自哪首歌。")
+                                    "猜猜它出自哪首歌。选好选项后按 "
+                                    "**Enter 提交答案**，看完答案再按一次 "
+                                    "**Enter 下一题**。")
                         quiz_state = gr.State(
                             {"score": 0, "total": 0, "answer": ""})
                         quiz_html = gr.HTML(
@@ -766,10 +769,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                             quiz_new_btn = gr.Button("🎲 开始 / 下一题",
                                                      variant="primary", scale=1)
                             quiz_submit_btn = gr.Button("提交答案", scale=1)
-                        quiz_result = gr.Markdown("")
+                        quiz_result = gr.Markdown("", elem_id="ll-quiz-result")
                     with gr.Tab("🧩 歌名拼图"):
                         gr.Markdown("歌名被挖掉了一块——从选项里把它"
-                                    "拼回完整。")
+                                    "拼回完整。选好后按 **Enter 提交**，"
+                                    "看完答案再按一次 **Enter 下一题**。")
                         blank_state = gr.State(
                             {"score": 0, "total": 0, "answer": "", "reveal": ""})
                         blank_html = gr.HTML(
@@ -782,7 +786,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                             blank_new_btn = gr.Button("🧩 来一题",
                                                       variant="primary", scale=1)
                             blank_submit_btn = gr.Button("🧩 拼好了", scale=1)
-                        blank_result = gr.Markdown("")
+                        blank_result = gr.Markdown("", elem_id="ll-blank-result")
             # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
             if not public:
                 with gr.Tab("➕ 添加歌曲"):

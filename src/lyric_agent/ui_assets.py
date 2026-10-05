@@ -54,6 +54,35 @@ _HEAD_JS = """
     });
   }, 400);
 })();
+// 🎮 竞猜/拼图：Enter 两段式——未出结果时 Enter=提交，出结果后 Enter=下一题
+(function() {
+  const GAMES = [
+    {res: 'll-quiz-result', submit: '提交答案', next: '开始 / 下一题'},
+    {res: 'll-blank-result', submit: '🧩 拼好了', next: '🧩 来一题'},
+  ];
+  function visibleBtn(text) {
+    for (const b of document.querySelectorAll('button'))
+      if (b.offsetParent !== null && b.textContent.includes(text)) return b;
+    return null;
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    const type = (e.target.type || '').toLowerCase();
+    // 文本输入框里的 Enter 不抢（打字练习/聊天各有自己的行为）
+    if (tag === 'textarea'
+        || (tag === 'input' && type !== 'radio' && type !== 'checkbox'))
+      return;
+    for (const g of GAMES) {
+      const res = document.getElementById(g.res);
+      if (!res || res.offsetParent === null) continue;
+      const answered = /[✅❌]/.test(res.textContent);
+      const btn = visibleBtn(answered ? g.next : g.submit);
+      if (btn) { e.preventDefault(); btn.click(); }
+      return;
+    }
+  });
+})();
 window.llz = function() {   // body CSS zoom 校正系数
   return parseFloat(getComputedStyle(document.body).zoom) || 1;
 };

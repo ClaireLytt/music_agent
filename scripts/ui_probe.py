@@ -363,6 +363,17 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
 
 
 
+        def c_hidden_channels():
+            # 隐藏通道必须常驻 DOM（回归：随工具搬进懒加载 ⚙️ 子页签后，
+            # 歌词区的 🔍搜索/🗑换视频 按钮写通道静默失效）
+            # （ll-review-done 在 🔤 页签内懒加载，但按键只在该页发生）
+            for ch in ("ll-bvid-act", "ll-offset-set", "ll-dict-pick",
+                       "ll-cite-jump"):
+                must(count(f"#{ch} textarea, #{ch} input") >= 1,
+                     f"hidden channel #{ch} not mounted")
+        probe.check("hidden_channels", "hidden JS channels always mounted",
+                    c_hidden_channels)
+
         def c_sidebar_toggle():
             # 仿 Claude 的歌单收起：按钮/Ctrl+B 切换 + 气泡提示
             probe.tab("🎧 播放解读")
@@ -567,15 +578,23 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             pg.get_by_role("button", name="🎲 开始 / 下一题").click()
             probe.wait_until(lambda: count(".quiz-line") == 1,
                              msg="no quiz question")
-            # pick an option and submit
-            pg.locator("input[type=radio]:visible").last.check()
-            pg.get_by_role("button", name="提交答案").click()
+            # 选项后第一次 Enter = 提交
+            opt = pg.locator("input[type=radio]:visible").last
+            opt.check()
+            first_q = pg.locator(".quiz-line").inner_text()
+            opt.press("Enter")
             probe.wait_until(
                 lambda: "/ " in pg.locator("body").inner_text()
                 and ("答对" in pg.locator("body").inner_text()
                      or "不对" in pg.locator("body").inner_text()),
-                msg="quiz verdict/score missing after submit")
-        probe.check("quiz_answer", "quiz answer submit -> verdict + score",
+                msg="quiz verdict/score missing after Enter submit")
+            # 第二次 Enter = 下一题（题面刷新、结果清空）
+            pg.locator("body").press("Enter")
+            probe.wait_until(
+                lambda: pg.locator(".quiz-line").inner_text() != first_q
+                or "✅" not in pg.locator("#ll-quiz-result").inner_text(),
+                msg="second Enter did not advance to the next question")
+        probe.check("quiz_answer", "quiz Enter submit -> Enter next",
                     c_quiz_answer)
 
         def c_title_puzzle():
