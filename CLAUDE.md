@@ -83,6 +83,10 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **UI styling** is token-centric: edit `:root` variables and component rules
   in src/lyric_agent/ui_assets.py; SVG palettes live as Python constants in
   echo_map.py / universe.py and must match the theme's light/dark basis.
+- **生成文字内容一律居中**（用户的全局审美偏好，2026-10-05 定）：凡 AI
+  生成的文字类内容页/卡片（歌迷考据、故事、总结等），容器 `margin: 0 auto`
+  水平居中且 `text-align: center`。新功能渲染 HTML 时直接照此写；样板见
+  ui_assets.py 的 `.lore-page`。
 - **长耗时 LLM 调用的交付铁律**（同一坑已踩四次：查词弹卡、整歌翻译、
   彩蛋故事、歌迷考据）。症状：点了生成按钮，token 花了/调用挂着，页面却
   永远停在"生成中"；用户等不及刷新或重启 serve，同步阻塞的调用随之被杀，

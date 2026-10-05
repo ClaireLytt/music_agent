@@ -1599,7 +1599,8 @@ footer, .gradio-container footer { display: none !important; }
   box-shadow: 0 4px 14px rgba(15, 23, 42, .15); }
 #ll-onboard-btn:hover { color: var(--accent); border-color: var(--accent); }
 /* 🕵️ 歌迷考据 */
-.lore-page { max-width: 760px; }
+.lore-page { max-width: 760px; margin: 0 auto; text-align: center; }
+.lore-page .lore-vote .ptool { margin: 0 4px; }
 .lore-head { font-size: 18px; font-weight: 800; margin: 8px 0; }
 .lore-hook { padding: 12px 16px; border-left: 4px solid var(--accent);
   background: var(--accent-soft); border-radius: 0 10px 10px 0;
