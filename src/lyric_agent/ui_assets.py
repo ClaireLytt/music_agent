@@ -186,6 +186,8 @@ window.llz = function() {   // body CSS zoom 校正系数
           clearInterval(t);
           el.scrollIntoView({ block: 'center' });
           el.classList.add('cite-flash');
+          // probes/tests: survives the node being re-rendered mid-flash
+          window.__llCiteFlashAt = Date.now();
           setTimeout(() => el.classList.remove('cite-flash'), 2600);
         } else if (++tries > 40) clearInterval(t);
       }, 250);
@@ -948,6 +950,7 @@ window.llz = function() {   // body CSS zoom 校正系数
         if (el) {
           el.scrollIntoView({ block: 'center' });
           el.classList.add('cite-flash');
+          window.__llCiteFlashAt = Date.now();
           setTimeout(() => el.classList.remove('cite-flash'), 2600);
         }
         return;
@@ -1172,22 +1175,37 @@ _CSS = """\
 /* 整体默认缩放 75%（等效浏览器 75% 缩放，用户定的默认密度） */
 body { zoom: 0.75; }
 :root {
+  /* 青瓷 Celadon theme (Morandi): grey-teal, muted, porcelain-calm.
+     Measured from prototypes/recolor.html th-celadon on 2026-10-06. */
   --bg-primary: #ffffff;
-  --bg-secondary: #f6f8fa;
-  --bg-card: #f6f8fa;
-  --bg-card-hover: #eaeef2;
-  --text-primary: #1f2328;
-  --text-secondary: #656d76;
-  --text-played: #a9b1ba;
-  --accent: #0969da;
-  --accent-soft: rgba(9, 105, 218, 0.08);
-  --accent-glow: rgba(9, 105, 218, 0.15);
-  --border: #d0d7de;
-  --karaoke-rest: #57606a; /* un-sung part of the active karaoke line */
-  --lyric-dim: rgba(31, 35, 40, 0.52); /* upcoming lyric lines */
+  --bg-page: linear-gradient(160deg, #eef3f2 0%, #ecf1f1 48%, #f1f4f2 100%);
+  --bg-secondary: #eff3f1;
+  --bg-card: #eff3f1;
+  --bg-card-hover: #e2ebe8;
+  --text-primary: #35433f;
+  --text-secondary: #76867f;
+  --text-played: #a5b3ac;
+  --accent: #6f948f;
+  --accent-2: #8fb0aa; /* light stop of the celadon gradient */
+  --accent-grad: linear-gradient(90deg, #8fb0aa, #6f948f);
+  --accent-soft: rgba(111, 148, 143, 0.12);
+  --accent-glow: rgba(111, 148, 143, 0.18);
+  --pink: #527672;     /* selected-lyric "hot" color (celadon deep) */
+  --pink-soft: #e9f0ee;
+  --border: #dbe5e1;
+  --card-shadow: 0 8px 28px rgba(111, 148, 143, 0.16);
+  --karaoke-rest: #5d6f6a; /* un-sung part of the active karaoke line */
+  --lyric-dim: #a5b3ac; /* upcoming lyric lines */
 }
 
-body, .gradio-container { background: var(--bg-primary) !important; }
+/* NOTE: Gradio's CSS reserializer destroys `background: var()` SHORTHANDS in
+   some rules (expands to empty longhands) — use background-image/-color
+   longhands whenever the value is a var(). */
+body, .gradio-container {
+  background-color: #eef3f2 !important;
+  background-image: var(--bg-page) !important;
+  background-attachment: fixed !important;
+}
 /* 全宽布局：歌单贴屏幕最左，不留大白边 */
 .gradio-container { max-width: 100% !important;
   padding-left: 14px !important; padding-right: 14px !important;
@@ -1205,7 +1223,25 @@ footer, .gradio-container footer { display: none !important; }
   align-items: stretch !important;
   gap: 4px !important;
 }
-#ll-songs label, #ll-catalog label { width: 100%; }
+#ll-songs label, #ll-catalog label { width: 100%;
+  border-radius: 14px !important; border: none !important;
+  background: var(--bg-card) !important;
+  box-shadow: none !important;
+  transition: background 0.15s ease, transform 0.15s ease-out;
+}
+/* 歌单行：隐藏 radio 圆点,整行(label)点击,选中靠高亮表达。
+   opacity 而非 display:none —— 保住可访问树/Playwright 的 radio 角色 */
+#ll-songs input[type="radio"] {
+  position: absolute; opacity: 0;
+  width: 1px; height: 1px; margin: 0;
+}
+#ll-songs label { padding-left: 14px !important; }
+#ll-songs label.selected, #ll-catalog label.selected {
+  background: var(--accent-grad) !important;
+}
+#ll-songs label.selected *, #ll-catalog label.selected * {
+  color: #ffffff !important;
+}
 /* per-song ⋯ menu (selected row only) */
 #ll-songs label { position: relative; }
 .ll-dots {
@@ -1240,7 +1276,7 @@ footer, .gradio-container footer { display: none !important; }
   color: var(--text-primary) !important;
   caret-color: var(--accent) !important;
   border: 1px solid var(--border) !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
 }
 .gradio-container input:focus, .gradio-container textarea:focus {
   border-color: var(--accent) !important;
@@ -1251,39 +1287,46 @@ footer, .gradio-container footer { display: none !important; }
 }
 
 .app-header { text-align: center; padding: 16px 0 4px; }
-.app-header h1 { color: var(--accent); font-size: 26px; margin: 0; font-weight: 700; }
+.app-header h1 { font-size: 26px; margin: 0; font-weight: 800;
+  background-image: var(--accent-grad);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent; }
 .app-header p { color: var(--text-secondary); margin: 4px 0 0; font-size: 14px; }
 
 /* ── Chip tab navigation: grey pills, selected = solid blue ── */
 .gradio-container .tab-nav, .gradio-container div[role="tablist"] {
-  justify-content: center; gap: 8px; border-bottom: none !important;
+  justify-content: center; gap: 12px; border-bottom: none !important;
   padding-bottom: 2px; margin-bottom: 14px; flex-wrap: wrap;
 }
 .gradio-container .tab-nav button, .gradio-container button[role="tab"] {
   font-size: 15px !important; font-weight: 700 !important;
   padding: 8px 18px !important; border-radius: 500px !important;
   color: var(--text-secondary) !important;
-  background: var(--bg-card-hover) !important;
+  background: rgba(255, 255, 255, 0.75) !important;
   border: none !important;
-  transition: background 0.2s ease, color 0.2s ease;
+  box-shadow: 0 1px 3px rgba(43, 36, 64, 0.08);
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease-out;
 }
 .gradio-container .tab-nav button:hover, .gradio-container button[role="tab"]:hover {
-  color: var(--text-primary) !important; background: #dfe5eb !important;
+  color: var(--text-primary) !important; background: #ffffff !important;
+  transform: translateY(-2px);
 }
 .gradio-container .tab-nav button.selected,
 .gradio-container button[role="tab"][aria-selected="true"] {
-  color: #ffffff !important; background: var(--accent) !important;
+  color: #ffffff !important; background: var(--text-primary) !important;
+  transform: none;
 }
 
 /* ── Pill buttons, blue on white ── */
 .gradio-container button.primary {
-  background: var(--accent) !important; color: #ffffff !important;
+  background: var(--accent-grad) !important; color: #ffffff !important;
   border: none !important; border-radius: 500px !important;
-  font-weight: 700 !important; box-shadow: none !important;
-  transition: background 0.15s ease, transform 0.15s ease;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 10px rgba(129, 140, 248, 0.35) !important;
+  transition: filter 0.15s ease, transform 0.15s ease;
 }
 .gradio-container button.primary:hover {
-  background: #0a5ac1 !important; transform: scale(1.03);
+  filter: brightness(1.06); transform: scale(1.03);
 }
 .gradio-container button.primary:active { transform: scale(0.98); }
 .gradio-container button.secondary {
@@ -1293,24 +1336,80 @@ footer, .gradio-container footer { display: none !important; }
   transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 .gradio-container button.secondary:hover {
-  border-color: var(--accent) !important; color: var(--accent) !important;
-  transform: scale(1.03);
+  border-color: #c7cbfa !important; color: var(--accent) !important;
+  background: #ffffff !important; transform: scale(1.03);
 }
 
 .ll-hidden { display: none !important; }
+
+/* ── three main panels as separate white rounded cards ──
+   geometry strictly transferred from prototypes/recolor.html (th-celadon):
+   grid 240px | 1fr | 320px, gap 18px, max-width 1240px centered,
+   side cards pad 20px, middle card pad 26px, radius 22px */
+#ll-play-row {
+  display: grid !important;
+  /* 2026-10-06 用户手绘:侧栏 300 / 右栏 420 贴两侧,
+     中栏限宽 ~1080px(红框)居中,两边留白 */
+  grid-template-columns: 420px minmax(0, 1300px) 420px !important;
+  justify-content: space-between !important;
+  gap: 15px !important;
+  max-width: 88% !important;
+  margin: 0 auto !important;
+  padding: 0 26px;
+  align-items: flex-start;
+}
+#ll-play-row > * { width: auto !important; min-width: 0 !important; }
+/* 三栏各自限高在视口内、内部滚动;页面整体滚动条保持不动。
+   body 有 zoom:0.75,100vh 的 CSS 高度只渲染出 75% —— 用 133.33vh
+   补偿;260px ≈ 顶部标题+tab 条(CSS px) */
+#ll-play-row > .ll-card {
+  max-height: calc(133.33vh - 260px);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.ll-card {
+  background-color: #ffffff !important;
+  border-radius: 22px !important;
+  padding: 20px !important;
+  box-shadow: var(--card-shadow) !important;
+}
+#ll-play-row > .ll-card:nth-child(2) { padding: 26px !important; }
+/* blocks inside a card stay flat so the card reads as one surface */
+.ll-card .block, .ll-card .form {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
 
 .side-panel-title {
   font-size: 15px; font-weight: 700; color: var(--text-primary);
   padding: 4px 2px 6px; border-bottom: 2px solid var(--accent-soft); margin-bottom: 8px;
 }
 
-/* Song header */
+/* Song header: gradient cover tile + big title (pop_design.png) */
 .song-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 12px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px;
+  display: flex; align-items: center; gap: 16px;
+  padding: 6px 4px 14px; margin-bottom: 8px;
 }
-.song-title-display { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
-.song-meta-display { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+.song-cover {
+  width: 72px; height: 72px; border-radius: 20px; flex: none;
+  background-image: var(--accent-grad);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; color: #ffffff;
+}
+.song-title-display { margin: 0; font-size: 26px; font-weight: 800; color: var(--text-primary); }
+.song-meta-display { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+/* native audio bar: blend into the white card as a rounded chip */
+.gradio-container audio {
+  width: 100%; height: 40px; border-radius: 999px;
+  background-color: var(--bg-card);
+}
+.gradio-container audio::-webkit-media-controls-enclosure {
+  border-radius: 999px; background-color: var(--bg-card);
+}
 
 /* compact audio-upload dropzone — the default is a huge empty drop area */
 #ll-audio-up .wrap {
@@ -1346,14 +1445,16 @@ footer, .gradio-container footer { display: none !important; }
 #lyrics-scroll { display: flex; flex-direction: column; gap: 2px; }
 
 .lyric-line {
-  padding: 8px 16px; border-radius: 8px; cursor: pointer;
+  padding: 10px 14px; border-radius: 14px; cursor: pointer;
+  margin-bottom: 20px; /* 行间距(用户定) */
   transition: all 0.25s ease; border-left: 3px solid transparent;
 }
-.lyric-line:hover { background: var(--bg-card-hover); }
-.lyric-line.picked { background: var(--accent-soft); border-left-color: var(--accent); }
+.lyric-line:hover { background: var(--bg-card); }
+.lyric-line.picked { background: var(--pink-soft); border-left-color: var(--pink); }
+.lyric-line.picked .lyric-text { color: var(--pink); }
 .lyric-line.played .lyric-text { color: var(--text-played); }
 .lyric-line.active { background: var(--accent-glow); border-left-color: var(--accent); transform: scale(1.02); }
-.lyric-line.active .lyric-text { color: var(--text-primary); font-weight: 800; font-size: 19px; }
+.lyric-line.active .lyric-text { color: var(--text-primary); font-weight: 700; font-size: 24px; }
 /* karaoke sweep: JS drives a gradient over the active line's text; the
    estimated progress paints sung characters accent-blue */
 @supports (-webkit-background-clip: text) or (background-clip: text) {
@@ -1363,8 +1464,8 @@ footer, .gradio-container footer { display: none !important; }
   }
 }
 .lyric-text {
-  font-size: 17px; font-weight: 700; color: var(--lyric-dim);
-  letter-spacing: -0.01em; transition: all 0.25s ease; line-height: 1.6;
+  font-size: 21px; font-weight: 500; color: var(--lyric-dim);
+  letter-spacing: -0.01em; transition: all 0.25s ease; line-height: 1.5;
 }
 
 /* Search */
@@ -1501,18 +1602,28 @@ footer, .gradio-container footer { display: none !important; }
 /* side-panel icon dock: icon-only tab nav on TOP, content expands below */
 .ll-icon-dock { display: flex; flex-direction: column; }
 .ll-icon-dock > .tab-nav, .ll-icon-dock > div[role="tablist"] {
-  justify-content: center; gap: 6px;
+  justify-content: center; gap: 4px;
   border-top: none !important;
   border-bottom: 1px solid var(--border) !important;
   padding: 2px 0 8px; margin: 0 0 10px;
   position: relative; z-index: 3; background: var(--bg-primary);
+  flex-wrap: wrap !important; /* 320px 窄卡里 6 个图标必须全可见,不许折叠进 ⋯ */
 }
 .ll-icon-dock > .tabitem, .ll-icon-dock > div[role="tabpanel"] {
   overflow: visible; padding-bottom: 6px;
 }
+/* Gradio 的 JS 溢出逻辑会在重渲染时把部分图标 tab 收进 ⋯ 下拉
+   (probe 随即找不到 ⚙️)。六个图标缩窄后本就放得下——强制全部可见,
+   并永久隐藏 ⋯ 溢出菜单。!important 压得过 JS 写的行内样式 */
+.ll-icon-dock .tab-container button[role="tab"] {
+  display: flex !important; visibility: visible !important;
+}
+.ll-icon-dock .overflow-menu { display: none !important; }
 .ll-icon-dock > .tab-nav button, .ll-icon-dock button[role="tab"] {
-  font-size: 18px !important; font-weight: 400 !important;
-  padding: 6px 12px !important; border-radius: 10px !important;
+  font-size: 16px !important; font-weight: 400 !important;
+  /* 320px 窄卡里 6 个图标 tab 必须全可见(6×~30px < ~200px 容器),
+     否则 Gradio 的 JS 溢出逻辑会把 ⚙️/📝 折进 ⋯ 下拉,probe 找不到 */
+  padding: 5px 7px !important; border-radius: 10px !important;
   border-bottom: none !important; background: transparent !important;
   line-height: 1 !important;
 }
@@ -1565,7 +1676,7 @@ footer, .gradio-container footer { display: none !important; }
 .ev-conclusion { font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
 .ev-sec-title {
   font-size: 12px; font-weight: 700; color: var(--text-secondary);
-  margin: 10px 0 4px; display: flex; justify-content: space-between;
+  margin: 10px 0 4px; display: flex; justify-content: space-center;
 }
 .ev-conf { font-weight: 400; }
 .ev-quote { margin: 4px 0; padding-left: 4px; }
@@ -1629,8 +1740,8 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
   padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
   line-height: 1.5; }
-.lyric-line .lyric-trans { font-size: .82em;
-  color: var(--text-secondary); margin-top: 1px; }
+.lyric-line .lyric-trans { font-size: 14px; font-weight: 400;
+  color: var(--text-played); margin-top: 3px; line-height: 1.5; }
 /* 歌单侧栏收起（仿 Claude） */
 #ll-sidebar.ll-sb-hidden { display: none !important; }
 #ll-sb-btn {

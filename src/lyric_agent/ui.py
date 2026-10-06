@@ -94,7 +94,7 @@ def launch_kwargs() -> dict:
     return {
         "css": (_CSS + ECHO_MAP_CSS),
         "head": _HEAD_JS,
-        "theme": gr.themes.Base(primary_hue="blue", neutral_hue="slate"),
+        "theme": gr.themes.Base(primary_hue="teal", neutral_hue="slate"),
     }
 
 
@@ -415,10 +415,11 @@ def create_app(settings: Settings) -> gr.Blocks:
         with gr.Tabs():
             # ══ 页签 1: 播放解读 ══
             with gr.Tab("🎧 播放解读", id="play"):
-                with gr.Row():
+                with gr.Row(elem_id="ll-play-row"):
                     # ── 左栏: 歌曲 + 搜索 ──
                     with gr.Column(scale=1, min_width=230,
-                                   elem_id="ll-sidebar"):
+                                   elem_id="ll-sidebar",
+                                   elem_classes=["ll-card"]):
                         choices = song_choices()
                         # 黄金路径：默认落在主打歌 cardigan（不在库时回退第一首）
                         default_choice = next(
@@ -431,14 +432,25 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 "🎵 歌曲列表" if choices
                                 else "🎵 歌曲列表（空 — 去「添加歌曲」页签）",
                                 open=True, elem_id="ll-songs-acc"):
-                            with gr.Row(elem_id="ll-filter-row"):
-                                song_filter = gr.Textbox(
-                                    placeholder="筛选歌名 / 歌手 / 搜歌词 …",
-                                    show_label=False, container=False,
-                                    elem_id="ll-song-filter", scale=5)
-                                filter_clear_btn = gr.Button(
-                                    "✕", size="sm", scale=1, min_width=36,
-                                    elem_id="ll-filter-clear")
+                            # 筛选 + 排序收进一个折叠面板，默认收起
+                            with gr.Accordion("🎛 筛选 / 排序", open=False,
+                                              elem_id="ll-tools-acc"):
+                                with gr.Row(elem_id="ll-filter-row"):
+                                    song_filter = gr.Textbox(
+                                        placeholder="筛选歌名 / 歌手 / 搜歌词 …",
+                                        show_label=False, container=False,
+                                        elem_id="ll-song-filter", scale=5)
+                                    filter_clear_btn = gr.Button(
+                                        "✕", size="sm", scale=1, min_width=36,
+                                        elem_id="ll-filter-clear")
+                                sort_mode = gr.Radio(
+                                    choices=[
+                                        ("添加顺序（最早在前）", "added_asc"),
+                                        ("添加顺序（最新在前）", "added_desc"),
+                                        ("专辑（按字母排序）", "album_asc"),
+                                        ("歌手（按字母排序）", "artist_asc"),
+                                    ],
+                                    value="added_desc", label="🎛️ 排序")
                             song_radio = gr.Radio(
                                 choices=choices,
                                 show_label=False,
@@ -467,20 +479,13 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 elem_id="ll-bvid-act",
                                 elem_classes=["ll-hidden"],
                                 show_label=False, container=False)
-                        sort_mode = gr.Radio(
-                            choices=[
-                                ("添加顺序（最早在前）", "added_asc"),
-                                ("添加顺序（最新在前）", "added_desc"),
-                                ("专辑（按字母排序）", "album_asc"),
-                                ("歌手（按字母排序）", "artist_asc"),
-                            ],
-                            value="added_desc", label="🎛️ 排序")
                     # ── 中栏: 歌词 ──
-                    with gr.Column(scale=3):
+                    with gr.Column(scale=3, elem_classes=["ll-card"]):
                         lyrics_html = gr.HTML("")
 
                     # ── 右栏: AI 助手 ──
-                    with gr.Column(scale=2, min_width=320):
+                    with gr.Column(scale=2, min_width=320,
+                                   elem_classes=["ll-card"]):
                         gr.HTML('<div class="side-panel-title">💬 AI 助手</div>')
                         chat_state = gr.State(None)
                         chat_topic = gr.HTML(_CHAT_TOPIC_DEFAULT)

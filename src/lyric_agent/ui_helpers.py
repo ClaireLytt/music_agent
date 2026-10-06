@@ -459,12 +459,12 @@ def _render_video_html(song_info: dict, has_audio: bool,
     parts = []
     if bvid:
         if has_audio:
-            # video always shown alongside the audio player (user choice);
-            # the 📺 button only collapses/expands it
+            # video collapsed by default (inline style — the 📺 toggle JS
+            # reads/writes style.display, so the default must live inline)
             parts.append(
                 '<button class="ptool" data-video-toggle="1">'
                 '📺 收起/展开 MV</button>' + unbind +
-                f'<div class="bv-frame" '
+                f'<div class="bv-frame" style="display:none" '
                 f'data-embed="{_esc(embed_url(bvid))}">'
                 f'<iframe allowfullscreen scrolling="no" frameborder="0" '
                 f'src="{_esc(embed_url(bvid))}"></iframe></div>')
@@ -642,6 +642,7 @@ def _render_lyrics_html(song_data: dict, song_info: dict,
     meta_text = " · ".join(x for x in (artist, album) if x)
     header_html = f"""\
 <div class="song-header">
+  <div class="song-cover" aria-hidden="true">♪</div>
   <div>
     <h2 class="song-title-display">{_esc(song_info["title"])}</h2>
     <p class="song-meta-display">{_esc(meta_text)}</p>

@@ -213,7 +213,7 @@ def parse_universe(data: Any, artist: str) -> Universe:
 # ── universe rendering ────────────────────────────────────
 
 _UNI_W, _UNI_H = 860, 400
-_UNI_PALETTE = ["#0969da", "#bf3989", "#1a7f37", "#bc4c00", "#8250df",
+_UNI_PALETTE = ["#6f948f", "#bf3989", "#1a7f37", "#bc4c00", "#8250df",
                 "#9a6700"]
 _CONF_ZH = {"high": ("推理把握：高", "uni-conf-high"),
             "medium": ("推理把握：中", "uni-conf-mid"),

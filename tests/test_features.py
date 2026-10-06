@@ -694,11 +694,12 @@ def test_render_audio_html_video_toggle_with_audio(tmp_path):
             "dir": str(tmp_path), "title": "t", "artist": "a", "album": "",
             "name": "t", "bvid": "BV1xx411c7mD"}
     html = _render_audio_html(info, public=False)
-    # 音频照常 + 视频始终展开（带 src），📺 按钮只做收起/展开
+    # 音频照常 + 视频默认收起（行内 display:none，📺 按钮负责展开；
+    # iframe 仍带 src，展开即播不需重载）
     assert 'id="ll-audio"' in html and "data-video-toggle" in html
     assert 'data-embed="https://player.bilibili.com' in html
     assert 'src="https://player.bilibili.com' in html
-    assert '"bv-frame" style="display:none"' not in html
+    assert '"bv-frame" style="display:none"' in html
 
 
 def test_ts_to_seconds():

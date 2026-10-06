@@ -340,7 +340,7 @@ _TOP_EDGES_HIGHLIGHT = 3
 # visually distinct hues only — album colors are assigned sequentially per
 # graph (see _album_colors), so near-duplicate shades would defeat the legend
 _NODE_PALETTE = [
-    "#0969da", "#bc4c00", "#1a7f37", "#cf222e", "#8250df",
+    "#6f948f", "#bc4c00", "#1a7f37", "#cf222e", "#8250df",
     "#bf3989", "#1b7c8c", "#9a6700", "#57606a", "#6e5494",
 ]
 
