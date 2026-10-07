@@ -2439,7 +2439,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             _kick_corpus_rebuild()
             new_song = next((s for s in ctx["songs"] if s["name"] == slug), None)
             new_label = song_choice_label(new_song) if new_song else None
-            status = f"✅ 已添加《{title}》"
+            status = f"✅ 已添加《{title}》（{lrc_note}）"
             return (status,
                     gr.Radio(choices=song_choices("added_desc"),
                              value=new_label), slug)
