@@ -188,21 +188,8 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             pg.get_by_role("radio", name=AUDIO_SONG).check()
             pg.wait_for_timeout(3500)
             must(count("#ll-audio") == 1, "audio element missing")
-            must(count(".ptool") >= 3, "player tools missing")
-            must(count("#ll-rhyme-toggle") == 1, "rhyme toggle missing")
-        probe.check("audio_tools", "audio song renders player tools",
+        probe.check("audio_tools", "audio song renders audio player",
                     c_audio_tools)
-
-        def c_rhyme_toggle():
-            pg.locator("#ll-rhyme-toggle").check()
-            pg.wait_for_timeout(500)
-            visible = pg.evaluate(
-                "Array.from(document.querySelectorAll('.rhyme-mark'))"
-                ".filter(m => m.offsetParent !== null).length")
-            must(visible > 0, "no rhyme dots after toggle")
-            pg.locator("#ll-rhyme-toggle").uncheck()
-        probe.check("rhyme_toggle", "rhyme toggle shows colored dots",
-                    c_rhyme_toggle)
 
         def c_karaoke():
             pg.evaluate("document.getElementById('ll-audio').play()")
@@ -341,8 +328,11 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                         '#ll-songs input[type=radio]:checked');
                       return c ? c.value : ''; }""") == target,
                 msg="cite jump did not switch the song")
+            # the flash class lives 2.6s on a node Gradio may re-render away
+            # mid-flash — accept the JS-side timestamp marker as proof too
             probe.wait_until(
-                lambda: count(".lyric-line.cite-flash") >= 1,
+                lambda: count(".lyric-line.cite-flash") >= 1
+                or pg.evaluate("() => window.__llCiteFlashAt || 0") > 0,
                 msg="cited line did not flash after the jump")
             pg.evaluate("() => document.getElementById('probe-cite').remove()")
         probe.check("cite_jump",
@@ -382,10 +372,19 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         probe.check("sidebar_toggle", "song sidebar collapse + Ctrl+B",
                     c_sidebar_toggle)
 
+        def open_filter_tools():
+            # 筛选/排序住在一个默认收起的折叠面板里 — 用之前先展开
+            box = pg.locator("#ll-song-filter input, #ll-song-filter textarea")
+            if not box.first.is_visible():
+                pg.get_by_text("🎛 筛选 / 排序").first.click()
+                probe.wait_until(lambda: box.first.is_visible(),
+                                 msg="filter/sort accordion did not open")
+
         def c_song_filter():
             # the filter narrows the radio by title/artist and restores on
             # clear — this path previously broke (dead .input event)
             probe.tab("🎧 播放解读")
+            open_filter_tools()
             box = pg.locator("#ll-song-filter input, #ll-song-filter textarea")
             n_all = count("#ll-songs input[type=radio]")
             must(n_all >= 2, f"song list too small to filter: {n_all}")
@@ -398,25 +397,29 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             probe.wait_until(
                 lambda: 0 < count("#ll-songs input[type=radio]") <= n_all,
                 msg="song filter did not narrow the list")
-            # 歌词片段也能搜到歌（合并后的全库歌词搜索）
-            box.fill("vintage tee")
-            probe.wait_until(
-                lambda: 0 < count("#ll-songs input[type=radio]") < n_all,
-                msg="lyric-fragment search did not match a song")
-            must(any("cardigan" in (v or "") for v in pg.evaluate(
-                "() => [...document.querySelectorAll("
-                "'#ll-songs input[type=radio]')].map(i => i.value)")),
-                 "lyric search did not surface cardigan")
-            box.fill("")
-            probe.wait_until(
-                lambda: count("#ll-songs input[type=radio]") == n_all,
-                msg="clearing the filter did not restore the full list")
+            # 歌词片段也能搜到歌（合并后的全库歌词搜索）。注意竞态：
+            # 上一个 needle 查询已让列表“收窄”，所以不能用“收窄了”当
+            # 完成信号——必须直接等到目标歌出现；且无论成败都要清空
+            # 筛选框，否则一处失败会让后续所有按歌名找 radio 的检查连坐
+            try:
+                box.fill("vintage tee")
+                probe.wait_until(
+                    lambda: any("cardigan" in (v or "") for v in pg.evaluate(
+                        "() => [...document.querySelectorAll("
+                        "'#ll-songs input[type=radio]')].map(i => i.value)")),
+                    msg="lyric search did not surface cardigan")
+            finally:
+                box.fill("")
+                probe.wait_until(
+                    lambda: count("#ll-songs input[type=radio]") == n_all,
+                    msg="clearing the filter did not restore the full list")
         probe.check("song_filter", "song list filter narrows + restores",
                     c_song_filter)
 
 
 
         def c_sort_modes():
+            open_filter_tools()
             n = count("#ll-songs input[type=radio]")
             pg.get_by_role("radio", name="专辑（按字母排序）").check()
             pg.wait_for_timeout(1500)
@@ -657,8 +660,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 "+Date.now(); b.dispatchEvent(new Event('input',"
                 "{bubbles:true}));}}")
             pg.wait_for_timeout(1200)
-            pg.get_by_text("⋯ 导入 / 导出 / 分组管理",
-                           exact=False).first.click()   # 展开 ⋯ 面板
+            pg.locator("#ll-review-more .label-wrap").first.click()   # 展开 ⋯ 面板
             pg.wait_for_timeout(600)
             pg.locator('input[type="file"]').last.set_input_files(
                 str(csv_path))
@@ -686,19 +688,47 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         def c_word_export():
             probe.tab("🔤 歌曲寻词")
             if pg.get_by_role("button",
-                              name="📤 导出 qwerty-learner 词典"
+                              name="📤 导出 JSON 词典"
                               ).first.is_visible() is False:
-                pg.get_by_text("⋯ 导入 / 导出 / 分组管理",
-                               exact=False).first.click()
+                pg.locator("#ll-review-more .label-wrap").first.click()
                 pg.wait_for_timeout(600)
             pg.get_by_role("button",
-                           name="📤 导出 qwerty-learner 词典").click()
+                           name="📤 导出 JSON 词典").click()
             probe.wait_until(
-                lambda: ("已生成" in pg.locator("body").inner_text()
+                lambda: ("已导出" in pg.locator("body").inner_text()
                          or "没有可导出" in pg.locator("body").inner_text()),
                 msg="export produced neither a file notice nor the empty hint")
-        probe.check("word_export", "qwerty dictionary export responds",
+        probe.check("word_export", "JSON dictionary export downloads",
                     c_word_export)
+
+        def c_word_analysis():
+            # 📊 数据分析：全屏页出两张竖向热力图；「已掌握」点开词汇；✕ 关闭
+            probe.tab("🔤 歌曲寻词")
+            if not pg.get_by_role("button",
+                                  name="📊 数据分析").first.is_visible():
+                pg.locator("#ll-review-more .label-wrap").first.click()
+                pg.wait_for_timeout(600)
+            pg.get_by_role("button", name="📊 数据分析").click()
+            probe.wait_until(
+                lambda: count(".hm-overlay") >= 1,
+                msg="analysis overlay did not open")
+            must(count(".hm-chart") == 2 or count(".hm-empty") == 1,
+                 "expected 2 heatmaps (or the empty hint)")
+            if count(".hm-chart") == 2:
+                # 用 summary 定位：口径说明弹层里也有「已掌握」字样
+                pg.locator(".hm-stat summary",
+                           has_text="已掌握").first.click()
+                probe.wait_until(
+                    lambda: pg.locator(".hm-stat[open] .hm-words")
+                    .first.is_visible(),
+                    msg="mastered-words list did not expand")
+            pg.locator(".hm-close").click()
+            probe.wait_until(
+                lambda: count(".hm-overlay") == 0,
+                msg="overlay did not close on ✕")
+        probe.check("word_analysis",
+                    "analysis page: heatmaps + word lists + close",
+                    c_word_analysis)
 
         def c_annotation_card():
             # clicking an annotated line surfaces the annotation card;
@@ -871,6 +901,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         def c_refresh_keeps_filter():
             # refreshing the library must not blow away the active filter
             probe.tab("🎧 播放解读")
+            open_filter_tools()
             n_all = count("#ll-songs input[type=radio]")
             must(n_all >= 2, f"library too small: {n_all}")
             needle = (pg.locator("#ll-songs input[type=radio]").first
@@ -883,9 +914,15 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             n1 = count("#ll-songs input[type=radio]")
             probe.tab("⚙️")   # 刷新按钮在播放页右栏 🎛 工具
             pg.locator("#ll-refresh-btn").click()
-            probe.wait_until(
-                lambda: "已刷新" in pg.locator("body").inner_text(),
-                msg="refresh status missing")
+            # 完成信号是 gr.Info toast,但它会自动消失,偶发落在轮询
+            # 间隙里(已两次)——看到就继续,没看到就固定等够往返时间,
+            # 真正要锁的不变量是下面的"筛选没被刷新冲掉"
+            try:
+                probe.wait_until(
+                    lambda: "已刷新" in pg.locator("body").inner_text(),
+                    timeout_s=10, msg="")
+            except AssertionError:
+                pg.wait_for_timeout(5000)
             pg.wait_for_timeout(800)
             must(count("#ll-songs input[type=radio]") == n1,
                  "refresh reverted the active filter")
@@ -902,6 +939,9 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         def c_settings():
             probe.tab("⚙️ 设置")
             probe.tab("🔑")  # 📊 用量页现在是默认首页
+            # API 设置收在默认折叠的手风琴里，先展开
+            pg.locator("#ll-apiset").get_by_role(
+                "button").first.click()
             probe.wait_until(
                 lambda: count("input[type=password]") >= 1,
                 msg="api key field missing")

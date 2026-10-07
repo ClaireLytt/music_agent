@@ -3,8 +3,8 @@
 Playback itself uses the OFFICIAL embed player (player.bilibili.com) — a
 public capability. `search_mv` is a convenience helper hitting bilibili's
 web search endpoint (NOT a public API): best-effort ladder — bare request →
-WBI-signed + buvid3 retry → [] — so losing it only loses convenience, never
-playback. Stream extraction/downloading is deliberately out of scope.
+WBI-signed + session-cookie retry → [] — so losing it only loses
+convenience, never playback. Stream extraction/downloading is out of scope.
 
 stdlib only (urllib/hashlib), mirroring lrc_sources.py's request style.
 """
@@ -25,7 +25,6 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _HEADERS = {"User-Agent": _UA, "Referer": "https://www.bilibili.com/"}
 _SEARCH_URL = "https://api.bilibili.com/x/web-interface/wbi/search/type"
 _NAV_URL = "https://api.bilibili.com/x/web-interface/nav"
-_SPI_URL = "https://api.bilibili.com/x/frontend/finger/spi"
 
 _BVID_RE = re.compile(r"BV[0-9A-Za-z]{10}")
 
@@ -98,11 +97,41 @@ def _wbi_keys() -> str:
     return _cache["mixin"]
 
 
-def _buvid() -> str:
-    if "buvid" not in _cache:
-        spi = _get_json(_SPI_URL, _HEADERS)
-        _cache["buvid"] = spi.get("data", {}).get("b_3", "")
-    return _cache["buvid"]
+def _session_cookie() -> str:
+    """Browser-like cookie set (buvid3/b_nut + bili_ticket + _uuid +
+    b_lsid), cached per day. buvid3 alone now trips gaia risk control
+    (code=0 with only v_voucher in data); this full set passes."""
+    day = time.strftime("%Y-%m-%d")
+    if _cache.get("cookie_day") != day:
+        import hmac
+        import http.cookiejar
+        import random
+        import uuid
+        from .jsonio import http_get_json
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(jar))
+        with opener.open(urllib.request.Request(
+                "https://www.bilibili.com/", headers=_HEADERS),
+                timeout=10) as resp:
+            resp.read(0)   # cookies land in the jar; body unwanted
+        ck = {c.name: c.value for c in jar}
+        ts = int(time.time())
+        hexsign = hmac.new(b"XgwSnGZ1p", f"ts{ts}".encode(),
+                           hashlib.sha256).hexdigest()
+        ticket_url = (
+            "https://api.bilibili.com/bapis/bilibili.api.ticket.v1.Ticket/"
+            f"GenWebTicket?key_id=ec02&hexsign={hexsign}"
+            f"&context[ts]={ts}&csrf=")
+        tk = http_get_json(ticket_url, _HEADERS, method="POST")
+        # 风控日接口会回 {"data": null} —— or {} 兜底,别让 None 炸链路
+        ck["bili_ticket"] = (tk.get("data") or {}).get("ticket", "")
+        ck["_uuid"] = str(uuid.uuid4()).upper() + "infoc"
+        ck["b_lsid"] = (f"{random.getrandbits(32):08X}_"
+                        f"{int(time.time() * 1000):X}")
+        _cache["cookie"] = "; ".join(f"{k}={v}" for k, v in ck.items())
+        _cache["cookie_day"] = day
+    return _cache["cookie"]
 
 
 def _strip_em(title: str) -> str:
@@ -140,18 +169,24 @@ def search_mv(title: str, artist: str, limit: int = 20) -> list[dict]:
     """Top MV candidates for a song; [] on any failure (manual fallback)."""
     keyword = f"{title} {artist} MV".strip()
     params = {"search_type": "video", "keyword": keyword, "page": "1"}
+    def _ok(data: dict) -> bool:
+        # gaia risk control answers code=0 with only v_voucher in data —
+        # treat "no result field" as failure so we fall through to retry
+        return (data.get("code") == 0
+                and "result" in (data.get("data") or {}))
+
     try:
         url = _SEARCH_URL + "?" + urllib.parse.urlencode(params)
         data = _get_json(url, _HEADERS)
-        if data.get("code") == 0:
+        if _ok(data):
             return _parse_results(data, limit)
         logger.info("bare bilibili search got code=%s; retrying signed",
                     data.get("code"))
         signed = _wbi_sign(params, _wbi_keys())
         url = _SEARCH_URL + "?" + urllib.parse.urlencode(signed)
-        headers = dict(_HEADERS, Cookie=f"buvid3={_buvid()}")
+        headers = dict(_HEADERS, Cookie=_session_cookie())
         data = _get_json(url, headers)
-        if data.get("code") == 0:
+        if _ok(data):
             return _parse_results(data, limit)
         logger.warning("bilibili search failed: code=%s", data.get("code"))
     except Exception as exc:  # network/parse — degrade to manual input

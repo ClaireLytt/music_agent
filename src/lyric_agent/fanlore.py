@@ -25,9 +25,7 @@ FANLORE_FILENAME = "fanlore.json"
 MAX_CLUES = 4
 MAX_CHAIN = 6
 
-FANLORE_EMPTY = ('<div class="chat-empty">点「🕵️ 生成考据故事」，让 AI '
-                 '把这首歌的官方信息、歌词呼应与 AI 推测整理成一页考据。'
-                 '</div>')
+FANLORE_EMPTY = ''
 
 _CLUE_TYPES = ("official", "lyric_parallel", "fan_theory")
 

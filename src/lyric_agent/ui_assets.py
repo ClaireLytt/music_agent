@@ -3,7 +3,6 @@ head) and the stylesheet. Split out of ui.py — plain string constants,
 no imports."""
 
 _HEAD_JS = """
-<script src="https://cdnjs.cloudflare.com/ajax/libs/wavesurfer.js/7.8.6/wavesurfer.min.js" defer></script>
 <script>
 // 🕵️ 考据页 AI 助手：默认收起，右上角 💬 按需展开
 (function() {
@@ -137,6 +136,13 @@ _HEAD_JS = """
 window.llz = function() {   // body CSS zoom 校正系数
   return parseFloat(getComputedStyle(document.body).zoom) || 1;
 };
+window.llSend = function(id, value) {  // 写隐藏 gradio 通道并通知后端
+  const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
+  if (!box) return false;
+  box.value = value;
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+};
 // force Gradio's light theme so the UI is always white regardless of the
 // OS dark-mode setting (Gradio otherwise follows prefers-color-scheme)
 (function() {
@@ -186,6 +192,8 @@ window.llz = function() {   // body CSS zoom 校正系数
           clearInterval(t);
           el.scrollIntoView({ block: 'center' });
           el.classList.add('cite-flash');
+          // probes/tests: survives the node being re-rendered mid-flash
+          window.__llCiteFlashAt = Date.now();
           setTimeout(() => el.classList.remove('cite-flash'), 2600);
         } else if (++tries > 40) clearInterval(t);
       }, 250);
@@ -244,13 +252,6 @@ window.llz = function() {   // body CSS zoom 校正系数
       pop.addEventListener('pointerup', onUp);
     });
   }
-  function sendChannel(id, value) {
-    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
-    if (!box) return false;
-    box.value = value;
-    box.dispatchEvent(new Event('input', { bubbles: true }));
-    return true;
-  }
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeAll();
   });
@@ -263,10 +264,12 @@ window.llz = function() {   // body CSS zoom 校正系数
                     && anchor.closest('.lyric-line'))
       || (e.target.closest && e.target.closest('.lyric-line'));
     if (!lineEl) return;
-    const word = (sel ? sel.toString() : '').trim().replace(/\\s+/g, ' ');
-    // \u5355\u8bcd\uff0c\u6216\u62d6\u9009 2-8 \u4e2a\u8bcd\u7684\u8bcd\u7ec4
-    if (!/^[A-Za-z][A-Za-z'\u2019-]{1,31}(?: [A-Za-z][A-Za-z'\u2019,.-]{0,31}){0,7}$/.test(word))
-      return;
+    const raw = (sel ? sel.toString() : '').trim().replace(/\\s+/g, ' ');
+    // \u5355\u8bcd\uff0c\u6216\u62d6\u9009 2-16 \u4e2a\u8bcd\u7684\u8bcd\u7ec4\u3002\u62d6\u5230\u884c\u5c3e\u65f6\u9009\u533a\u5e38\u5e26\u4e0a
+    // \u540c\u884c\u7684\u4e2d\u6587\u7ffb\u8bd1\uff0c\u6240\u4ee5\u4ece\u5f00\u5934\u300c\u63d0\u53d6\u300d\u82f1\u6587\u8bcd\u7ec4\u800c\u4e0d\u662f\u6574\u4f53\u5339\u914d
+    const m = raw.match(/^[A-Za-z][A-Za-z'\u2019-]{1,31}(?: [A-Za-z][A-Za-z'\u2019,.-]{0,31}){0,15}/);
+    if (!m) return;
+    const word = m[0].replace(/[,.-]+$/, '');
     const pops = document.querySelectorAll('.ll-dict-pop');
     if (pops.length >= 4) pops[0].remove();   // 最多同屏 4 张，顶掉最旧的
     const line = (lineEl.querySelector('.lyric-text') || lineEl).textContent.trim();
@@ -294,7 +297,7 @@ window.llz = function() {   // body CSS zoom 校正系数
     document.body.appendChild(pop);
     makeDraggable(pop);
     pop.dataset.q = word + '\\t' + line + '\\t' + song + '\\t' + Date.now();
-    sendChannel('ll-dict-pick', pop.dataset.q);
+    window.llSend('ll-dict-pick', pop.dataset.q);
   }
   document.addEventListener('dblclick', lookupSelection);
   document.addEventListener('mouseup', (e) => {
@@ -331,7 +334,7 @@ window.llz = function() {   // body CSS zoom 校正系数
     const favBtn = pop.querySelector('[data-dict-fav]');
     if (favBtn) favBtn.addEventListener('click', (e) => {
       e.stopPropagation();
-      sendChannel('ll-wb-act', 'add:' + pop.dataset.word + '\\t'
+      window.llSend('ll-wb-act', 'add:' + pop.dataset.word + '\\t'
                   + pop.dataset.line + '\\t' + pop.dataset.song
                   + '\\t' + Date.now());
       favBtn.textContent = '✓ 已收藏';
@@ -354,7 +357,7 @@ window.llz = function() {   // body CSS zoom 校正系数
       aiBtn.disabled = true;
       pop.dataset.q = pop.dataset.word + '\\t' + pop.dataset.line + '\\t'
                       + pop.dataset.song + '\\t' + Date.now();
-      sendChannel('ll-dict-ai', pop.dataset.q);
+      window.llSend('ll-dict-ai', pop.dataset.q);
     });
   }
   let lastSeen = '';
@@ -368,7 +371,7 @@ window.llz = function() {   // body CSS zoom 校正系数
         p.dataset.retries = Number(p.dataset.retries || 0) + 1;
         p.dataset.q = p.dataset.word + '\\t' + p.dataset.line + '\\t'
                       + p.dataset.song + '\\t' + Date.now();
-        sendChannel('ll-dict-pick', p.dataset.q);
+        window.llSend('ll-dict-pick', p.dataset.q);
       }
     }
     const box = document.querySelector('#ll-dict-out textarea, #ll-dict-out input');
@@ -386,13 +389,8 @@ window.llz = function() {   // body CSS zoom 校正系数
 // correct letters color up, one wrong key resets the whole word, completion
 // reports through the ll-review-done channel.
 (() => {
-  function sendChannel(id, value) {
-    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
-    if (!box) return;
-    box.value = value;
-    box.dispatchEvent(new Event('input', { bubbles: true }));
-  }
   let nonce = null, pos = 0, mistakes = 0, t0 = 0, done = false;
+  let peeks = 0, sawPlain = false;  // 盲打统计：Tab 偷看次数 / 是否露过字母
   const card = () => document.querySelector('.ll-type-card');
   const chars = (c) => c.querySelectorAll('.tp-ch');
   function reset(c) {
@@ -402,11 +400,131 @@ window.llz = function() {   // body CSS zoom 校正系数
   function play(c) {
     if (c.dataset.mp3) new Audio(c.dataset.mp3).play().catch(() => {});
   }
+  // ── 会话统计（qwerty-learner 式）：时间/输入数/WPM/正确数/正确率 ──
+  // 公式同 qwerty-learner：输入数 = 对 + 错按键；正确率 = 对/输入数；
+  // WPM = 完成单词数 / 秒 × 60。暂停时计时与计数全部冻结；
+  // 切出歌曲寻词页签 = 本轮结束（清零）。
+  let dsRun = false, dsTime = 0, dsOk = 0, dsBad = 0, dsWords = 0;
+  const dsPanel = () => document.getElementById('ll-drill-stats');
+  function dsSet(id, v) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = v;
+  }
+  function dsPaint() {
+    const mm = String(Math.floor(dsTime / 60)).padStart(2, '0');
+    const ss = String(dsTime % 60).padStart(2, '0');
+    const sum = dsOk + dsBad;
+    dsSet('ll-ds-time', mm + ':' + ss);
+    dsSet('ll-ds-input', String(sum));
+    dsSet('ll-ds-wpm',
+          String(dsTime ? Math.round((dsWords / dsTime) * 60) : 0));
+    dsSet('ll-ds-correct', String(dsOk));
+    dsSet('ll-ds-acc',
+          Math.round((dsOk / (sum === 0 ? 1 : sum)) * 100) + '%');
+    const btn = document.getElementById('ll-ds-pause');
+    if (btn) btn.textContent = dsRun ? '⏸ 暂停' : '▶ 开始';
+  }
+  function dsSetRun(run) {
+    dsRun = run;
+    dsPaint();
+    if (run) {
+      const c = card();
+      const inp = c && c.querySelector('.ll-type-input');
+      if (inp) inp.focus();
+    }
+  }
+  function dsEnd() {  // 退出寻词页 = 本轮结束
+    dsRun = false;
+    dsTime = dsOk = dsBad = dsWords = 0;
+    dsPaint();
+  }
+  setInterval(() => {
+    const p = dsPanel();
+    if (!p) return;
+    if (p.offsetParent === null) {         // 不在寻词页签
+      if (dsRun || dsTime > 0) dsEnd();
+      return;
+    }
+    // 悬停快捷键气泡：给 Gradio 的开始按钮补 data-ds-tip
+    for (const b of document.querySelectorAll('button'))
+      if (b.textContent.includes('开始 / 换一词') && !b.dataset.dsTip)
+        b.dataset.dsTip = '开始 / 换一词；Space 暂停/继续';
+    if (dsRun) { dsTime += 1; dsPaint(); }
+  }, 1000);
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest) return;
+    if (e.target.closest('#ll-ds-pause')) { dsSetRun(!dsRun); return; }
+    const b = e.target.closest('button');
+    if (b && b.textContent.includes('开始 / 换一词')) dsSetRun(true);
+  }, true);
+  // Space = 开始/暂停（仅寻词页；焦点在打字框外也生效，capture 挡住
+  // 全局的音频空格快捷键）
+  document.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space') return;
+    const p = dsPanel();
+    if (!p || p.offsetParent === null) return;
+    if (e.target.classList
+        && e.target.classList.contains('ll-type-input')) return;  // 打字框内走下方逻辑
+    const tag = (e.target.tagName || '').toLowerCase();
+    const type = (e.target.type || '').toLowerCase();
+    if (tag === 'textarea' || (tag === 'input'
+        && !['radio', 'checkbox', 'button', 'range'].includes(type))) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dsSetRun(!dsRun);
+  }, true);
+  // 开始/暂停按钮钉在例句卡（没有例句则单词卡）下方右对齐
+  // （卡片在 review_html 里随词重渲染，Gradio 组件不能搬进去，
+  // 所以 fixed 定位跟随；没卡片时回归文档流）
+  function placeStartRow() {
+    const row = document.getElementById('ll-review-startrow');
+    if (!row) return;
+    const c = card();
+    const stats = dsPanel();
+    // 有卡片锚例句卡（无例句锚单词卡）下方；无卡片锚统计条右上方
+    const anchor = (c && c.offsetParent !== null)
+      ? (document.querySelector('.ll-example-card') || c)
+      : (stats && stats.offsetParent !== null ? stats : null);
+    if (!anchor) {
+      row.style.position = ''; row.style.left = ''; row.style.top = '';
+      return;
+    }
+    // 自校正定位：先量当前视口位置，与目标差多少就把样式挪多少——
+    // 对 body/容器任意层级的 CSS zoom 都免疫（坐标系不用猜）
+    const r = anchor.getBoundingClientRect();
+    row.style.position = 'fixed';
+    const cur = row.getBoundingClientRect();
+    const wantX = r.right - cur.width;
+    const wantY = anchor === stats ? r.top - cur.height - 8 : r.bottom + 10;
+    const px = parseFloat(row.style.left) || 0;
+    const py = parseFloat(row.style.top) || 0;
+    if (Math.abs(wantX - cur.left) > 1)
+      row.style.left = (px + wantX - cur.left) + 'px';
+    if (Math.abs(wantY - cur.top) > 1)
+      row.style.top = (py + wantY - cur.top) + 'px';
+  }
+  ['scroll', 'resize'].forEach((evt) =>
+    window.addEventListener(evt, placeStartRow, { passive: true }));
+  setInterval(placeStartRow, 300);
+  // 一键导出：后端把文件挂上隐藏的 DownloadButton 并往 ll-dl-tick 写
+  // "json|anki \t ts"，这里看到新 tick 就代点对应按钮触发浏览器下载，
+  // 用户不用再点第二个下载按钮
+  let dlTickSeen = '';
+  setInterval(() => {
+    const box = document.querySelector('#ll-dl-tick textarea, #ll-dl-tick input');
+    if (!box || !box.value || box.value === dlTickSeen) return;
+    dlTickSeen = box.value;
+    const kind = box.value.split('\\t')[0];
+    const btn = document.getElementById(
+      kind === 'anki' ? 'll-dl-anki' : 'll-dl-json');
+    if (btn) btn.click();
+  }, 400);
   setInterval(() => {
     const c = card();
     if (!c || c.dataset.nonce === nonce) return;
     nonce = c.dataset.nonce;
     mistakes = 0; t0 = Date.now(); done = false;
+    peeks = 0; sawPlain = false;
     reset(c);
     // only grab focus while the practice tab is actually visible
     if (c.offsetParent !== null) {
@@ -451,7 +569,10 @@ window.llz = function() {   // body CSS zoom 校正系数
         if (b.textContent.includes('开始 / 换一词')) { b.click(); break; }
       return;
     }
-    if (done) return;              // 已完成：除 Enter 外不再吃按键
+    if (done) {                    // 已完成：除 Enter 外不再吃按键
+      if (e.key === ' ') e.preventDefault();  // 别让空格滚动页面
+      return;
+    }
     if (e.isComposing || e.keyCode === 229) {   // CJK IME is active
       c.classList.add('tp-ime');
       e.preventDefault();
@@ -461,6 +582,7 @@ window.llz = function() {   // body CSS zoom 校正系数
     if (e.key === 'Tab') {                      // 盲打模式偷看一眼（0.2 秒）
       e.preventDefault();
       if (c.classList.contains('tp-blind')) {
+        peeks += 1;
         c.classList.remove('tp-blind');
         const n = c.dataset.nonce;
         setTimeout(() => {
@@ -470,27 +592,47 @@ window.llz = function() {   // body CSS zoom 校正系数
       }
       return;
     }
+    if (e.key === ' ') {
+      // 词组里该敲空格且会话进行中 → 当作输入；否则 Space = 开始/暂停
+      const expectSpace = !done && c.dataset.word[pos] === ' ';
+      if (!dsRun || !expectSpace) {
+        e.preventDefault();
+        dsSetRun(!dsRun);
+        return;
+      }
+    }
     if (e.key.length !== 1) return;             // let F5/etc through
     e.preventDefault();                          // space must not scroll
+    if (!dsRun) {
+      // 未开始：首键自动开计时；暂停中：不吃按键
+      if (dsTime === 0 && dsOk + dsBad === 0) dsSetRun(true);
+      else return;
+    }
     const want = c.dataset.word;
+    if (!c.classList.contains('tp-blind')) sawPlain = true;  // 本次露过字母
     const spans = chars(c);
     if (e.key.toLowerCase() === want[pos]) {
+      dsOk += 1;
       spans[pos].classList.add('ok');
       pos += 1;
       if (pos >= want.length) {
         done = true;
+        dsWords += 1;
         c.classList.add('tp-done');
-        sendChannel('ll-review-done',
+        window.llSend('ll-review-done',
                     want + '\\t' + mistakes + '\\t' + (Date.now() - t0)
+                    + '\\t' + (sawPlain ? 0 : 1) + '\\t' + peeks
                     + '\\t' + Date.now());
       }
     } else {
+      dsBad += 1;
       mistakes += 1;                             // wrong key: retype it all
       reset(c);
       c.classList.remove('tp-shake');
       void c.offsetWidth;                        // restart the animation
       c.classList.add('tp-shake');
     }
+    dsPaint();
   }, true);
 })();
 // per-song ⋯ menu: the selected row grows a ⋯ button; expanding it
@@ -569,8 +711,7 @@ window.llz = function() {   // body CSS zoom 校正系数
         if (!cur) return;
         if (!window.confirm('确定永久删除《' + cur.value + '》？\\n'
                             + '（连同歌词/批注/音频目录，不可恢复）')) return;
-        delBox.value = cur.value + '\\t' + Date.now();
-        delBox.dispatchEvent(new Event('input', { bubbles: true }));
+        window.llSend('ll-del-song', cur.value + '\\t' + Date.now());
       });
       menu.appendChild(del);
       document.body.appendChild(menu);
@@ -617,9 +758,6 @@ window.llz = function() {   // body CSS zoom 校正系数
 })();
 (function() {
   let userScrolling = false, scrollTimeout = null, lastActive = -2;
-  // player tools state (survives per-song re-renders of the audio block)
-  let rhymeOn = false;
-  let lastAudioEl = null;
 
   function getAudio() { return document.getElementById('ll-audio'); }
   // preview clips start mid-song: lyric-time = audio-time + offset
@@ -631,44 +769,7 @@ window.llz = function() {   // body CSS zoom 校正系数
            String(s % 60).padStart(2, '0');
   }
 
-  // write into a hidden gradio textbox channel and notify the backend
-  function writeChannel(id, value) {
-    const box = document.querySelector('#' + id + ' textarea, #' + id + ' input');
-    if (!box) return;
-    box.value = value;
-    box.dispatchEvent(new Event('input', { bubbles: true }));
-  }
 
-
-  function applyRhyme() {
-    const c = document.getElementById('lyrics-container');
-    if (c) c.classList.toggle('rhyme-on', rhymeOn);
-  }
-
-  // waveform: wavesurfer (CDN) drawing on top of the native audio element;
-  // silently absent when the CDN is unreachable
-  function initWave(a) {
-    const holder = document.getElementById('ll-wave');
-    if (!holder) return;
-    if (!window.WaveSurfer) {
-      // the deferred CDN script may not have loaded yet on first render —
-      // retry for a while (still this song's audio element) before giving up
-      holder.style.display = 'none';
-      a._llWaveTries = (a._llWaveTries || 0) + 1;
-      if (a._llWaveTries <= 20)
-        setTimeout(() => { if (getAudio() === a) initWave(a); }, 500);
-      return;
-    }
-    try {
-      if (window._llWave) { window._llWave.destroy(); window._llWave = null; }
-      holder.style.display = 'block';
-      window._llWave = WaveSurfer.create({
-        container: holder, media: a, height: 54,
-        waveColor: '#c9d4df', progressColor: '#0969da',
-        cursorColor: '#0969da', barWidth: 2, barGap: 1, barRadius: 1,
-      });
-    } catch (err) { holder.style.display = 'none'; }
-  }
 
   function sync() {
     const audio = getAudio();
@@ -797,27 +898,6 @@ window.llz = function() {   // body CSS zoom 校正系数
     }, 300);
   }, 700);
 
-  // new-song watcher: the audio block is re-rendered per song, so restore
-  // toggle states, rebuild the waveform
-  setInterval(() => {
-    const a = getAudio();
-    if (!a || a === lastAudioEl) return;
-    lastAudioEl = a;
-    const y = document.getElementById('ll-rhyme-toggle');
-    if (y) y.checked = rhymeOn;
-    applyRhyme();
-    initWave(a);
-  }, 500);
-
-  // toggle listeners (delegated: the checkboxes are re-rendered per song)
-  document.addEventListener('change', function(e) {
-    if (!e.target) return;
-    if (e.target.id === 'll-rhyme-toggle') {
-      rhymeOn = e.target.checked;
-      applyRhyme();
-    }
-  }, true);
-
   // player-tool buttons + click-to-backend channels (capture phase so a
   // delete click doesn't also trigger the note's data-seek)
   document.addEventListener('click', function(e) {
@@ -826,7 +906,7 @@ window.llz = function() {   // body CSS zoom 校正系数
     const del = e.target.closest('[data-del-note]');
     if (del) {
       e.stopPropagation();
-      writeChannel('ll-note-del', del.dataset.delNote + ':' +
+      window.llSend('ll-note-del', del.dataset.delNote + ':' +
                    (del.dataset.delTs || '') + '\\t' + Date.now());
       return;
     }
@@ -851,7 +931,7 @@ window.llz = function() {   // body CSS zoom 校正系数
       if (!confirm('将调用 1 次 LLM 为这句歌词生成 AI 批注，继续？')) return;
       ga.textContent = '✨ 生成中…';
       ga.disabled = true;
-      writeChannel('ll-gen-ann', ga.dataset.genAnn + '\\t' + Date.now());
+      window.llSend('ll-gen-ann', ga.dataset.genAnn + '\\t' + Date.now());
       return;
     }
     const tj = e.target.closest('[data-tp-jump]');
@@ -860,7 +940,7 @@ window.llz = function() {   // body CSS zoom 校正系数
       for (const b of document.querySelectorAll('button[role="tab"]'))
         if (b.textContent.includes('播放解读')) { b.click(); break; }
       window.__llPendingLine = parseInt(tj.dataset.tpLine || '-1', 10);
-      writeChannel('ll-cite-jump',
+      window.llSend('ll-cite-jump',
                    tj.dataset.tpJump + '\\t' + tj.dataset.tpLine
                    + '\\t' + Date.now());
       if (!document.getElementById('ll-back-typing')) {
@@ -898,23 +978,23 @@ window.llz = function() {   // body CSS zoom 校正系数
     const bvu = e.target.closest('[data-bvid-unbind]');
     if (bvu) {
       if (!confirm('删除这首歌的视频绑定？（之后可重新搜索或手填）')) return;
-      writeChannel('ll-bvid-act', 'unbind	' + Date.now());
+      window.llSend('ll-bvid-act', 'unbind	' + Date.now());
       return;
     }
     const bvs = e.target.closest('[data-bvid-search]');
     if (bvs) {
-      writeChannel('ll-bvid-act', 'search\\t' + Date.now());
+      window.llSend('ll-bvid-act', 'search\\t' + Date.now());
       return;
     }
     const bvp = e.target.closest('[data-bvid-pick]');
     if (bvp) {
-      writeChannel('ll-bvid-act',
+      window.llSend('ll-bvid-act',
                    'pick\\t' + bvp.dataset.bvidPick + '\\t' + Date.now());
       return;
     }
     const fav = e.target.closest('[data-fav]');
     if (fav) {
-      writeChannel('ll-fav-act', fav.dataset.fav + '\\t' + Date.now());
+      window.llSend('ll-fav-act', fav.dataset.fav + '\\t' + Date.now());
       return;
     }
     const wn = e.target.closest('[data-wb-note]');
@@ -923,13 +1003,13 @@ window.llz = function() {   // body CSS zoom 校正系数
                          + '」写一句我的笔记（清空 = 删除笔记）',
                          wn.dataset.note || '');
       if (txt === null) return;
-      writeChannel('ll-wb-act', 'note:' + wn.dataset.wbNote + '\\t'
+      window.llSend('ll-wb-act', 'note:' + wn.dataset.wbNote + '\\t'
                    + txt.replace(/[\\t\\n]/g, ' ') + '\\t' + Date.now());
       return;
     }
     const wb = e.target.closest('[data-wb]');
     if (wb) {
-      writeChannel('ll-wb-act', wb.dataset.wb + '\\t' + Date.now());
+      window.llSend('ll-wb-act', wb.dataset.wb + '\\t' + Date.now());
       return;
     }
     const cite = e.target.closest('[data-cite-label]');
@@ -948,6 +1028,7 @@ window.llz = function() {   // body CSS zoom 校正系数
         if (el) {
           el.scrollIntoView({ block: 'center' });
           el.classList.add('cite-flash');
+          window.__llCiteFlashAt = Date.now();
           setTimeout(() => el.classList.remove('cite-flash'), 2600);
         }
         return;
@@ -955,7 +1036,7 @@ window.llz = function() {   // body CSS zoom 校正系数
       // remember the cited line; the song-switch watcher scrolls to it
       // once the lyrics re-render
       window.__llPendingLine = lineNo;
-      writeChannel('ll-cite-jump',
+      window.llSend('ll-cite-jump',
                    cite.dataset.citeLabel + '\\t' + cite.dataset.citeLine
                    + '\\t' + Date.now());
       return;
@@ -1040,11 +1121,7 @@ window.llz = function() {   // body CSS zoom 校正系数
       document.querySelectorAll('.lyric-line.picked').forEach(el => el.classList.remove('picked'));
       line.classList.add('picked');
       // tell the backend which line is selected (feeds the AI assistant panel)
-      const pick = document.querySelector('#ll-line-pick textarea, #ll-line-pick input');
-      if (pick) {
-        pick.value = line.dataset.index;
-        pick.dispatchEvent(new Event('input', { bubbles: true }));
-      }
+      window.llSend('ll-line-pick', line.dataset.index);
       if (audio && line.dataset.ts) {
         audio.currentTime = Math.max(0,
           (parseFloat(line.dataset.ts) - getOffset(audio)) / 1000);
@@ -1084,9 +1161,6 @@ window.llz = function() {   // body CSS zoom 校正系数
     { sel: '#lyrics-container',
       text: '📖 听不懂的歌词：<b>单击</b>那一句，右侧 AI 用中文把它讲懂；'
             + '<b>双击英文单词</b>弹词义卡 → ⭐ 收藏生词（带真例句）。' },
-    { sel: '.player-tools',
-      text: '🎚 播放器工具：跳副歌、A-B 循环、韵脚标色；'
-            + '还能开关韵脚标色辅助听歌。' },
     { sel: 'button[role="tab"]',
       text: '🗂 收藏的生词去 <b>🔤 歌曲寻词</b> 盲打练会（可导出 Anki）；'
             + '🎮 互动里有歌迷考据和竞猜，➕ 添加歌曲自动配歌词和 MV，'
@@ -1172,22 +1246,37 @@ _CSS = """\
 /* 整体默认缩放 75%（等效浏览器 75% 缩放，用户定的默认密度） */
 body { zoom: 0.75; }
 :root {
+  /* 青瓷 Celadon theme (Morandi): grey-teal, muted, porcelain-calm.
+     Measured from prototypes/recolor.html th-celadon on 2026-10-06. */
   --bg-primary: #ffffff;
-  --bg-secondary: #f6f8fa;
-  --bg-card: #f6f8fa;
-  --bg-card-hover: #eaeef2;
-  --text-primary: #1f2328;
-  --text-secondary: #656d76;
-  --text-played: #a9b1ba;
-  --accent: #0969da;
-  --accent-soft: rgba(9, 105, 218, 0.08);
-  --accent-glow: rgba(9, 105, 218, 0.15);
-  --border: #d0d7de;
-  --karaoke-rest: #57606a; /* un-sung part of the active karaoke line */
-  --lyric-dim: rgba(31, 35, 40, 0.52); /* upcoming lyric lines */
+  --bg-page: linear-gradient(160deg, #eef3f2 0%, #ecf1f1 48%, #f1f4f2 100%);
+  --bg-secondary: #eff3f1;
+  --bg-card: #eff3f1;
+  --bg-card-hover: #e2ebe8;
+  --text-primary: #35433f;
+  --text-secondary: #76867f;
+  --text-played: #a5b3ac;
+  --accent: #6f948f;
+  --accent-2: #8fb0aa; /* light stop of the celadon gradient */
+  --accent-grad: linear-gradient(90deg, #8fb0aa, #6f948f);
+  --accent-soft: rgba(111, 148, 143, 0.12);
+  --accent-glow: rgba(111, 148, 143, 0.18);
+  --pink: #527672;     /* selected-lyric "hot" color (celadon deep) */
+  --pink-soft: #e9f0ee;
+  --border: #dbe5e1;
+  --card-shadow: 0 8px 28px rgba(111, 148, 143, 0.16);
+  --karaoke-rest: #5d6f6a; /* un-sung part of the active karaoke line */
+  --lyric-dim: #a5b3ac; /* upcoming lyric lines */
 }
 
-body, .gradio-container { background: var(--bg-primary) !important; }
+/* NOTE: Gradio's CSS reserializer destroys `background: var()` SHORTHANDS in
+   some rules (expands to empty longhands) — use background-image/-color
+   longhands whenever the value is a var(). */
+body, .gradio-container {
+  background-color: #eef3f2 !important;
+  background-image: var(--bg-page) !important;
+  background-attachment: fixed !important;
+}
 /* 全宽布局：歌单贴屏幕最左，不留大白边 */
 .gradio-container { max-width: 100% !important;
   padding-left: 14px !important; padding-right: 14px !important;
@@ -1205,7 +1294,25 @@ footer, .gradio-container footer { display: none !important; }
   align-items: stretch !important;
   gap: 4px !important;
 }
-#ll-songs label, #ll-catalog label { width: 100%; }
+#ll-songs label, #ll-catalog label { width: 100%;
+  border-radius: 14px !important; border: none !important;
+  background: var(--bg-card) !important;
+  box-shadow: none !important;
+  transition: background 0.15s ease, transform 0.15s ease-out;
+}
+/* 歌单行：隐藏 radio 圆点,整行(label)点击,选中靠高亮表达。
+   opacity 而非 display:none —— 保住可访问树/Playwright 的 radio 角色 */
+#ll-songs input[type="radio"] {
+  position: absolute; opacity: 0;
+  width: 1px; height: 1px; margin: 0;
+}
+#ll-songs label { padding-left: 14px !important; }
+#ll-songs label.selected, #ll-catalog label.selected {
+  background: var(--accent-grad) !important;
+}
+#ll-songs label.selected *, #ll-catalog label.selected * {
+  color: #ffffff !important;
+}
 /* per-song ⋯ menu (selected row only) */
 #ll-songs label { position: relative; }
 .ll-dots {
@@ -1240,7 +1347,7 @@ footer, .gradio-container footer { display: none !important; }
   color: var(--text-primary) !important;
   caret-color: var(--accent) !important;
   border: 1px solid var(--border) !important;
-  border-radius: 8px !important;
+  border-radius: 12px !important;
 }
 .gradio-container input:focus, .gradio-container textarea:focus {
   border-color: var(--accent) !important;
@@ -1251,39 +1358,46 @@ footer, .gradio-container footer { display: none !important; }
 }
 
 .app-header { text-align: center; padding: 16px 0 4px; }
-.app-header h1 { color: var(--accent); font-size: 26px; margin: 0; font-weight: 700; }
+.app-header h1 { font-size: 26px; margin: 0; font-weight: 800;
+  background-image: var(--accent-grad);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent; -webkit-text-fill-color: transparent; }
 .app-header p { color: var(--text-secondary); margin: 4px 0 0; font-size: 14px; }
 
 /* ── Chip tab navigation: grey pills, selected = solid blue ── */
 .gradio-container .tab-nav, .gradio-container div[role="tablist"] {
-  justify-content: center; gap: 8px; border-bottom: none !important;
+  justify-content: center; gap: 12px; border-bottom: none !important;
   padding-bottom: 2px; margin-bottom: 14px; flex-wrap: wrap;
 }
 .gradio-container .tab-nav button, .gradio-container button[role="tab"] {
   font-size: 15px !important; font-weight: 700 !important;
   padding: 8px 18px !important; border-radius: 500px !important;
   color: var(--text-secondary) !important;
-  background: var(--bg-card-hover) !important;
+  background: rgba(255, 255, 255, 0.75) !important;
   border: none !important;
-  transition: background 0.2s ease, color 0.2s ease;
+  box-shadow: 0 1px 3px rgba(43, 36, 64, 0.08);
+  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease-out;
 }
 .gradio-container .tab-nav button:hover, .gradio-container button[role="tab"]:hover {
-  color: var(--text-primary) !important; background: #dfe5eb !important;
+  color: var(--text-primary) !important; background: #ffffff !important;
+  transform: translateY(-2px);
 }
 .gradio-container .tab-nav button.selected,
 .gradio-container button[role="tab"][aria-selected="true"] {
-  color: #ffffff !important; background: var(--accent) !important;
+  color: #ffffff !important; background: var(--text-primary) !important;
+  transform: none;
 }
 
 /* ── Pill buttons, blue on white ── */
 .gradio-container button.primary {
-  background: var(--accent) !important; color: #ffffff !important;
+  background: var(--accent-grad) !important; color: #ffffff !important;
   border: none !important; border-radius: 500px !important;
-  font-weight: 700 !important; box-shadow: none !important;
-  transition: background 0.15s ease, transform 0.15s ease;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 10px rgba(129, 140, 248, 0.35) !important;
+  transition: filter 0.15s ease, transform 0.15s ease;
 }
 .gradio-container button.primary:hover {
-  background: #0a5ac1 !important; transform: scale(1.03);
+  filter: brightness(1.06); transform: scale(1.03);
 }
 .gradio-container button.primary:active { transform: scale(0.98); }
 .gradio-container button.secondary {
@@ -1293,24 +1407,81 @@ footer, .gradio-container footer { display: none !important; }
   transition: border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 .gradio-container button.secondary:hover {
-  border-color: var(--accent) !important; color: var(--accent) !important;
-  transform: scale(1.03);
+  border-color: #c7cbfa !important; color: var(--accent) !important;
+  background: #ffffff !important; transform: scale(1.03);
 }
 
 .ll-hidden { display: none !important; }
 
+/* ── three main panels as separate white rounded cards ──
+   geometry strictly transferred from prototypes/recolor.html (th-celadon):
+   grid 240px | 1fr | 320px, gap 18px, max-width 1240px centered,
+   side cards pad 20px, middle card pad 26px, radius 22px */
+#ll-play-row {
+  display: grid !important;
+  /* 2026-10-06 用户手绘:侧栏 300 / 右栏 420 贴两侧,
+     中栏限宽 ~1080px(红框)居中,两边留白 */
+  grid-template-columns: 420px minmax(0, 1300px) 420px !important;
+  justify-content: space-between !important;
+  gap: 15px !important;
+  max-width: 88% !important;
+  margin: 0 auto !important;
+  padding: 0 26px;
+  align-items: flex-start;
+}
+#ll-play-row > * { width: auto !important; min-width: 0 !important; }
+/* 三栏各自限高在视口内、内部滚动;页面整体滚动条保持不动。
+   body 有 zoom:0.75,100vh 的 CSS 高度只渲染出 75% —— 用 133.33vh
+   补偿;260px ≈ 顶部标题+tab 条(CSS px) */
+#ll-play-row > .ll-card {
+  max-height: calc(133.33vh - 260px);
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.ll-card {
+  background-color: #ffffff !important;
+  border-radius: 22px !important;
+  padding: 20px !important;
+  box-shadow: var(--card-shadow) !important;
+}
+#ll-play-row > .ll-card:nth-child(2) { padding: 26px !important; }
+/* blocks inside a card stay flat so the card reads as one surface */
+.ll-card .block, .ll-card .form {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
 .side-panel-title {
-  font-size: 15px; font-weight: 700; color: var(--text-primary);
+  font-size: 12px; font-weight: 700; color: var(--text-primary);
   padding: 4px 2px 6px; border-bottom: 2px solid var(--accent-soft); margin-bottom: 8px;
 }
 
-/* Song header */
+/* Song header: gradient cover tile + big title (pop_design.png) */
 .song-header {
-  display: flex; align-items: center; gap: 14px;
-  padding: 12px 20px; border-bottom: 1px solid var(--border); margin-bottom: 8px;
+  display: flex; align-items: center; gap: 16px;
+  padding: 6px 4px 14px; margin-bottom: 8px;
 }
-.song-title-display { margin: 0; font-size: 22px; font-weight: 700; color: var(--text-primary); }
-.song-meta-display { margin: 2px 0 0; font-size: 13px; color: var(--text-secondary); }
+.song-cover {
+  width: 72px; height: 72px; border-radius: 20px; flex: none;
+  background-image: var(--accent-grad);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; color: #ffffff;
+}
+.song-title-display { margin: 0; font-size: 26px; font-weight: 800; color: var(--text-primary); }
+.song-meta-display { margin: 4px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+/* native audio bar: blend into the white card as a rounded chip */
+.gradio-container audio {
+  width: 100%; height: 40px; border-radius: 999px;
+  background-color: var(--bg-card);
+}
+.gradio-container audio::-webkit-media-controls-enclosure {
+  border-radius: 999px; background-color: var(--bg-card);
+  margin-bottom: 10px;
+}
 
 /* compact audio-upload dropzone — the default is a huge empty drop area */
 #ll-audio-up .wrap {
@@ -1346,14 +1517,16 @@ footer, .gradio-container footer { display: none !important; }
 #lyrics-scroll { display: flex; flex-direction: column; gap: 2px; }
 
 .lyric-line {
-  padding: 8px 16px; border-radius: 8px; cursor: pointer;
+  padding: 10px 14px; border-radius: 14px; cursor: pointer;
+  margin-bottom: 20px; /* 行间距(用户定) */
   transition: all 0.25s ease; border-left: 3px solid transparent;
 }
-.lyric-line:hover { background: var(--bg-card-hover); }
-.lyric-line.picked { background: var(--accent-soft); border-left-color: var(--accent); }
+.lyric-line:hover { background: var(--bg-card); }
+.lyric-line.picked { background: var(--pink-soft); border-left-color: var(--pink); }
+.lyric-line.picked .lyric-text { color: var(--pink); }
 .lyric-line.played .lyric-text { color: var(--text-played); }
 .lyric-line.active { background: var(--accent-glow); border-left-color: var(--accent); transform: scale(1.02); }
-.lyric-line.active .lyric-text { color: var(--text-primary); font-weight: 800; font-size: 19px; }
+.lyric-line.active .lyric-text { color: var(--text-primary); font-weight: 700; font-size: 24px; }
 /* karaoke sweep: JS drives a gradient over the active line's text; the
    estimated progress paints sung characters accent-blue */
 @supports (-webkit-background-clip: text) or (background-clip: text) {
@@ -1363,8 +1536,8 @@ footer, .gradio-container footer { display: none !important; }
   }
 }
 .lyric-text {
-  font-size: 17px; font-weight: 700; color: var(--lyric-dim);
-  letter-spacing: -0.01em; transition: all 0.25s ease; line-height: 1.6;
+  font-size: 21px; font-weight: 500; color: var(--lyric-dim);
+  letter-spacing: -0.01em; transition: all 0.25s ease; line-height: 1.5;
 }
 
 /* Search */
@@ -1429,36 +1602,21 @@ footer, .gradio-container footer { display: none !important; }
 .echo-meta { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
 .echo-explain { font-size: 13px; line-height: 1.7; }
 
-/* player tools (chorus / A-B loop / toggles) */
-#ll-wave { width: 100%; min-height: 0; }
-.player-tools {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-  padding: 6px 2px 0;
-}
+/* player tools */
 .ptool {
   font-size: 12px; padding: 3px 10px; border-radius: 14px; cursor: pointer;
   background: var(--bg-card); border: 1px solid var(--border);
   color: var(--text-primary);
+  margin-top: 8px;
 }
 .ptool:hover { border-color: var(--accent); color: var(--accent); }
-.ptool-toggle {
-  font-size: 12px; color: var(--text-secondary); cursor: pointer;
-  display: inline-flex; align-items: center; gap: 4px;
-}
-
-/* end-rhyme dots: hidden until the 🎯 韵脚 toggle adds .rhyme-on */
-.rhyme-mark {
-  display: none; width: 9px; height: 9px; border-radius: 50%;
-  margin-left: 8px; vertical-align: middle;
-}
-#lyrics-container.rhyme-on .rhyme-mark { display: inline-block; }
 
 /* listening notes */
 .note-list { display: flex; flex-direction: column; gap: 5px; max-height: 32vh; overflow-y: auto; }
 .note-item {
   display: flex; gap: 8px; align-items: baseline; cursor: pointer;
   padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px;
-  background: var(--bg-card); font-size: 13px;
+  background: var(--bg-card); font-size: 15px;
 }
 .note-item:hover { border-color: var(--accent); }
 .note-ts { color: var(--accent); font-size: 12px; white-space: nowrap; }
@@ -1501,18 +1659,28 @@ footer, .gradio-container footer { display: none !important; }
 /* side-panel icon dock: icon-only tab nav on TOP, content expands below */
 .ll-icon-dock { display: flex; flex-direction: column; }
 .ll-icon-dock > .tab-nav, .ll-icon-dock > div[role="tablist"] {
-  justify-content: center; gap: 6px;
+  justify-content: center; gap: 4px;
   border-top: none !important;
   border-bottom: 1px solid var(--border) !important;
   padding: 2px 0 8px; margin: 0 0 10px;
   position: relative; z-index: 3; background: var(--bg-primary);
+  flex-wrap: wrap !important; /* 320px 窄卡里 6 个图标必须全可见,不许折叠进 ⋯ */
 }
 .ll-icon-dock > .tabitem, .ll-icon-dock > div[role="tabpanel"] {
   overflow: visible; padding-bottom: 6px;
 }
+/* Gradio 的 JS 溢出逻辑会在重渲染时把部分图标 tab 收进 ⋯ 下拉
+   (probe 随即找不到 ⚙️)。六个图标缩窄后本就放得下——强制全部可见,
+   并永久隐藏 ⋯ 溢出菜单。!important 压得过 JS 写的行内样式 */
+.ll-icon-dock .tab-container button[role="tab"] {
+  display: flex !important; visibility: visible !important;
+}
+.ll-icon-dock .overflow-menu { display: none !important; }
 .ll-icon-dock > .tab-nav button, .ll-icon-dock button[role="tab"] {
-  font-size: 18px !important; font-weight: 400 !important;
-  padding: 6px 12px !important; border-radius: 10px !important;
+  font-size: 16px !important; font-weight: 400 !important;
+  /* 320px 窄卡里 6 个图标 tab 必须全可见(6×~30px < ~200px 容器),
+     否则 Gradio 的 JS 溢出逻辑会把 ⚙️/📝 折进 ⋯ 下拉,probe 找不到 */
+  padding: 5px 7px !important; border-radius: 10px !important;
   border-bottom: none !important; background: transparent !important;
   line-height: 1 !important;
 }
@@ -1617,20 +1785,22 @@ footer, .gradio-container footer { display: none !important; }
 }
 .ll-dict-pop .dict-btn:hover { background: var(--accent-soft); }
 .ll-dict-pop .dict-btn[disabled] { opacity: .6; cursor: default; }
-.wb-list { display: flex; flex-direction: column; gap: 8px; }
+.wb-list { display: flex; flex-direction: column; gap: 8px;
+  max-height: 48vh; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; }
 .wb-item {
   position: relative; padding: 8px 26px 8px 10px; border-radius: 10px;
   background: var(--bg-card); border: 1px solid var(--border);
 }
-.wb-item .wb-word { font-weight: 700; font-size: 1.15em; }
+.wb-item .wb-word { font-weight: 700; font-size: 1.5em; }
 .wb-item .wb-phon { color: var(--text-secondary); font-weight: 400; font-size: .9em; }
 .wb-item .wb-meaning { font-size: 1.05em; color: var(--text-primary); }
 .wb-item .wb-src { font-size: 1em; color: var(--text-secondary); margin-top: 2px; }
 .wb-item .wb-ai { font-size: .85em; color: var(--text-primary); margin-top: 4px;
   padding: 6px 8px; background: var(--accent-soft); border-radius: 8px;
   line-height: 1.5; }
-.lyric-line .lyric-trans { font-size: .82em;
-  color: var(--text-secondary); margin-top: 1px; }
+.lyric-line .lyric-trans { font-size: 14px; font-weight: 400;
+  color: var(--text-played); margin-top: 3px; line-height: 1.5; }
 /* 歌单侧栏收起（仿 Claude） */
 #ll-sidebar.ll-sb-hidden { display: none !important; }
 #ll-sb-btn {
@@ -1668,12 +1838,28 @@ footer, .gradio-container footer { display: none !important; }
 #ll-review-more { position: absolute; right: 0; top: 34px;
   width: 400px; z-index: 60; background: var(--bg-card);
   border: 1px solid var(--border); border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, .15); }
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .15);
+  /* 常驻滚动条：面板高出视口时（尤其还没出单词卡、页面本身很矮）
+     也能拖动看到底部按钮；底部留白加大拖动余量 */
+  max-height: calc(100vh - 230px); overflow-y: scroll;
+  padding-bottom: 48px; }
 #ll-review-more .label-wrap { justify-content: flex-end; }
-/* 开始按钮：小、蓝底白字、贴卡片右缘 */
-#ll-review-startrow { max-width: 720px; margin: 6px auto 0;
-  display: flex; justify-content: flex-end; }
+/* 上传框压扁 */
+#ll-import-file { min-height: 0 !important; }
+#ll-import-file .wrap, #ll-import-file [data-testid="dropzone"],
+#ll-import-file .upload-container, #ll-import-file .center {
+  min-height: 90px !important; }
+#ll-import-file { max-height: 130px; overflow: hidden; }
+/* 一键导出：下载锚点由 JS 代点，永远不显示 */
+#ll-dl-json, #ll-dl-anki { display: none !important; }
+/* 开始/暂停按钮：无卡片时贴统计条右缘（776 = 统计条 720 + 内边距）；
+   出卡后由 JS（placeStartRow）fixed 定位钉在例句卡下方 */
+#ll-review-startrow { max-width: 778px; margin: 6px auto 0;
+  display: flex; justify-content: flex-end; gap: 8px;
+  width: auto; z-index: 10; }
 #ll-review-startrow button { flex: 0 0 auto; }
+#ll-review-startrow > * { flex: 0 0 auto !important;
+  width: auto !important; min-width: 0 !important; }
 /* 🎮 竞猜/拼图：整块居中 + 放大（互动页空间大、原字号太小） */
 #ll-quiz-wrap, #ll-blank-wrap { max-width: 860px; margin: 0 auto;
   text-align: center; zoom: 1.3; }
@@ -1850,7 +2036,7 @@ footer, .gradio-container footer { display: none !important; }
 .wb-item .wb-del:hover { color: #dc2626; background: var(--bg-card-hover); }
 .wb-item .wb-note-btn {
   position: absolute; right: 32px; top: 8px; cursor: pointer;
-  padding: 0 4px; border-radius: 6px; font-size: 12px;
+  padding: 0 4px; border-radius: 6px; font-size: 15px;
 }
 .wb-item .wb-note-btn:hover { background: var(--bg-card-hover); }
 .wb-item .wb-note { font-size: .9em; color: var(--accent);
@@ -1862,8 +2048,8 @@ footer, .gradio-container footer { display: none !important; }
 .fav-item { padding: 8px 12px; border: 1px solid var(--border);
   border-radius: 10px; background: var(--bg-card); cursor: pointer; }
 .fav-item:hover { border-color: var(--accent); }
-.fav-line { font-size: 17px; font-style: italic; color: var(--text-primary); }
-.fav-song { font-size: 14.5px; color: var(--text-secondary); margin-top: 3px; }
+.fav-line { font-size: 20px; font-style: italic; color: var(--text-primary); }
+.fav-song { font-size: 17px; color: var(--text-secondary); margin-top: 3px; }
 .fav-del { float: right; color: var(--text-secondary); padding: 0 4px; }
 .fav-del:hover { color: #cf222e; }
 
@@ -1882,6 +2068,60 @@ footer, .gradio-container footer { display: none !important; }
   background: var(--bg-card); border-radius: 12px;
 }
 .quiz-meta { font-size: 12px; color: var(--text-secondary); margin-top: 6px; }
+.quiz-hint { font-size: 12.5px; color: var(--text-secondary);
+  text-align: center; margin: 2px auto 0; }
+
+/* 右栏 AI 助手整栏：内置竖向滚动条；任何情况下不出横向条。
+   flex-wrap 必须锁死 nowrap —— Gradio 列默认可换行，内容一超过
+   max-height 整个图标坞会被挤到右边、再被 overflow-x 裁掉 */
+.ll-card:has(#ll-side-dock) {
+  max-height: 86vh; overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; flex-wrap: nowrap !important;
+}
+
+/* 📺 关联 B 站视频：保存按钮下的跳转链接（按钮样式） */
+.bv-goto {
+  display: block; text-align: center; padding: 5px 10px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); color: var(--text-primary);
+  font-size: 13px; text-decoration: none;
+}
+.bv-goto:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ⚙️ 设置：📊 API 用量整页居中；🔑 API 设置居中窄框（仿添加歌曲页） */
+.tabitem:has(#ll-usage-head) { text-align: center; }
+.tabitem:has(#ll-usage-head) table { margin-left: auto; margin-right: auto; }
+#ll-apiset { max-width: 620px; margin: 0 auto; }
+
+/* ⌨️ 歌曲寻词：qwerty-learner 式统计条 + 暂停按钮 + 快捷键气泡 */
+#ll-drill-stats {
+  display: flex; justify-content: center; gap: 40px;
+  max-width: 720px; margin: 18px auto 0; padding: 24px 28px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 14px;
+}
+#ll-drill-stats .ds-tile { text-align: center; min-width: 76px; }
+#ll-drill-stats .ds-num {
+  font-size: 22px; font-weight: 700; color: var(--text-primary);
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+#ll-drill-stats .ds-label {
+  font-size: 12px; color: var(--text-secondary); margin-top: 6px;
+}
+#ll-ds-pause {
+  font-size: 13px; padding: 5px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--bg-card);
+  color: var(--text-primary);
+}
+#ll-ds-pause:hover { border-color: var(--accent); color: var(--accent); }
+[data-ds-tip] { position: relative; }
+[data-ds-tip]:hover::after {
+  content: attr(data-ds-tip); position: absolute;
+  bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  white-space: nowrap; background: var(--text-primary);
+  color: var(--bg-card); font-size: 12px; padding: 4px 9px;
+  border-radius: 6px; z-index: 1300; pointer-events: none;
+}
 
 /* ── Card hover ──
    clickable cards lift & brighten; static info cards only brighten
@@ -1904,6 +2144,85 @@ footer, .gradio-container footer { display: none !important; }
 #ll-songs label:hover, #ll-catalog label:hover {
   background: var(--bg-card-hover) !important;
 }
+
+/* ── 📊 数据分析：全屏页 + 竖向年历热力图（仿 qwerty-learner）──── */
+.hm-overlay {
+  position: fixed; inset: 0; z-index: 2000; overflow-y: auto;
+  background-color: #eef3f2; padding: 28px 16px 60px;
+}
+.hm-sheet { max-width: 880px; margin: 0 auto; text-align: center; }
+.hm-page-title { font-size: 20px; font-weight: 700;
+  color: var(--text-primary); margin-bottom: 18px; position: relative; }
+.hm-close { position: absolute; right: 0; top: 0; cursor: pointer;
+  color: var(--text-secondary); font-size: 18px; padding: 0 6px; }
+.hm-close:hover { color: var(--text-primary); }
+/* ❓ 口径说明：✕ 右侧的小按钮，点开浮出说明卡 */
+.hm-help { position: absolute; right: -54px; top: -4px; }
+.hm-help summary { list-style: none; cursor: pointer; font-size: 15px;
+  padding: 3px 8px; border: 1px solid var(--border); border-radius: 9px;
+  background-color: var(--bg-card); }
+.hm-help summary::-webkit-details-marker { display: none; }
+.hm-help[open] summary, .hm-help summary:hover {
+  background-color: var(--bg-card-hover); }
+.hm-help-pop { position: absolute; right: 0; top: 36px; z-index: 20;
+  width: 320px; padding: 14px 16px; text-align: center;
+  font-size: 12.5px; font-weight: 400; line-height: 1.7;
+  color: var(--text-primary); background-color: var(--bg-card);
+  border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--card-shadow); }
+.hm-help-pop b { color: var(--accent); }
+.hm-nums { display: flex; gap: 26px; justify-content: center;
+  align-items: flex-start; margin-bottom: 20px;
+  color: var(--text-secondary); font-size: 13px; }
+.hm-stat summary { cursor: pointer; list-style: none; padding: 6px 14px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background-color: var(--bg-card); }
+.hm-stat summary::-webkit-details-marker { display: none; }
+.hm-stat[open] summary, .hm-stat summary:hover {
+  background-color: var(--bg-card-hover); }
+.hm-stat b { color: var(--accent); font-size: 17px; margin-right: 3px; }
+.hm-words { max-width: 230px; max-height: 240px; overflow-y: auto;
+  margin-top: 6px; padding: 8px; display: flex; flex-wrap: wrap; gap: 5px;
+  justify-content: center; border: 1px solid var(--border);
+  border-radius: 10px; background-color: var(--bg-card); }
+.hm-chip { padding: 2px 8px; border-radius: 8px; font-size: 12px;
+  background-color: var(--accent-soft); color: var(--text-primary); }
+.hm-chip-none { color: var(--text-secondary); font-size: 12px; }
+.hm-wk-box { max-width: 340px; display: block; }
+.hm-wk { width: 100%; border-collapse: collapse; font-size: 12px;
+  color: var(--text-primary); }
+.hm-wk th { font-weight: 600; color: var(--text-secondary);
+  padding: 3px 8px; border-bottom: 1px solid var(--border); }
+.hm-wk td { padding: 3px 8px; text-align: center; }
+.hm-wk .hm-wk-w { text-align: left; font-weight: 500; }
+.hm-wk tr:nth-child(even) { background-color: var(--accent-soft); }
+.hm-th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+.hm-th-sort:hover { color: var(--accent); }
+.hm-sort { font-size: 11px; color: var(--accent); }
+.hm-charts { display: flex; flex-direction: column; gap: 34px;
+  align-items: center; }
+.hm-chart { display: inline-block; }
+.hm-title { font-size: 15px; font-weight: 600; color: var(--text-primary);
+  margin-bottom: 4px; }
+.hm-grid { display: flex; gap: 3px; justify-content: center;
+  padding-top: 16px; }
+.hm-week { display: flex; flex-direction: column; gap: 3px;
+  position: relative; }
+.hm-week[data-m]:not([data-m=""])::before {
+  content: attr(data-m); position: absolute; top: -15px; left: 0;
+  font-size: 10px; color: var(--text-secondary); white-space: nowrap;
+}
+.hm-wd { display: flex; flex-direction: column; gap: 3px;
+  margin-right: 4px; }
+.hm-wd i { width: 13px; height: 12px; font-size: 9px; font-style: normal;
+  color: var(--text-secondary); line-height: 12px; }
+.hm-c { width: 12px; height: 12px; border-radius: 3px; display: block;
+  background-color: var(--border); }
+.hm-c.l1 { background-color: color-mix(in srgb, var(--accent) 30%, #fff); }
+.hm-c.l2 { background-color: color-mix(in srgb, var(--accent) 55%, #fff); }
+.hm-c.l3 { background-color: color-mix(in srgb, var(--accent) 80%, #fff); }
+.hm-c.l4 { background-color: var(--pink); }
+.hm-empty { padding: 40px 0; color: var(--text-secondary); font-size: 14px; }
 """
 
 

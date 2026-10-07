@@ -46,31 +46,65 @@ def round_queue(book: list[dict]) -> list[str]:
 
 
 def record_result(word: str, correct: bool,
-                  now: float | None = None) -> list[dict]:
-    """Persist one attempt (correct = completed with zero mistakes)."""
+                  now: float | None = None, *,
+                  blind: bool = False, peeks: int = 0) -> list[dict]:
+    """Persist one attempt (correct = completed with zero mistakes).
+
+    blind = 整次输入都遮着字母；peeks = 盲打中 Tab 偷看次数。盲打口径
+    （b_*）单独记：b_clean = 盲打 + 零错 + 零偷看一次过（掌握的依据）。"""
     from .dictionary import update_entry
 
     def _mutate(e: dict) -> None:
         r = e.get("review") or {}
         r["correct" if correct else "wrong"] = (
             r.get("correct" if correct else "wrong", 0) + 1)
+        if blind:
+            r["b_correct" if correct else "b_wrong"] = (
+                r.get("b_correct" if correct else "b_wrong", 0) + 1)
+            r["b_peek"] = r.get("b_peek", 0) + max(0, peeks)
+            if correct and peeks == 0:
+                r["b_clean"] = r.get("b_clean", 0) + 1
         r["last_ts"] = now if now is not None else time.time()
         e["review"] = r
 
+    from .stats import bump
+    bump("practice", ts=now)   # 数据分析热力图：今天练习 +1
     return update_entry(word, _mutate)
 
 
+def is_mastered(entry: dict) -> bool:
+    """掌握 = 盲打（遮字母）、不按 Tab 偷看、零错误一次过 ≥ 3 次。"""
+    return _review(entry).get("b_clean", 0) >= 3
+
+
 def book_stats(book: list[dict]) -> dict:
-    """{total, practiced, mastered} — mastered: ≥3 clean passes, ≥80% rate."""
-    practiced = mastered = 0
+    """{total, practiced, mastered} — mastered 见 is_mastered。"""
+    practiced = sum(1 for e in book
+                    if _review(e).get("correct", 0)
+                    + _review(e).get("wrong", 0) > 0)
+    mastered = sum(1 for e in book if is_mastered(e))
+    return {"total": len(book), "practiced": practiced, "mastered": mastered}
+
+
+WEAK_MIN_WRONG = 3   # 盲打错 ≥ 3 次才算弱点词
+
+
+def weak_words(book: list[dict]) -> list[dict]:
+    """弱点词（只统计盲打口径）：盲打错误 ≥ WEAK_MIN_WRONG 次才入表，
+    按错误率降序，再按练习次数降序。
+    返回 [{word, attempts, wrong, peek, rate}]。"""
+    rows = []
     for e in book:
         r = _review(e)
-        attempts = r.get("correct", 0) + r.get("wrong", 0)
-        if attempts:
-            practiced += 1
-            if r.get("correct", 0) >= 3 and r["correct"] / attempts >= 0.8:
-                mastered += 1
-    return {"total": len(book), "practiced": practiced, "mastered": mastered}
+        attempts = r.get("b_correct", 0) + r.get("b_wrong", 0)
+        wrong = r.get("b_wrong", 0)
+        if not attempts or wrong < WEAK_MIN_WRONG:
+            continue
+        rows.append({"word": e.get("word", ""), "attempts": attempts,
+                     "wrong": wrong, "peek": r.get("b_peek", 0),
+                     "rate": wrong / attempts})
+    rows.sort(key=lambda x: (-x["rate"], -x["attempts"], x["word"].lower()))
+    return rows
 
 
 def export_qwerty(book: list[dict]) -> list[dict]:
