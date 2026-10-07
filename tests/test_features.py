@@ -261,6 +261,17 @@ def test_wordbook_roundtrip(tmp_path, monkeypatch):
     assert d.remove_word("SCARF") == []
 
 
+def test_is_phrase_single_authority():
+    # 词组判定三处调用点(练习范围/📒🧩面板/收藏提示)统一走这一个口径:
+    # 内部空格算词组,首尾空格不算
+    from lyric_agent.dictionary import is_phrase
+    assert is_phrase("old cardigan")
+    assert not is_phrase("cardigan")
+    assert not is_phrase(" cardigan ")   # 首尾空格 ≠ 词组(曾经口径漂移处)
+    assert not is_phrase("")
+    assert not is_phrase(None)
+
+
 def test_render_wordbook_escapes():
     from lyric_agent.ui_helpers import render_wordbook
     html = render_wordbook([{"word": "a<b", "phonetic": "x&y",
@@ -549,6 +560,25 @@ def test_review_record_persists(tmp_path, monkeypatch):
     book = rv.record_result("scarf", correct=False, now=456.0)
     assert book[0]["review"] == {"correct": 1, "wrong": 1, "last_ts": 456.0}
     assert rv.book_stats(book) == {"total": 1, "practiced": 1, "mastered": 0}
+    # 盲打口径：b_* 单独累计；掌握 = 盲打零错零偷看一次过 ≥3 次
+    for _ in range(3):
+        book = rv.record_result("scarf", correct=True, blind=True)
+    r = book[0]["review"]
+    assert r["b_correct"] == 3 and r["b_clean"] == 3 and r["b_peek"] == 0
+    assert rv.book_stats(book)["mastered"] == 1
+    # 偷看过的盲打：计练习与偷看，但不计 b_clean
+    book = rv.record_result("scarf", correct=True, blind=True, peeks=2)
+    r = book[0]["review"]
+    assert r["b_correct"] == 4 and r["b_clean"] == 3 and r["b_peek"] == 2
+    # 非盲打完全不进 b_*；弱点词表只看盲打
+    book = rv.record_result("scarf", correct=False)
+    assert "b_wrong" not in book[0]["review"]
+    assert rv.weak_words(book) == []        # 盲打错 <3 次：不进弱点词
+    for _ in range(3):
+        book = rv.record_result("scarf", correct=False, blind=True)
+    wk = rv.weak_words(book)
+    assert wk == [{"word": "scarf", "attempts": 7, "wrong": 3,
+                   "peek": 2, "rate": 3 / 7}]
 
 
 def test_export_qwerty_format():
@@ -675,10 +705,11 @@ def test_render_audio_html_video_branches():
     # 无 bvid + 公开 -> 只有横幅，无绑定入口
     pub = _render_audio_html(dict(base), public=True)
     assert "data-bvid-search" not in pub and "bv-frame" not in pub
-    # 有 bvid + 无音频 -> 直接 iframe + 降级说明，横幅消失
+    # 有 bvid + 无音频 -> 折叠 iframe + 收起/展开按钮；无音频横幅常驻
     bound = _render_audio_html(dict(base, bvid="BV1xx411c7mD"), public=True)
     assert "bv-frame" in bound and "player.bilibili.com" in bound
-    assert "no-audio-hint" not in bound   # 视频模式说明已按用户要求删除
+    assert "no-audio-hint" in bound       # 用户要求：无音频提示任何情况都显示
+    assert "data-video-toggle" in bound   # 所有绑 MV 的歌都有收起/展开按钮
     # 候选卡渲染 + 转义
     cands = [{"bvid": "BV1xx411c7mD", "title": "<晴天> MV",
               "author": "up&主", "duration": "4:29"}]
@@ -1114,3 +1145,75 @@ def test_discover_songs_exclude_cjk(tmp_path):
     assert names == {"en_song"}
 
 
+
+
+def test_stats_bump_and_year_series(tmp_path, monkeypatch):
+    from lyric_agent import stats as st
+
+    monkeypatch.setattr(st, "STATS_PATH", tmp_path / "stats.json")
+    st.bump("practice")
+    st.bump("practice", n=2)
+    st.bump("collect")
+    data = st.load_stats()
+    from datetime import date
+    today = date.today().isoformat()
+    assert data[today] == {"practice": 3, "collect": 1}
+    ser = st.year_series(data, "practice")
+    assert ser[0][0].endswith(tuple("0123456789"))
+    assert len(ser) % 7 == 0 or ser[-1][0] == today  # 周日对齐，收尾在今天
+    assert ser[-1] == (today, 3)
+    assert date.fromisoformat(ser[0][0]).weekday() == 6  # 起点是周日
+
+
+def test_stats_backfill_from_wordbook(tmp_path, monkeypatch):
+    import time
+    from lyric_agent import stats as st
+
+    monkeypatch.setattr(st, "STATS_PATH", tmp_path / "stats.json")
+    now = time.time()
+    book = [
+        {"word": "a", "review": {"correct": 2, "wrong": 1, "last_ts": now}},
+        {"word": "b", "review": {"correct": 5, "wrong": 0, "last_ts": now}},
+        {"word": "c"},  # 没练过 → 不计
+    ]
+    data = st.backfill_from_wordbook(book)
+    from datetime import date
+    assert data[date.today().isoformat()]["practice"] == 8
+    # 已存在 stats.json 时不再回填（幂等）
+    st.bump("practice")
+    assert st.backfill_from_wordbook(book)[date.today().isoformat()][
+        "practice"] == 9
+
+
+def test_render_analysis(tmp_path, monkeypatch):
+    import time
+    from lyric_agent import stats as st
+    from lyric_agent.ui_helpers import render_analysis
+
+    monkeypatch.setattr(st, "STATS_PATH", tmp_path / "stats.json")
+    html = render_analysis([])
+    assert "hm-empty" in html          # 无数据 → 空态提示
+    book = [{"word": "a", "review": {"correct": 3, "wrong": 1,
+                                     "b_correct": 1, "b_wrong": 3,
+                                     "b_peek": 2, "b_clean": 3,
+                                     "last_ts": time.time()}}]
+    (tmp_path / "stats.json").unlink()
+    html = render_analysis(book)
+    assert html.count('class="hm-chart"') == 2   # 练习 + 收藏两张热力图
+    assert "练习 4 次" in html           # 回填的格子 tooltip
+    assert "hm-overlay" in html          # 全屏页 + ✕ 关闭
+    assert "hm-close" in html
+    # 「已掌握」可展开看具体词汇（a: b_clean=3 → 已掌握）
+    assert "已掌握" in html and html.count("<details") == 5  # 3 概览 + 弱点词 + 口径说明
+    assert "hm-chip" in html
+    # 弱点词表：只统计盲打（4 练 1 错 2 偷看 25%）
+    assert "弱点词" in html
+    assert ("<td>4</td><td>3</td><td>2</td><td>75%</td>" in html)
+    assert "hm-th-sort" in html and "hm-sort" in html
+
+
+def test_esc_html_single_quote():
+    # 去重后 evidence 内部统一走 esc_html（html.escape）：
+    # 单引号也转义——旧的手写 _esc 不转义 '，属口径漂移，锁住新口径
+    from lyric_agent.evidence import esc_html
+    assert esc_html("it's <a> \"q\"") == "it&#x27;s &lt;a&gt; &quot;q&quot;"

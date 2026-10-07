@@ -33,11 +33,6 @@ logger = logging.getLogger(__name__)
 
 
 
-def _esc(text: str) -> str:
-    return (str(text).replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))
-
-
 # ── quote verification ──────────────────────────────────────
 
 class QuoteIndex:
@@ -134,39 +129,39 @@ def render_evidence_card(claims: dict, index: QuoteIndex,
         if hit:
             n_ok += 1
             label = label_of.get(hit["song_title"], "")
-            jump = (f' data-cite-label="{_esc(label)}" '
+            jump = (f' data-cite-label="{esc_html(label)}" '
                     f'data-cite-line="{hit["line_index"]}"'
                     if label else "")
             rows.append(
                 f'<div class="ev-quote ev-ok"{jump}>'
                 f'<span class="ev-mark">✅</span>'
-                f'<span class="ev-text">“{_esc(hit["line_text"])}”</span>'
-                f'<span class="ev-src">——《{_esc(hit["song_title"])}》'
+                f'<span class="ev-text">“{esc_html(hit["line_text"])}”</span>'
+                f'<span class="ev-src">——《{esc_html(hit["song_title"])}》'
                 f'第 {hit["line_index"] + 1} 行'
                 f'{"（点击跳转）" if label else ""}</span></div>')
         else:
             rows.append(
                 f'<div class="ev-quote ev-bad">'
                 f'<span class="ev-mark">⚠️</span>'
-                f'<span class="ev-text">“{_esc(q["text"])}”</span>'
+                f'<span class="ev-text">“{esc_html(q["text"])}”</span>'
                 f'<span class="ev-src">——未在曲库中找到，此句可能是 AI '
                 f'编造，不作为证据</span></div>')
     conf = ("高" if n_ok >= 2 else "中" if n_ok == 1 else "低")
     parts = ['<div class="ev-card">']
     if claims.get("conclusion"):
         parts.append(f'<div class="ev-conclusion">'
-                     f'{_esc(claims["conclusion"])}</div>')
+                     f'{esc_html(claims["conclusion"])}</div>')
     if rows:
         parts.append('<div class="ev-sec-title">📜 文本证据'
                      f'<span class="ev-conf">置信度：{conf}'
                      f'（{n_ok} 条已核验）</span></div>')
         parts.extend(rows)
     for fact in claims.get("facts", []):
-        parts.append(f'<div class="ev-fact">📅 {_esc(fact)}</div>')
+        parts.append(f'<div class="ev-fact">📅 {esc_html(fact)}</div>')
     if claims.get("speculation"):
         parts.append('<div class="ev-sec-title">💭 推测（粉丝理论，'
                      '未经证实）</div>')
         for s in claims["speculation"]:
-            parts.append(f'<div class="ev-spec">{_esc(s)}</div>')
+            parts.append(f'<div class="ev-spec">{esc_html(s)}</div>')
     parts.append("</div>")
     return "".join(parts)

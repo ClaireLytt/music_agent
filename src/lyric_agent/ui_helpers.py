@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 _CHAT_HINT = ""
 _CHAT_TOPIC_DEFAULT = '<div class="chat-topic dim">尚未选择歌词行</div>'
 _NO_AUDIO_HINT = (
-    "🎧 未检测到音频 — 当前为纯阅读模式。将 audio.mp3 放入歌曲目录即可启用播放同步。"
+    "🎧 未检测到音频 — 当前为纯阅读模式。在当前页面的设置中放入歌曲 mp3 "
+    "文件即可启用播放同步。"
 )
 
 
@@ -183,12 +184,6 @@ def _render_notes(notes: list[dict]) -> str:
     return '<div class="note-list">' + "".join(items) + "</div>"
 
 
-# distinct colors for end-rhyme groups (cycled when a song has more groups)
-_RHYME_COLORS = [
-    "#0969da", "#bf3989", "#1a7f37", "#bc4c00", "#8250df",
-    "#cf222e", "#0550ae", "#9a6700", "#6639ba", "#2da44e",
-]
-
 # disk cache for whole-song echo scans (survives restarts; key-invalidated)
 _ECHO_SCAN_CACHE_DIR = Path("data/cache/echo_scans")
 
@@ -235,18 +230,9 @@ def _load_song_data(song_dir: str) -> dict[str, Any]:
         song = Song.load(ann_path)
         for ann in song.annotations:
             annotations[ann.line_index] = ann
-    try:
-        from .rhyme import line_rhyme_groups
-        rhymes = line_rhyme_groups([ln.text for ln in timed_lines])
-    except Exception:
-        logger.exception("Rhyme grouping failed for %s", song_dir)
-        rhymes = [None] * len(timed_lines)
-    from .insights import find_chorus_ts
     data = {
         "timed_lines": timed_lines,
         "annotations": annotations,
-        "rhymes": rhymes,
-        "chorus_ts": find_chorus_ts(timed_lines),
     }
     _SONG_DATA_CACHE[song_dir] = (stamp, data)
     return data
@@ -431,25 +417,7 @@ def _file_url(path: str | Path) -> str:
     return "/gradio_api/file=" + str(Path(path).resolve()).replace("\\", "/")
 
 
-def _player_tools(song_info: dict, chorus_ts: int | None) -> str:
-    """Chorus jump, A-B loop, rhyme/echo toggles (wired up in _HEAD_JS)."""
-    chorus = (f'<button class="ptool" data-seek="{chorus_ts}" '
-              'title="跳到检测出的副歌位置">⏩ 副歌</button>'
-              if chorus_ts is not None else "")
-    return (
-        '<div class="player-tools">'
-        + chorus +
-        '<label class="ptool-toggle" title="同韵脚的歌词行标同色圆点">'
-        '<input type="checkbox" id="ll-rhyme-toggle"> 🎯 韵脚</label>'
-        '</div>'
-    )
-
-
-_BV_NOTE = ''
-
-
-def _render_video_html(song_info: dict, has_audio: bool,
-                       public: bool) -> str:
+def _render_video_html(song_info: dict, public: bool) -> str:
     """📺 B 站视频区：官方嵌入播放器 + 绑定/候选 UI（非公开）。"""
     from .bilibili import embed_url
     bvid = song_info.get("bvid", "")
@@ -458,28 +426,22 @@ def _render_video_html(song_info: dict, has_audio: bool,
               if not public else "")
     parts = []
     if bvid:
-        if has_audio:
-            # video collapsed by default (inline style — the 📺 toggle JS
-            # reads/writes style.display, so the default must live inline)
-            parts.append(
-                '<button class="ptool" data-video-toggle="1">'
-                '📺 收起/展开 MV</button>' + unbind +
-                f'<div class="bv-frame" style="display:none" '
-                f'data-embed="{_esc(embed_url(bvid))}">'
-                f'<iframe allowfullscreen scrolling="no" frameborder="0" '
-                f'src="{_esc(embed_url(bvid))}"></iframe></div>')
-        else:
-            parts.append(
-                f'<div class="bv-frame" data-embed="{_esc(embed_url(bvid))}">'
-                f'<iframe allowfullscreen scrolling="no" frameborder="0" '
-                f'src="{_esc(embed_url(bvid))}"></iframe></div>'
-                + _BV_NOTE + unbind)
+        # video collapsed by default for every song (inline style — the 📺
+        # toggle JS reads/writes style.display, so the default must live
+        # inline)
+        parts.append(
+            '<button class="ptool" data-video-toggle="1">'
+            '📺 收起/展开 MV</button>' + unbind +
+            f'<div class="bv-frame" style="display:none" '
+            f'data-embed="{_esc(embed_url(bvid))}">'
+            f'<iframe allowfullscreen scrolling="no" frameborder="0" '
+            f'src="{_esc(embed_url(bvid))}"></iframe></div>')
     elif not public:
         parts.append(
             '<div class="bv-bind"><button class="ptool" '
             'data-bvid-search="1">🔍 搜索 B 站 MV</button>'
-            '<span class="bv-bind-hint">或在下方「📺 关联 B 站视频」'
-            '手风琴里粘 BV 号</span></div>')
+            '<span class="bv-bind-hint">或在当前设置「📺 关联 B 站视频」'
+            '里粘贴链接</span></div>')
         cands = sorted(song_info.get("bvid_cands", []),
                        key=lambda c: c.get("play", 0), reverse=True)
         for c in cands:
@@ -496,25 +458,22 @@ def _render_video_html(song_info: dict, has_audio: bool,
     return "".join(parts)
 
 
-def _render_audio_html(song_info: dict, chorus_ts: int | None = None,
-                       public: bool = False) -> str:
+def _render_audio_html(song_info: dict, public: bool = False) -> str:
     a_type, src = song_info["audio_type"], song_info["audio_src"]
     offset = song_info.get("audio_offset_ms", 0)
     hint = ""
     if a_type not in ("local", "url"):
-        video = _render_video_html(song_info, has_audio=False,
-                                   public=public)
-        if song_info.get("bvid"):
-            return video  # bound video replaces the no-audio banner
+        video = _render_video_html(song_info, public=public)
+        # 无音频时提示常驻 —— 绑没绑 MV 都显示
         return f'<div class="no-audio-hint">{_NO_AUDIO_HINT}</div>' + video
     url = _file_url(src) if a_type == "local" else src
     return (
-        '<div id="ll-wave" title="波形加载中（需联网加载 wavesurfer）"></div>'
         f'<audio id="ll-audio" controls preload="metadata" '
+        f'controlslist="nodownload noplaybackrate" '
         f'data-offset="{offset}" '
         f'src="{_esc(url)}" style="width:100%"></audio>'
-        + _player_tools(song_info, chorus_ts) + hint
-        + _render_video_html(song_info, has_audio=True, public=public)
+        + hint
+        + _render_video_html(song_info, public=public)
     )
 
 
@@ -649,37 +608,35 @@ def _render_lyrics_html(song_data: dict, song_info: dict,
   </div>
 </div>"""
 
-    rhymes = song_data.get("rhymes") or [None] * len(lines)
     parts = []
-    for ln, group in zip(lines, rhymes):
-        mark = ""
-        if group is not None:
-            color = _RHYME_COLORS[group % len(_RHYME_COLORS)]
-            mark = (f'<span class="rhyme-mark" style="background:{color}" '
-                    f'title="韵脚组 {group + 1}"></span>')
+    for ln in lines:
         zh = trans.get(ln.line_index, "")
         zh_html = (f'<div class="lyric-trans">{_esc(zh)}</div>' if zh else "")
         parts.append(
             f'<div class="lyric-line" data-index="{ln.line_index}" '
             f'data-ts="{ln.timestamp_ms}">'
-            f'<span class="lyric-text">{_esc(ln.text)}</span>{mark}'
+            f'<span class="lyric-text">{_esc(ln.text)}</span>'
             f'{zh_html}</div>'
         )
 
     return (
         header_html
-        + _render_audio_html(song_info, song_data.get("chorus_ts"),
-                             public=public)
+        + _render_audio_html(song_info, public=public)
         + f'<div id="lyrics-container"><div id="lyrics-scroll">{"".join(parts)}</div></div>'
     )
 
 
 def render_wordbook(entries: list[dict],
-                    song_title: str | None = None) -> str:
+                    song_title: str | None = None,
+                    phrases: bool = False) -> str:
     """📒 单词本 panel. With song_title, only words collected from that
-    song show — 单词本跟随当前打开的歌曲。"""
+    song show — 单词本跟随当前打开的歌曲。phrases=True 只显示多词词组
+    （含空格，与练习范围「🧩 词组」同口径），False 只显示单词。"""
     if song_title is not None:
         entries = [e for e in entries if e.get("song", "") == song_title]
+    from .dictionary import is_phrase
+    entries = [e for e in entries
+               if is_phrase(e.get("word", "")) == phrases]
     if not entries:
         return ""
     items = []
@@ -961,6 +918,115 @@ def _render_emotion_map(emotions: list) -> str:
     )
 
 
+
+
+def _heatmap_html(series: list[tuple[str, int]], title: str,
+                  unit: str) -> str:
+    """GitHub 风格年历热力图（仿 qwerty-learner 的 ActivityCalendar，
+    纯 HTML/CSS），横向排布：列 = 周，行 = 星期（GitHub 原版方向）。
+    series 来自 stats.year_series：周日对齐的逐日计数。"""
+    mx = max((c for _, c in series), default=0)
+    weeks: list[list[tuple[str, int]]] = [
+        series[i:i + 7] for i in range(0, len(series), 7)]
+    months = "一 二 三 四 五 六 七 八 九 十 十一 十二".split()
+    cols = []
+    last_m = ""
+    for wk in weeks:
+        m = months[int(wk[0][0][5:7]) - 1] + "月"
+        label = m if m != last_m else ""
+        last_m = m
+        cells = "".join(
+            f'<i class="hm-c l{0 if not c else min(4, 1 + c * 4 // (mx + 1))}"'
+            f' title="{d} {unit} {c} 次"></i>' for d, c in wk)
+        cols.append(f'<div class="hm-week" data-m="{label}">{cells}</div>')
+    wd = "".join(f"<i>{w}</i>" for w in ("日", "一", "二", "三", "四", "五", "六"))
+    return (
+        '<div class="hm-chart">'
+        f'<div class="hm-title">{_esc(title)}</div>'
+        f'<div class="hm-grid"><div class="hm-wd">{wd}</div>{"".join(cols)}</div>'
+        '</div>')
+
+
+def _stat_details(label: str, words: list[dict]) -> str:
+    """概览数字做成可展开的 <details>：点击弹出具体词汇列表。"""
+    chips = "".join(
+        f'<span class="hm-chip" title="{_esc(e.get("translation", ""))}">'
+        f'{_esc(e.get("word", ""))}</span>' for e in words) or \
+        '<span class="hm-chip-none">（暂无）</span>'
+    return (f'<details class="hm-stat"><summary><b>{len(words)}</b>'
+            f' {label}</summary><div class="hm-words">{chips}</div></details>')
+
+
+def render_analysis(book: list[dict]) -> str:
+    """「📊 数据分析」全屏页：只有概览数字 + 两张竖向年度热力图
+    （对应 qwerty-learner Analysis 页的两张 HeatmapCharts），✕ 关闭。"""
+    from .review import is_mastered, weak_words
+    from .stats import backfill_from_wordbook, year_series
+
+    stats = backfill_from_wordbook(book)
+    practice = year_series(stats, "practice")
+    collect = year_series(stats, "collect")
+    # 与 review.book_stats 同一口径，但这里要具体词条列表而非计数
+    practiced = [e for e in book
+                 if (e.get("review") or {}).get("correct", 0)
+                 + (e.get("review") or {}).get("wrong", 0) > 0]
+    mastered = [e for e in book if is_mastered(e)]
+    weak = weak_words(book)
+    close = ('<span class="hm-close" title="关闭" '
+             'onclick="this.closest(\'.hm-overlay\').remove()">✕</span>')
+    help_btn = (
+        '<details class="hm-help"><summary title="口径说明">❓</summary>'
+        '<div class="hm-help-pop">'
+        '<b>一次练习</b><br>从单词卡出现到把词完整打完算 1 次；'
+        '中途打错任何键被要求重来，这 1 次就记为「错误的一次」。<br><br>'
+        '<b>已掌握</b><br>盲打（遮住字母）、全程不按 Tab 提示、'
+        '零击键错误一次打完，算 1 次干净通过；累计 ≥ 3 次即已掌握。<br><br>'
+        '<b>弱点词</b><br>只统计盲打：错误的练习 ≥ 3 次才入表。'
+        'Tab 列 = 提示次数；错误率 = 错误次数 ÷ 练习次数。<br><br>'
+        '<b>收藏 / 已练习</b><br>收藏 = 单词本全部词条；'
+        '已练习 = 至少完整打完过一次（盲打与否都算）。'
+        '</div></details>')
+    if not any(c for _, c in practice) and not any(c for _, c in collect):
+        body = '<div class="hm-empty">还没有练习数据——去打几个词再来看看 📊</div>'
+    else:
+        wk_rows = "".join(
+            f'<tr><td class="hm-wk-w">{_esc(w["word"])}</td>'
+            f'<td>{w["attempts"]}</td><td>{w["wrong"]}</td>'
+            f'<td>{w["peek"]}</td><td>{round(w["rate"] * 100)}%</td></tr>'
+            for w in weak)
+        # 「错误」列可点排序（降/升切换）；表格在 gr.HTML 里，用内联
+        # handler 原地重排行（行数据都在 DOM 里，无需回后端）
+        sort_js = (
+            "(function(t){const tb=t.closest('table');"
+            "const rows=[].slice.call(tb.querySelectorAll('tr'),1);"
+            "const asc=tb.dataset.asc==='1';tb.dataset.asc=asc?'0':'1';"
+            "rows.sort(function(a,b){return (+a.cells[2].textContent"
+            "-+b.cells[2].textContent)*(asc?1:-1);});"
+            "rows.forEach(function(r){tb.appendChild(r);});"
+            "t.querySelector('.hm-sort').textContent=asc?'↑':'↓';})(this)")
+        wk_table = (
+            '<table class="hm-wk"><tr><th>单词</th><th>练习</th>'
+            f'<th class="hm-th-sort" onclick="{sort_js}" '
+            'title="按错误次数排序">错误 <span class="hm-sort">⇅</span></th>'
+            '<th>Tab</th><th>错误率</th></tr>'
+            + wk_rows + '</table>') if weak else \
+            '<div class="hm-chip-none">还没有错 3 次以上的盲打词 🎉</div>'
+        weak_entry = (f'<details class="hm-stat"><summary><b>{len(weak)}</b>'
+                      f' 弱点词</summary><div class="hm-words hm-wk-box">'
+                      f'{wk_table}</div></details>')
+        nums = ('<div class="hm-nums">'
+                + _stat_details("收藏", book)
+                + _stat_details("已练习", practiced)
+                + _stat_details("已掌握", mastered)
+                + weak_entry
+                + '</div>')
+        body = (nums + '<div class="hm-charts">'
+                + _heatmap_html(practice, "过去一年练习次数热力图", "练习")
+                + _heatmap_html(collect, "过去一年收藏单词热力图", "收藏")
+                + '</div>')
+    return ('<div class="hm-overlay"><div class="hm-sheet">'
+            f'<div class="hm-page-title">📊 数据分析{close}{help_btn}</div>'
+            + body + '</div></div>')
 
 
 # 跨模块共享 API（ui.py / mcp_server.py / cli.py 共用）——公开名

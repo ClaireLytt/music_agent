@@ -80,7 +80,5 @@ def add_user(username: str, password: str, role: str = "viewer",
     users = load_users(path)
     salt, digest = hash_password(password)
     users[username] = {"salt": salt, "hash": digest, "role": role}
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(users, ensure_ascii=False, indent=2),
-                 encoding="utf-8")
+    from .jsonio import write_json_atomic
+    write_json_atomic(path, users, indent=2)

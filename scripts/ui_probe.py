@@ -188,21 +188,8 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
             pg.get_by_role("radio", name=AUDIO_SONG).check()
             pg.wait_for_timeout(3500)
             must(count("#ll-audio") == 1, "audio element missing")
-            must(count(".ptool") >= 3, "player tools missing")
-            must(count("#ll-rhyme-toggle") == 1, "rhyme toggle missing")
-        probe.check("audio_tools", "audio song renders player tools",
+        probe.check("audio_tools", "audio song renders audio player",
                     c_audio_tools)
-
-        def c_rhyme_toggle():
-            pg.locator("#ll-rhyme-toggle").check()
-            pg.wait_for_timeout(500)
-            visible = pg.evaluate(
-                "Array.from(document.querySelectorAll('.rhyme-mark'))"
-                ".filter(m => m.offsetParent !== null).length")
-            must(visible > 0, "no rhyme dots after toggle")
-            pg.locator("#ll-rhyme-toggle").uncheck()
-        probe.check("rhyme_toggle", "rhyme toggle shows colored dots",
-                    c_rhyme_toggle)
 
         def c_karaoke():
             pg.evaluate("document.getElementById('ll-audio').play()")
@@ -673,8 +660,7 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 "+Date.now(); b.dispatchEvent(new Event('input',"
                 "{bubbles:true}));}}")
             pg.wait_for_timeout(1200)
-            pg.get_by_text("⋯ 导入 / 导出 / 分组管理",
-                           exact=False).first.click()   # 展开 ⋯ 面板
+            pg.locator("#ll-review-more .label-wrap").first.click()   # 展开 ⋯ 面板
             pg.wait_for_timeout(600)
             pg.locator('input[type="file"]').last.set_input_files(
                 str(csv_path))
@@ -702,19 +688,47 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         def c_word_export():
             probe.tab("🔤 歌曲寻词")
             if pg.get_by_role("button",
-                              name="📤 导出 qwerty-learner 词典"
+                              name="📤 导出 JSON 词典"
                               ).first.is_visible() is False:
-                pg.get_by_text("⋯ 导入 / 导出 / 分组管理",
-                               exact=False).first.click()
+                pg.locator("#ll-review-more .label-wrap").first.click()
                 pg.wait_for_timeout(600)
             pg.get_by_role("button",
-                           name="📤 导出 qwerty-learner 词典").click()
+                           name="📤 导出 JSON 词典").click()
             probe.wait_until(
-                lambda: ("已生成" in pg.locator("body").inner_text()
+                lambda: ("已导出" in pg.locator("body").inner_text()
                          or "没有可导出" in pg.locator("body").inner_text()),
                 msg="export produced neither a file notice nor the empty hint")
-        probe.check("word_export", "qwerty dictionary export responds",
+        probe.check("word_export", "JSON dictionary export downloads",
                     c_word_export)
+
+        def c_word_analysis():
+            # 📊 数据分析：全屏页出两张竖向热力图；「已掌握」点开词汇；✕ 关闭
+            probe.tab("🔤 歌曲寻词")
+            if not pg.get_by_role("button",
+                                  name="📊 数据分析").first.is_visible():
+                pg.locator("#ll-review-more .label-wrap").first.click()
+                pg.wait_for_timeout(600)
+            pg.get_by_role("button", name="📊 数据分析").click()
+            probe.wait_until(
+                lambda: count(".hm-overlay") >= 1,
+                msg="analysis overlay did not open")
+            must(count(".hm-chart") == 2 or count(".hm-empty") == 1,
+                 "expected 2 heatmaps (or the empty hint)")
+            if count(".hm-chart") == 2:
+                # 用 summary 定位：口径说明弹层里也有「已掌握」字样
+                pg.locator(".hm-stat summary",
+                           has_text="已掌握").first.click()
+                probe.wait_until(
+                    lambda: pg.locator(".hm-stat[open] .hm-words")
+                    .first.is_visible(),
+                    msg="mastered-words list did not expand")
+            pg.locator(".hm-close").click()
+            probe.wait_until(
+                lambda: count(".hm-overlay") == 0,
+                msg="overlay did not close on ✕")
+        probe.check("word_analysis",
+                    "analysis page: heatmaps + word lists + close",
+                    c_word_analysis)
 
         def c_annotation_card():
             # clicking an annotated line surfaces the annotation card;
@@ -925,6 +939,9 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         def c_settings():
             probe.tab("⚙️ 设置")
             probe.tab("🔑")  # 📊 用量页现在是默认首页
+            # API 设置收在默认折叠的手风琴里，先展开
+            pg.locator("#ll-apiset").get_by_role(
+                "button").first.click()
             probe.wait_until(
                 lambda: count("input[type=password]") >= 1,
                 msg="api key field missing")

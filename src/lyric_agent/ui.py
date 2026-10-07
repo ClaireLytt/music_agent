@@ -36,8 +36,8 @@ from .config import (
     save_user_settings,
 )
 from .debate import DebateSession, speak as ai_speak
-from .dictionary import (add_word, load_wordbook, lookup as dict_lookup,
-                         remove_word)
+from .dictionary import (add_word, is_phrase, load_wordbook,
+                         lookup as dict_lookup, remove_word)
 from .archaeology import mine_motifs
 from .evidence import QuoteIndex, cite_jump_attrs
 from .ui_helpers import (_ANN_HINT, _file_url, render_annotation_card,
@@ -530,12 +530,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                                         fav_status = gr.Markdown("")
                                         favs_html = gr.HTML(
                                             _render_favorites(_load_favorites()))
+                            # 📒/🧩 共享同一次单词本读取(一次 IO)
+                            _book0 = load_wordbook()
                             with gr.Tab("📒"):
                                 with gr.Column(elem_id="ll-wordbook"):
                                     gr.HTML('<div class="side-panel-title">'
                                             '📒 单词本</div>')
                                     wordbook_html = gr.HTML(
-                                        render_wordbook(load_wordbook()))
+                                        render_wordbook(_book0))
+                            with gr.Tab("🧩"):
+                                with gr.Column(elem_id="ll-phrasebook"):
+                                    gr.HTML('<div class="side-panel-title">'
+                                            '🧩 词组本</div>')
+                                    phrasebook_html = gr.HTML(
+                                        render_wordbook(_book0,
+                                                        phrases=True))
                             with gr.Tab("📝"):
                                 with gr.Column(elem_id="ll-notes"):
                                     gr.HTML('<div class="side-panel-title">'
@@ -574,6 +583,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                                                         "留空保存 = 解绑",
                                             show_label=False, container=False)
                                         bvid_save_btn = gr.Button("保存", size="sm")
+                                        gr.HTML(
+                                            '<a class="bv-goto" '
+                                            'href="https://www.bilibili.com/" '
+                                            'target="_blank" rel="noopener">'
+                                            '↗ 跳转到 B 站</a>')
                                         bvid_status = gr.Markdown("")
                                     trans_btn = gr.Button(
                                         "🀄 显示中文翻译（英文歌·首次生成调用 LLM，"
@@ -641,7 +655,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             if not public:
                 with gr.Tab("🔤 歌曲寻词") as review_tab:
                     gr.Markdown(
-                        "💡 打错整词重来 · Tab 偷看单词 · "
+                        "💡 打错整词重来 · Tab 提示单词 · "
                         "Enter 跳过换词 · 点卡片可继续输入；"
                         "错得多的词会更频繁出现。",
                         elem_id="ll-review-hint")
@@ -658,18 +672,13 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 "", elem_id="ll-review-stats")
                             # 展开时浮在页面上方（CSS absolute），
                             # 不把下方的单词卡片往下挤
-                            with gr.Accordion("⋯ 导入 / 导出 / 分组管理",
-                                              open=False,
+                            with gr.Accordion("⋯", open=False,
                                               elem_id="ll-review-more"):
-                                gr.Markdown(
-                                    "**📥 导入单词表**：第 1 列单词，"
-                                    "第 2 列释义、第 3 列音标均可省；"
-                                    "缺释义自动查本地词典补全。"
-                                    "Excel 直接传 .xlsx，或另存为 CSV。")
                                 import_file = gr.File(
                                     label="选择 .csv / .tsv / .txt / .xlsx",
                                     file_types=[".csv", ".tsv", ".txt",
-                                                ".xlsx"])
+                                                ".xlsx"],
+                                    elem_id="ll-import-file")
                                 import_group_box = gr.Textbox(
                                     label="分组名（留空 = 文件名）")
                                 import_btn = gr.Button("📥 导入到单词本",
@@ -677,24 +686,61 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 group_del_btn = gr.Button(
                                     "🗑 删除当前分组", size="sm")
                                 review_export_btn = gr.Button(
-                                    "📤 导出 qwerty-learner 词典",
-                                    size="sm")
+                                    "📤 导出 JSON 词典", size="sm")
                                 anki_export_btn = gr.Button(
                                     "🗂️ 导出 Anki 牌组", size="sm")
+                                # 点导出即直接下载：隐藏的下载锚点由 JS
+                                # 侦测 href 变化后自动代点（见 ui_assets）
                                 review_download = gr.DownloadButton(
-                                    "⬇️ 下载词典 JSON", visible=False)
+                                    "⬇️", visible=False,
+                                    elem_id="ll-dl-json")
                                 anki_download = gr.DownloadButton(
-                                    "⬇️ 下载 Anki TSV", visible=False)
+                                    "⬇️", visible=False,
+                                    elem_id="ll-dl-anki")
+                                # backend -> JS：导出完成信号
+                                # （"json|anki \t ts"），JS 代点下载按钮
+                                dl_tick_box = gr.Textbox(
+                                    value="", visible=True,
+                                    elem_id="ll-dl-tick",
+                                    elem_classes=["ll-hidden"],
+                                    show_label=False, container=False)
+                                analysis_btn = gr.Button(
+                                    "📊 数据分析", size="sm",
+                                    elem_id="ll-analysis-btn")
                                 import_status = gr.Markdown("")
                                 review_export_status = gr.Markdown("")
                     review_state = gr.State(
                         {"word": "", "words": 0, "perfect": 0,
                          "chars": 0, "ms": 0, "queue": [], "group": "全部"})
                     review_html = gr.HTML("")
+                    # 📊 数据分析输出放主列（右侧 ⋯ 面板只有 ~330px，
+                    # 年历热力图宽 ~710px 会被横向裁掉）
+                    analysis_html = gr.HTML("", elem_id="ll-analysis")
                     with gr.Row(elem_id="ll-review-startrow"):
                         review_start_btn = gr.Button(
                             "⌨️ 开始 / 换一词", size="sm",
                             variant="primary", min_width=130)
+                        # 暂停/继续（纯前端，JS 驱动；悬停显示快捷键）
+                        gr.HTML(
+                            '<button type="button" id="ll-ds-pause" '
+                            'data-ds-tip="暂停 / 继续（Space）">⏸ 暂停'
+                            '</button>')
+                    # qwerty-learner 式统计条：时间/输入数/WPM/正确数/正确率
+                    # （纯前端会话统计；切出本页签即本轮结束并清零）
+                    gr.HTML(
+                        '<div id="ll-drill-stats">'
+                        + "".join(
+                            f'<div class="ds-tile">'
+                            f'<div class="ds-num" id="ll-ds-{k}">{v}</div>'
+                            f'<div class="ds-label">{label}</div></div>'
+                            for k, v, label in [
+                                ("time", "00:00", "时间"),
+                                ("input", "0", "输入数"),
+                                ("wpm", "0", "WPM"),
+                                ("correct", "0", "正确数"),
+                                ("acc", "0%", "正确率"),
+                            ])
+                        + '</div>')
                     # JS -> backend: word done ("word	mistakes	ms	ts")
                     review_done_box = gr.Textbox(
                         value="", visible=True,
@@ -706,12 +752,6 @@ def create_app(settings: Settings) -> gr.Blocks:
             with gr.Tab("🎮 互动"):
                 with gr.Tabs():
                     with gr.Tab("🕵️ 歌迷考据") as lore_tab:
-                        gr.Markdown(
-                            "像看粉丝解析视频一样看一首歌：AI 把**官方信息**、曲库"
-                            "检索出的**歌词呼应**和**基于歌词的 AI 推测**整理成一页考据故事。"
-                            "每条线索都带来源标签；歌词引用经曲库程序验证"
-                            "（✅ 可点击跳转，⚠️ 表示未验证）。"
-                        )
                         with gr.Row():
                             with gr.Column(scale=3,
                                            elem_id="ll-lore-main"):
@@ -744,10 +784,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                             lambda: gr.Dropdown(choices=song_choices()),
                             None, [lore_song_dd])
                     with gr.Tab("🎯 歌词竞猜"),                             gr.Column(elem_id="ll-quiz-wrap"):
-                        gr.Markdown("从你的歌曲列表随机抽一句歌词，"
-                                    "猜猜它出自哪首歌。**按 1-4 选选项**、"
-                                    "**Enter 提交答案**，看完答案再按一次 "
-                                    "**Enter 下一题**。")
                         quiz_state = gr.State(
                             {"score": 0, "total": 0, "answer": ""})
                         quiz_html = gr.HTML(
@@ -760,12 +796,11 @@ def create_app(settings: Settings) -> gr.Blocks:
                             quiz_new_btn = gr.Button("🎲 开始 / 下一题",
                                                      variant="primary", scale=1)
                             quiz_submit_btn = gr.Button("提交答案", scale=1)
+                        gr.HTML('<div class="quiz-hint">按 1-4 选选项、'
+                                'Enter 提交答案，看完答案再按一次 Enter '
+                                '下一题。</div>')
                         quiz_result = gr.HTML("", elem_id="ll-quiz-result")
                     with gr.Tab("🧩 歌名拼图"),                             gr.Column(elem_id="ll-blank-wrap"):
-                        gr.Markdown("歌名被挖掉了一块——从选项里把它"
-                                    "拼回完整。**按 1-4 选选项**、"
-                                    "**Enter 提交**，看完答案再按一次 "
-                                    "**Enter 下一题**。")
                         blank_state = gr.State(
                             {"score": 0, "total": 0, "answer": "", "reveal": ""})
                         blank_html = gr.HTML(
@@ -778,20 +813,17 @@ def create_app(settings: Settings) -> gr.Blocks:
                             blank_new_btn = gr.Button("🧩 来一题",
                                                       variant="primary", scale=1)
                             blank_submit_btn = gr.Button("🧩 拼好了", scale=1)
+                        gr.HTML('<div class="quiz-hint">按 1-4 选选项、'
+                                'Enter 提交，看完答案再按一次 Enter '
+                                '下一题。</div>')
                         blank_result = gr.Markdown("", elem_id="ll-blank-result")
             # ══ 页签 6: 添加歌曲（公开版为只读曲库，不提供） ══
             if not public:
                 with gr.Tab("➕ 添加歌曲"):
                     catalog = _load_catalog()
                     cat_labels = [f"{c['title']} — {c['artist']}" for c in catalog]
-                    gr.Markdown(
-                        f"### 添加歌曲\n"
-                        f"搜索会同时覆盖**内置曲库（{len(catalog)} 首）"
-                        "**和**你已添加的歌**；已在列表里的会标注"
-                        "「✓ 已在列表」且不可重复勾选。勾选一首或多首后"
-                        "一键添加。",
-                        elem_id="ll-add-head",
-                    )
+                    # 空锚点：CSS 靠 #ll-add-head 给本页签做缩放/定宽
+                    gr.HTML("", elem_id="ll-add-head")
                     with gr.Accordion(
                             f"📚 从内置曲库挑选（{len(cat_labels)} 首）",
                             open=False):
@@ -809,7 +841,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                             elem_id="ll-catalog")
                         cat_add_btn = gr.Button("＋ 添加勾选的歌曲",
                                                 variant="primary")
-                    add_status = gr.Markdown("", elem_classes=["add-status"])
                     add_state = gr.State("")  # last added song dir name
 
                     with gr.Accordion("✍️ 手动添加曲库以外的歌曲", open=False):
@@ -833,6 +864,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                                 label="音频文件（可选）",
                                 file_types=[".mp3", ".wav", ".m4a", ".ogg", ".flac"])
                         add_btn = gr.Button("💾 保存歌曲", variant="primary")
+                    add_status = gr.Markdown("", elem_classes=["add-status"])
 
             # ══ 页签 7: 设置（三块功能 = 三个底部图标） ══
             with gr.Tab("⚙️ 设置"):
@@ -840,7 +872,8 @@ def create_app(settings: Settings) -> gr.Blocks:
                     with gr.Tab("📊"):
                         gr.Markdown("### 📊 API 用量\n本机记录的 LLM 调用"
                                     "与 token 消耗（批注/翻译/问答等全部"
-                                    "计入；按模型方计费口径为准）。")
+                                    "计入；按模型方计费口径为准）。",
+                                    elem_id="ll-usage-head")
                         usage_md = gr.Markdown("")
                         usage_refresh_btn = gr.Button("🔄 刷新", size="sm")
 
@@ -871,40 +904,46 @@ def create_app(settings: Settings) -> gr.Blocks:
                                                 [usage_md])
                         app.load(on_usage_refresh, None, [usage_md])
                     with gr.Tab("🔑"):
-                        if public:
-                            gr.Markdown(
-                                "### 🔑 API 设置（公开体验版）\n"
-                                "请填入**你自己的**大模型 API Key。"
-                                "Key 只会保存在你当前浏览器的本地存储"
-                                "（localStorage）中，**不会上传或写入服务器**，"
-                                "其他访客也看不到。"
-                            )
-                        else:
-                            gr.Markdown(
-                                "### 🔑 API 设置\n"
-                                "在这里填入你自己的大模型 API Key，点保存后"
-                                "**立即生效**，无需改任何文件、无需重启。"
-                            )
-                        set_provider = gr.Radio(
-                            choices=[
-                                ("OpenAI 兼容接口（DeepSeek / 通义 / Kimi 等）",
-                                 "openai"),
-                                ("Anthropic（Claude）", "anthropic"),
-                            ],
-                            value="openai" if public else settings.llm_provider,
-                            label="接口类型")
-                        set_key = gr.Textbox(
-                            label="API Key（必填）", type="password",
-                            value="" if public else settings.api_key)
-                        set_base = gr.Textbox(
-                            label="接口地址（选填 — OpenAI 兼容接口才需要，"
-                                  "例如 https://api.deepseek.com）",
-                            value="" if public else settings.llm_base_url)
-                        set_model = gr.Textbox(
-                            label="模型名称（选填 — 留空自动使用默认模型）",
-                            value="" if public else settings.model_name)
-                        set_btn = gr.Button("💾 保存设置", variant="primary")
-                        set_status = gr.Markdown("")
+                        # 仿「添加歌曲」页：手风琴可收起 + 居中窄框
+                        with gr.Accordion(
+                                "🔑 API 设置（公开体验版）" if public
+                                else "🔑 API 设置",
+                                open=False, elem_id="ll-apiset"):
+                            if public:
+                                gr.Markdown(
+                                    "请填入**你自己的**大模型 API Key。"
+                                    "Key 只会保存在你当前浏览器的本地存储"
+                                    "（localStorage）中，**不会上传或写入"
+                                    "服务器**，其他访客也看不到。"
+                                )
+                            else:
+                                gr.Markdown(
+                                    "在这里填入你自己的大模型 API Key，"
+                                    "点保存后**立即生效**，无需改任何文件、"
+                                    "无需重启。"
+                                )
+                            set_provider = gr.Radio(
+                                choices=[
+                                    ("OpenAI 兼容接口（DeepSeek / 通义 / "
+                                     "Kimi 等）", "openai"),
+                                    ("Anthropic（Claude）", "anthropic"),
+                                ],
+                                value=("openai" if public
+                                       else settings.llm_provider),
+                                label="接口类型")
+                            set_key = gr.Textbox(
+                                label="API Key（必填）", type="password",
+                                value="" if public else settings.api_key)
+                            set_base = gr.Textbox(
+                                label="接口地址（选填 — OpenAI 兼容接口才"
+                                      "需要，例如 https://api.deepseek.com）",
+                                value="" if public else settings.llm_base_url)
+                            set_model = gr.Textbox(
+                                label="模型名称（选填 — 留空自动使用默认模型）",
+                                value="" if public else settings.model_name)
+                            set_btn = gr.Button("💾 保存设置",
+                                                variant="primary")
+                            set_status = gr.Markdown("")
 
                     if not public:
                         with gr.Tab("🧠"):
@@ -940,8 +979,10 @@ def create_app(settings: Settings) -> gr.Blocks:
             """收藏歌词 + 单词本, both scoped to the open song."""
             if public:
                 return ()
+            book = load_wordbook()
             return (_render_favorites(_load_favorites(), song_title=title),
-                    render_wordbook(load_wordbook(), song_title=title))
+                    render_wordbook(book, song_title=title),
+                    render_wordbook(book, song_title=title, phrases=True))
 
         def on_song_select(choice: str):
             if not ctx["songs"]:
@@ -963,7 +1004,7 @@ def create_app(settings: Settings) -> gr.Blocks:
                         ann_html]
         if not public:
             # the two per-song collections re-render on every song switch
-            song_outputs += [favs_html, wordbook_html]
+            song_outputs += [favs_html, wordbook_html, phrasebook_html]
 
 
         song_radio.change(on_song_select, [song_radio], song_outputs)
@@ -1319,9 +1360,9 @@ def create_app(settings: Settings) -> gr.Blocks:
                     book = [e for e in book if not e.get("group")]
                 elif group == "🔤 单词":   # 不含空格的纯单词
                     book = [e for e in book
-                            if " " not in e.get("word", "")]
+                            if not is_phrase(e.get("word", ""))]
                 elif group == "🧩 词组":   # 拖选收藏的多词词组
-                    book = [e for e in book if " " in e.get("word", "")]
+                    book = [e for e in book if is_phrase(e.get("word", ""))]
                 elif group and group != "全部":
                     book = [e for e in book if e.get("group") == group]
                 if state.get("group") != group:   # 换范围 → 重开一轮
@@ -1377,7 +1418,13 @@ def create_app(settings: Settings) -> gr.Blocks:
                     return gr.skip(), gr.skip(), gr.skip()  # stale payload
                 from .review import record_result
                 clean = mistakes == "0"
-                record_result(word, clean)
+                # 第 4/5 段：盲打标记 + Tab 偷看次数（旧前端缺省为非盲打）
+                blind = len(parts) > 4 and parts[3] == "1"
+                try:
+                    peeks = int(parts[4]) if len(parts) > 4 else 0
+                except ValueError:
+                    peeks = 0
+                record_result(word, clean, blind=blind, peeks=peeks)
                 state["words"] += 1
                 state["perfect"] += 1 if clean else 0
                 state["chars"] += len(word)
@@ -1393,16 +1440,18 @@ def create_app(settings: Settings) -> gr.Blocks:
                 book = load_wordbook()
                 if not book:
                     return (gr.DownloadButton(visible=False),
-                            "单词本是空的，没有可导出的词。")
-                out = Path("data/cache/qwerty_export.json")
+                            "单词本是空的，没有可导出的词。", gr.skip())
+                # 时间戳文件名：每次导出 href 都变化，前端代点逻辑才能
+                # 识别到"新文件"并再次触发下载
+                import time as _t
+                out = Path(f"data/cache/dict_export_{int(_t.time())}.json")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(json.dumps(export_qwerty(book),
                                           ensure_ascii=False, indent=2),
                                encoding="utf-8")
                 return (gr.DownloadButton(value=str(out), visible=True),
-                        f"已生成 {len(book)} 词。把 JSON 放进你本地部署的 "
-                        "qwerty-learner 的 `public/dicts/` 并在 "
-                        "`resources/dictionary.ts` 注册即可使用。")
+                        f"已导出 {len(book)} 词的 JSON 词典，浏览器开始下载。",
+                        f"json\t{_t.time()}")
 
             def _group_choices() -> list[str]:
                 from .dictionary import word_groups
@@ -1486,23 +1535,36 @@ def create_app(settings: Settings) -> gr.Blocks:
                                    [review_state, review_html,
                                     review_stats_md])
             review_export_btn.click(on_review_export, None,
-                                    [review_download, review_export_status])
+                                    [review_download, review_export_status,
+                                     dl_tick_box])
 
             def on_anki_export():
                 from .review import export_anki
                 book = load_wordbook()
                 if not book:
                     return (gr.DownloadButton(visible=False),
-                            "单词本是空的，没有可导出的词。")
-                out = Path("data/cache/anki_export.txt")
+                            "单词本是空的，没有可导出的词。", gr.skip())
+                import time as _t
+                out = Path(f"data/cache/anki_export_{int(_t.time())}.txt")
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_text(export_anki(book), encoding="utf-8")
                 return (gr.DownloadButton(value=str(out), visible=True),
-                        f"已生成 {len(book)} 词的 Anki TSV——Anki 里"
-                        "「文件 → 导入」选择它即可。")
+                        f"已导出 {len(book)} 词的 Anki TSV，浏览器开始下载"
+                        "——Anki 里「文件 → 导入」选择它即可。",
+                        f"anki\t{_t.time()}")
 
             anki_export_btn.click(on_anki_export, None,
-                                  [anki_download, review_export_status])
+                                  [anki_download, review_export_status,
+                                   dl_tick_box])
+
+            def on_analysis():
+                """📊 数据分析：打开全屏页（✕ 在前端自行移除节点，
+                所以每次都附时间戳注释强制 Gradio 重挂 DOM）。"""
+                import time as _t
+                from .ui_helpers import render_analysis
+                return render_analysis(load_wordbook()) + f"<!--{_t.time()}-->"
+
+            analysis_btn.click(on_analysis, None, [analysis_html])
 
         # ── 听歌识曲 ──
 
@@ -1794,18 +1856,18 @@ def create_app(settings: Settings) -> gr.Blocks:
             idx_str = (idx_str or "").strip()
             if not idx_str.isdigit() or not ctx["songs"]:
                 return (session, _CHAT_TOPIC_DEFAULT, _render_chat(session),
-                        gr.skip(), gr.skip(), gr.skip(), gr.skip())
+                        gr.skip())
             idx = int(idx_str)
             info = find_song(choice)
             data = _load_song_data(info["dir"])
             line = next((ln for ln in data["timed_lines"] if ln.line_index == idx), None)
             if line is None:
                 return (session, _CHAT_TOPIC_DEFAULT, _render_chat(session),
-                        gr.skip(), gr.skip(), gr.skip(), gr.skip())
+                        gr.skip())
             if session is not None and session.lyric_line == line.text \
                     and session.line_index == idx:
                 return (session, _chat_topic_html(line.text), _render_chat(session),
-                        gr.skip(), gr.skip(), gr.skip(), gr.skip())
+                        gr.skip())
             # annotations stay out of the UI but still feed the AI as context
             ann = data["annotations"].get(idx)
             # public mode: visitors must not see each other's saved Q&A
@@ -2135,6 +2197,10 @@ def create_app(settings: Settings) -> gr.Blocks:
                            [dict_out_box])
 
         if not public:
+            def _wb_renders(book, cur: str) -> tuple:
+                return (render_wordbook(book, song_title=cur),
+                        render_wordbook(book, song_title=cur, phrases=True))
+
             def on_wb_act(payload: str, choice: str):
                 act = (payload or "").split("\t")
                 head = act[0].strip() if act else ""
@@ -2150,20 +2216,21 @@ def create_app(settings: Settings) -> gr.Blocks:
                                if hit else ""),
                         line_index=hit["line_index"] if hit else -1,
                         ai=_cached_dict_ai(word, line))
-                    gr.Info(f"📒 已收藏单词 {word}。")
-                    return render_wordbook(book, song_title=cur)
+                    kind = "词组" if is_phrase(word) else "单词"
+                    gr.Info(f"📒 已收藏{kind} {word}。")
+                    return _wb_renders(book, cur)
                 if head.startswith("note:"):
                     from .dictionary import set_note
                     book = set_note(head[5:],
                                     act[1] if len(act) > 1 else "")
-                    return render_wordbook(book, song_title=cur)
+                    return _wb_renders(book, cur)
                 if head.startswith("del:"):
                     book = remove_word(head[4:])
-                    return render_wordbook(book, song_title=cur)
-                return gr.skip()
+                    return _wb_renders(book, cur)
+                return gr.skip(), gr.skip()
 
             wb_act_box.change(on_wb_act, [wb_act_box, song_radio],
-                              [wordbook_html])
+                              [wordbook_html, phrasebook_html])
 
         if not public:
             intro_btn.click(on_gen_intro, [song_radio, user_llm], [intro_html])
@@ -2372,14 +2439,7 @@ def create_app(settings: Settings) -> gr.Blocks:
             _kick_corpus_rebuild()
             new_song = next((s for s in ctx["songs"] if s["name"] == slug), None)
             new_label = song_choice_label(new_song) if new_song else None
-            status = (
-                f"✅ 已添加《{title}》（{lrc_note}）到 `data/songs/{slug}/`。\n\n"
-                "已切到「最新在前」排序，它就在左侧歌曲列表**最上方**并已打开。"
-                "回声索引正在后台重建（本地计算，约一分钟），完成后"
-                "💫 回声时刻/彩蛋会自动把这首歌纳入。"
-                "需要整歌 AI 批注的话在终端运行 "
-                f"`lyric-agent generate data/songs/{slug}`。"
-            )
+            status = f"✅ 已添加《{title}》"
             return (status,
                     gr.Radio(choices=song_choices("added_desc"),
                              value=new_label), slug)
@@ -2540,8 +2600,6 @@ def create_app(settings: Settings) -> gr.Blocks:
             new_song = next(
                 (s for s in ctx["songs"] if s["name"] == last_slug), None)
             last_label = song_choice_label(new_song) if new_song else None
-            parts.append("已切到「最新在前」排序，新增的歌就在列表"
-                         "**最上方**。🪄 批注按钮作用于最后新增的一首。")
             return ("　".join(parts),
                     gr.Radio(choices=song_choices("added_desc"),
                              value=last_label),
@@ -2722,6 +2780,6 @@ def create_app(settings: Settings) -> gr.Blocks:
                 title = find_song(choice).get("title", "")
                 return _collections_for(title)
             app.load(_reload_collections, [song_radio],
-                     [favs_html, wordbook_html])
+                     [favs_html, wordbook_html, phrasebook_html])
 
     return app

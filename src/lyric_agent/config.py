@@ -63,10 +63,8 @@ def _load_user_settings() -> dict:
 
 
 def save_user_settings(values: dict) -> None:
-    path = user_settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(values, ensure_ascii=False, indent=2), encoding="utf-8")
+    from .jsonio import write_json_atomic
+    write_json_atomic(user_settings_path(), values, indent=2)
 
 
 @dataclass(frozen=True)

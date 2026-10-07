@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import csv
 import gzip
-import json
 import logging
 import re
 import threading
@@ -104,17 +103,22 @@ def rank(word: str) -> int:
 
 # ── wordbook (collected words) ──────────────────────────────
 
+def is_phrase(word: str) -> bool:
+    """多词词组判定(内部含空格)。练习范围「🧩 词组」、📒/🧩 面板、
+    收藏提示共用这一个口径——首尾空格不算(" hello " 是单词)。"""
+    return " " in (word or "").strip()
+
+
 def load_wordbook() -> list[dict]:
-    try:
-        data = json.loads(_WORDBOOK_PATH.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except (OSError, ValueError):
-        return []
+    from .jsonio import read_json
+    data = read_json(_WORDBOOK_PATH, default=[])
+    return data if isinstance(data, list) else []
 
 
 def save_wordbook(entries: list[dict]) -> None:
-    _WORDBOOK_PATH.write_text(
-        json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 原子写：练习打分（后台记账）与收藏/导入可能并发落盘
+    from .jsonio import write_json_atomic
+    write_json_atomic(_WORDBOOK_PATH, entries, indent=2)
 
 
 def _entry_from_lookup(word: str, translation: str = "",
@@ -163,6 +167,8 @@ def add_word(word: str, line: str = "", song: str = "",
             return book
     book.append(entry)
     save_wordbook(book)
+    from .stats import bump
+    bump("collect")   # 数据分析热力图：今天收藏 +1
     return book
 
 
