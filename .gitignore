@@ -37,3 +37,5 @@ data/wordbook.json
 data/stats.json
 data/dict/ai_cache.json
 data/reports/
+# static-site build output (scripts/build_static.py, deployed by Actions)
+site/
