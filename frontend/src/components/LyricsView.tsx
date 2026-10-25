@@ -1,0 +1,61 @@
+import { useEffect, useRef } from "react";
+import { Lyrics } from "../api";
+import { usePlayer } from "../store";
+
+/** 卡拉OK进度：当前行已唱比例（按行时间戳线性估算） */
+function karaokeP(timeMs: number, lines: Lyrics["timed_lines"], i: number) {
+  if (i < 0 || i >= lines.length) return 0;
+  const start = lines[i].timestamp_ms;
+  const end = i + 1 < lines.length ? lines[i + 1].timestamp_ms : start + 5000;
+  if (end <= start) return 0;
+  return Math.min(100, Math.max(0, ((timeMs - start) / (end - start)) * 100));
+}
+
+export default function LyricsView({ lyrics }: { lyrics: Lyrics }) {
+  const { timeMs, currentLine, pickedLine, pickLine, pickWord } = usePlayer();
+  const curRef = useRef<HTMLLIElement>(null);
+
+  useEffect(() => {
+    curRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [currentLine]);
+
+  const p = karaokeP(timeMs, lyrics.timed_lines, currentLine);
+
+  return (
+    <section aria-label="同步歌词" className="lyrics-mask min-h-0 w-full max-w-[680px] flex-1 overflow-y-auto scroll-smooth">
+      <ol className="flex flex-col gap-1.5 px-2 pb-28 pt-7 text-center">
+        {lyrics.timed_lines.map((l, i) => {
+          const cur = i === currentLine;
+          const near = Math.abs(i - currentLine) === 1;
+          const picked = i === pickedLine;
+          return (
+            <li
+              key={i}
+              ref={cur ? curRef : undefined}
+              onClick={() => pickLine(picked ? null : i)}
+              onDoubleClick={() => {
+                const w = window.getSelection()?.toString().trim();
+                if (w && /^[A-Za-z'-]{2,}$/.test(w)) pickWord(w);
+              }}
+              className={`cursor-pointer rounded-[10px] px-3 py-[7px] leading-[1.55] transition-colors ${
+                cur
+                  ? "text-[26px] font-bold text-ink"
+                  : near
+                    ? "text-[19px] font-medium text-ink2 hover:bg-white/5"
+                    : "text-[19px] font-medium text-ink3 hover:bg-white/5 hover:text-ink2"
+              } ${picked && !cur ? "bg-accent-soft" : ""}`}
+            >
+              {cur ? (
+                <span className="karaoke" style={{ "--p": `${p}%` } as React.CSSProperties}>
+                  {l.text}
+                </span>
+              ) : (
+                l.text
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
