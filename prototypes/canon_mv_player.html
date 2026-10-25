@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>歌词透镜 · 播放解读原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#121212; --bg2:#181818; --panel:#1e1e22; --panel2:#24242a;
+  --ink:#f5f5f4; --ink2:#a8a8b3; --ink3:#6e6e78;
+  --accent:#7c9eff; --accent-soft:rgba(124,158,255,.16);
+  --bleed1:#2e4639; --bleed2:#1a2420;
+  --radius:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:Inter,"Noto Sans SC",system-ui,sans-serif;background:var(--bg);color:var(--ink);
+  display:grid;grid-template-columns:232px 1fr 320px;grid-template-rows:1fr 88px;
+  grid-template-areas:"side main dock" "bar bar bar";height:100vh;overflow:hidden;
+}
+::selection{background:var(--accent-soft);color:var(--ink)}
+*::-webkit-scrollbar{width:8px}
+*::-webkit-scrollbar-thumb{background:#33333c;border-radius:4px}
+*::-webkit-scrollbar-thumb:hover{background:#44444f}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+svg{display:block}
+
+/* ───── sidebar ───── */
+.side{grid-area:side;background:#0c0c0e;padding:20px 12px;display:flex;flex-direction:column;gap:18px;overflow:hidden}
+.logo{display:flex;align-items:center;gap:10px;padding:4px 10px;font-weight:700;letter-spacing:.02em}
+.logo .mark{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#4a6cf7);display:grid;place-items:center}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav button{display:flex;align-items:center;gap:12px;padding:9px 10px;border-radius:8px;color:var(--ink2);font-size:13.5px;font-weight:500;text-align:left;transition:background .15s,color .15s}
+.nav button:hover{color:var(--ink);background:#1b1b1f}
+.nav button[aria-current]{color:var(--ink);background:#202026}
+.lib-h{font-size:11px;font-weight:600;letter-spacing:.12em;color:var(--ink3);padding:0 10px}
+.lib{overflow-y:auto;display:flex;flex-direction:column;gap:2px;min-height:0}
+.lib button{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:8px;text-align:left;transition:background .15s}
+.lib button:hover{background:#1b1b1f}
+.lib .t{font-size:13.5px;font-weight:500;color:var(--ink2)}
+.lib .a{font-size:11.5px;color:var(--ink3)}
+.lib button[aria-current]{background:var(--accent-soft)}
+.lib button[aria-current] .t{color:var(--accent)}
+
+/* ───── main ───── */
+.main{grid-area:main;position:relative;overflow:hidden;background:
+  radial-gradient(90% 70% at 50% -10%,var(--bleed1) 0%,var(--bleed2) 45%,var(--bg) 100%)}
+.main-in{height:100%;display:flex;flex-direction:column;align-items:center;padding:28px 48px 12px;gap:20px}
+.mv{width:min(680px,100%);aspect-ratio:16/9;border-radius:var(--radius);overflow:hidden;position:relative;flex:none;
+  background:linear-gradient(140deg,#30463b 0%,#1c2a23 55%,#141a17 100%);
+  box-shadow:0 18px 40px -18px rgba(0,0,0,.65)}
+.mv .scrim{position:absolute;inset:0;display:grid;place-items:center}
+.mv .playbtn{width:64px;height:64px;border-radius:50%;background:rgba(18,18,18,.55);backdrop-filter:blur(6px);
+  display:grid;place-items:center;transition:transform .2s cubic-bezier(.2,.9,.3,1),background .2s}
+.mv .playbtn:hover{transform:scale(1.08);background:rgba(18,18,18,.75)}
+.mv .tag{position:absolute;left:14px;top:12px;font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--ink2);
+  background:rgba(12,12,12,.55);backdrop-filter:blur(6px);padding:4px 9px;border-radius:999px}
+.mv .fold{position:absolute;right:12px;top:10px;font-size:12px;color:var(--ink2);padding:4px 9px;border-radius:999px;background:rgba(12,12,12,.55);backdrop-filter:blur(6px)}
+.mv .fold:hover{color:var(--ink)}
+.mv .note{position:absolute;right:14px;bottom:12px;font-size:11px;color:var(--ink3)}
+
+/* lyrics */
+.lyrics{flex:1;min-height:0;width:min(680px,100%);overflow-y:auto;scroll-behavior:smooth;
+  mask-image:linear-gradient(180deg,transparent 0,#000 10%,#000 86%,transparent 100%)}
+.lyrics ol{list-style:none;display:flex;flex-direction:column;gap:6px;padding:28px 8px 120px;text-align:center}
+.lyrics li{font-size:19px;line-height:1.55;font-weight:500;color:var(--ink3);padding:7px 12px;border-radius:10px;
+  transition:color .25s,font-size .25s,background .15s;cursor:pointer}
+.lyrics li:hover{background:rgba(255,255,255,.05);color:var(--ink2)}
+.lyrics li.cur{font-size:26px;font-weight:700;color:var(--ink)}
+.lyrics li.cur .fill{background:linear-gradient(90deg,var(--accent) var(--p,38%),var(--ink) var(--p,38%));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.lyrics li.near{color:var(--ink2)}
+.w{text-decoration:underline dotted var(--accent);text-underline-offset:4px;cursor:help}
+
+/* ───── dock ───── */
+.dock{grid-area:dock;background:var(--bg2);border-left:1px solid #232329;padding:20px 18px;overflow-y:auto;display:flex;flex-direction:column;gap:14px}
+.dock h2{font-size:12px;font-weight:600;letter-spacing:.1em;color:var(--ink3)}
+.card{background:var(--panel);border:1px solid #2a2a31;border-radius:var(--radius);padding:16px}
+.card .k{font-size:12px;font-weight:600;color:var(--ink2);display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.gen{margin:0 auto;text-align:center;font-size:13.5px;line-height:1.8;color:var(--ink2)}
+.gen b{color:var(--ink);font-weight:600}
+.vocab .word{font-size:17px;font-weight:700}
+.vocab .ipa{font-size:12.5px;color:var(--ink3);margin-left:8px}
+.vocab .def{margin-top:6px;font-size:13px;color:var(--ink2);text-align:center}
+.vocab .row{display:flex;gap:8px;justify-content:center;margin-top:12px}
+.chip{font-size:12.5px;font-weight:500;padding:6px 14px;border-radius:999px;border:1px solid #33333c;color:var(--ink2);transition:border-color .15s,color .15s}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chip.pri{background:var(--accent);border-color:var(--accent);color:#0e1016;font-weight:600}
+.chip.pri:hover{filter:brightness(1.1)}
+.ask{display:flex;gap:8px}
+.ask input{flex:1;background:var(--panel2);border:1px solid #2e2e36;border-radius:999px;padding:9px 14px;font:inherit;font-size:13px;color:var(--ink);caret-color:var(--accent)}
+.ask input::placeholder{color:var(--ink3)}
+.ask input:focus{outline:none;border-color:var(--accent)}
+.ask .chip{white-space:nowrap;flex:none}
+
+/* ───── player bar ───── */
+.bar{grid-area:bar;background:#0c0c0e;border-top:1px solid #232329;display:grid;grid-template-columns:280px 1fr 280px;align-items:center;padding:0 20px;gap:16px}
+.now{display:flex;align-items:center;gap:12px;min-width:0}
+.now .art{width:52px;height:52px;border-radius:8px;flex:none;background:linear-gradient(135deg,#4a6b58,#22332a);box-shadow:0 6px 16px -6px rgba(0,0,0,.6)}
+.now .t{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.now .a{font-size:12px;color:var(--ink3)}
+.ctrl{display:flex;flex-direction:column;align-items:center;gap:7px}
+.ctrl .btns{display:flex;align-items:center;gap:20px}
+.icon{color:var(--ink2);transition:color .15s,transform .15s}
+.icon:hover{color:var(--ink)}
+.icon.on{color:var(--accent)}
+.play{width:38px;height:38px;border-radius:50%;background:var(--ink);color:#111;display:grid;place-items:center;transition:transform .15s}
+.play:hover{transform:scale(1.06)}
+.track{display:flex;align-items:center;gap:10px;width:min(560px,100%)}
+.track time{font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.rail{flex:1;height:4px;border-radius:2px;background:#2e2e36;position:relative;cursor:pointer}
+.rail .done{position:absolute;inset:0;right:auto;width:18%;background:var(--accent);border-radius:2px}
+.rail .ab{position:absolute;top:-3px;width:2px;height:10px;background:var(--ink2);border-radius:1px}
+.rail:hover .done{background:#9ab4ff}
+.right{display:flex;align-items:center;gap:16px;justify-content:flex-end}
+.loopchip{font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:5px 11px;border-radius:999px}
+</style>
+</head>
+<body>
+
+<aside class="side">
+  <div class="logo"><span class="mark"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0e1016" stroke-width="2.4" stroke-linecap="round"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg></span>歌词透镜</div>
+  <nav class="nav" aria-label="主导航">
+    <button aria-current="page"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="6 4 20 12 6 20" stroke-linejoin="round"/></svg>播放解读</button>
+    <button><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0 0 4h13"/></svg>词汇练习</button>
+    <button><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8 12h8M12 8v8"/></svg>互动探索</button>
+    <button><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 9h16M9 4v16"/></svg>曲库管理</button>
+  </nav>
+  <div class="lib-h">曲库</div>
+  <div class="lib">
+    <button aria-current="true"><span class="t">cardigan</span><span class="a">Taylor Swift</span></button>
+    <button><span class="t">All Too Well (10 Min)</span><span class="a">Taylor Swift</span></button>
+    <button><span class="t">Save Your Tears</span><span class="a">The Weeknd</span></button>
+    <button><span class="t">晴天</span><span class="a">周杰伦</span></button>
+    <button><span class="t">七里香</span><span class="a">周杰伦</span></button>
+    <button><span class="t">青花瓷</span><span class="a">周杰伦</span></button>
+    <button><span class="t">孤勇者</span><span class="a">陈奕迅</span></button>
+  </div>
+</aside>
+
+<main class="main">
+  <div class="main-in">
+    <section class="mv" aria-label="MV 视频">
+      <span class="tag">📺 B 站 MV · 官方嵌入</span>
+      <button class="fold">收起 ⌃</button>
+      <div class="scrim"><button class="playbtn" aria-label="播放 MV"><svg width="22" height="22" viewBox="0 0 24 24" fill="#f5f5f4"><polygon points="7 4 21 12 7 20"/></svg></button></div>
+      <span class="note">视频不驱动歌词 · 同步依赖本地音频</span>
+    </section>
+    <section class="lyrics" aria-label="同步歌词">
+      <ol>
+        <li>Vintage tee, brand new phone</li>
+        <li>High heels on <span class="w">cobblestones</span></li>
+        <li class="near">When you are young, they assume you know nothing</li>
+        <li class="cur"><span class="fill" style="--p:46%">Sequin smile, black lipstick</span></li>
+        <li class="near">Sensual politics</li>
+        <li>When you are young, they assume you know nothing</li>
+        <li>But I knew you, dancin' in your <span class="w">Levi's</span></li>
+        <li>Drunk under a streetlight, I</li>
+        <li>I knew you, hand under my sweatshirt</li>
+        <li>Baby, kiss it better, I</li>
+      </ol>
+    </section>
+  </div>
+</main>
+
+<aside class="dock" aria-label="解读面板">
+  <h2>本句解读</h2>
+  <div class="card">
+    <div class="k">✏️ AI 讲解 · 第 4 句</div>
+    <p class="gen"><b>Sequin smile</b>「亮片般的笑」：亮片华丽却廉价，暗指少女被迫装出的闪亮假笑；与 <b>black lipstick</b> 的叛逆形成同一张脸上的两种伪装。</p>
+  </div>
+  <div class="card vocab">
+    <div class="k">📒 生词卡</div>
+    <div style="text-align:center"><span class="word">sequin</span><span class="ipa">/ˈsiːkwɪn/</span></div>
+    <p class="def">n. 亮片（缝在衣物上的装饰小圆片）</p>
+    <div class="row"><button class="chip pri">⭐ 收藏到单词本</button><button class="chip">🔊 发音</button></div>
+  </div>
+  <div class="card">
+    <div class="k">💬 问 AI</div>
+    <form class="ask" onsubmit="return false"><input placeholder="这句为什么用 sequin 不用 shiny？"><button class="chip pri">发送</button></form>
+  </div>
+  <div class="card" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+    <button class="chip">⭐ 收藏本句</button><button class="chip">📝 记笔记</button><button class="chip">🥚 查彩蛋</button><button class="chip">🀄 整首翻译</button>
+  </div>
+</aside>
+
+<footer class="bar">
+  <div class="now">
+    <div class="art"></div>
+    <div><div class="t">cardigan</div><div class="a">Taylor Swift · folklore</div></div>
+    <button class="icon" aria-label="收藏歌曲" style="margin-left:4px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 21s-7.5-4.6-10-9.2C.6 7.6 3 4 6.5 4c2 0 3.6 1.1 5.5 3 1.9-1.9 3.5-3 5.5-3C21 4 23.4 7.6 22 11.8 19.5 16.4 12 21 12 21z"/></svg></button>
+  </div>
+  <div class="ctrl">
+    <div class="btns">
+      <button class="icon" aria-label="上一首"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4"/><rect x="5" y="4" width="2" height="16"/></svg></button>
+      <button class="play" aria-label="暂停"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16" rx="1"/><rect x="14" y="4" width="5" height="16" rx="1"/></svg></button>
+      <button class="icon" aria-label="下一首"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20"/><rect x="17" y="4" width="2" height="16"/></svg></button>
+      <button class="icon on" aria-label="A-B 循环" title="A-B 区间循环">𝄆𝄇</button>
+      <button class="icon" aria-label="跳副歌" title="一键跳副歌"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="4 4 12 12 4 20"/><polygon points="12 4 20 12 12 20"/></svg></button>
+    </div>
+    <div class="track">
+      <time>0:42</time>
+      <div class="rail"><div class="done"></div><div class="ab" style="left:14%"></div><div class="ab" style="left:31%"></div></div>
+      <time>3:59</time>
+    </div>
+  </div>
+  <div class="right">
+    <span class="loopchip">𝄆 A-B 循环中 𝄇</span>
+    <button class="icon" aria-label="韵脚高亮" title="韵脚高亮"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg></button>
+    <button class="icon" aria-label="音量"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M11 5 6 9H3v6h3l5 4V5z" stroke-linejoin="round"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg></button>
+  </div>
+</footer>
+
+<script>
+/* 原型动效：卡拉OK渐变推进 + 进度条走动（纯演示，不接真音频） */
+document.querySelector('.lyrics li.cur').scrollIntoView({block:'center'});
+let p=46, t=42;
+setInterval(()=>{ p=(p+1.6)%100;
+  document.querySelector('.cur .fill').style.setProperty('--p',p+'%');
+  t=Math.min(t+0.25,239);
+  document.querySelector('.rail .done').style.width=(18+t/2390*82)+'%';
+},100);
+</script>
+</body>
+</html>

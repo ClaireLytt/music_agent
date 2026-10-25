@@ -46,6 +46,9 @@ def build_corpus(
     seen: set[tuple[str, str]] = set()
 
     def _add(title: str, artist: str, album: str, lines: list[str]) -> None:
+        # drop placeholder lyrics (songdata._PLACEHOLDER_LRC) so they never
+        # pollute the corpus/embeddings as if they were real lines
+        lines = [l for l in lines if "暂无歌词" not in l]
         key = (title.strip().lower(), artist.strip().lower())
         if not lines or key in seen:
             return

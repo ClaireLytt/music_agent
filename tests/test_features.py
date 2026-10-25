@@ -1217,3 +1217,17 @@ def test_esc_html_single_quote():
     # 单引号也转义——旧的手写 _esc 不转义 '，属口径漂移，锁住新口径
     from lyric_agent.evidence import esc_html
     assert esc_html("it's <a> \"q\"") == "it&#x27;s &lt;a&gt; &quot;q&quot;"
+
+
+def test_ui_helpers_compat_surface():
+    # ui_helpers 是兼容转发壳：songdata 拆分后，旧导入路径必须继续可用
+    # （qual_002：防公开 API 面漂移）
+    from lyric_agent import songdata, ui_helpers
+    for name in songdata.__all__:
+        assert hasattr(ui_helpers, name), name
+    for name in ["_discover_songs", "_load_song_data", "_load_notes",
+                 "_save_notes", "_load_favorites", "_save_favorites",
+                 "_load_chat_history", "_save_chat_history", "_load_intro",
+                 "_load_catalog", "_fav_id", "discover_songs",
+                 "load_song_data", "load_translation", "song_is_cjk"]:
+        assert hasattr(ui_helpers, name), name

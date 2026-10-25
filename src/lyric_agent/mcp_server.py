@@ -34,7 +34,9 @@ _ctx: dict[str, Any] = {}
 def _settings():
     if "settings" not in _ctx:
         from .config import load_settings
+        from .songdata import set_songs_root
         _ctx["settings"] = load_settings()
+        set_songs_root(_ctx["settings"].songs_dir)  # 路径防护根目录口径
     return _ctx["settings"]
 
 
