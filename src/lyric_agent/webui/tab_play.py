@@ -17,7 +17,7 @@ from ..audio_provider import resolve as resolve_audio
 from ..debate import DebateSession, speak as ai_speak
 from ..dictionary import (add_word, is_phrase, load_wordbook,
                           lookup as dict_lookup, remove_word)
-from ..evidence import cite_jump_attrs  # noqa: F401 — games 复用同一跳转
+
 from ..ui_helpers import (
     _ANN_HINT,
     _CHAT_HINT,
