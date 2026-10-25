@@ -22,6 +22,11 @@ llm = [
 ui = [
     "gradio>=4.0",
 ]
+# 新前端（React SPA）的 FastAPI 薄 API 层
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
 embeddings = [
     "sentence-transformers>=2.2",
     "numpy>=1.24",
@@ -41,7 +46,7 @@ mcp = [
     "mcp>=2.0",
 ]
 all = [
-    "lyric-agent[llm,ui,embeddings,features,mcp]",
+    "lyric-agent[llm,ui,web,embeddings,features,mcp]",
 ]
 dev = [
     "lyric-agent[all]",

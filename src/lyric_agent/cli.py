@@ -34,6 +34,16 @@ def generate(song_dir: str, chunk_size: int, fresh: bool) -> None:
     click.echo(f"Generated {len(song.annotations)} annotations for '{song.metadata.title}'")
 
 
+@cli.command("serve-web")
+@click.option("--port", default=8765, type=int, help="API/SPA port")
+def serve_web(port: int) -> None:
+    """Launch the new React SPA + FastAPI layer (play page vertical slice)."""
+    import uvicorn
+
+    from .api import create_app
+    uvicorn.run(create_app(), host="127.0.0.1", port=port)
+
+
 @cli.command()
 @click.option("--port", default=None, type=int, help="UI port (default: from .env)")
 @click.option("--no-browser", is_flag=True,
