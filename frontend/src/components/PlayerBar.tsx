@@ -85,7 +85,7 @@ export default function PlayerBar({
             disabled={!song || song.audio_type === "none"}
             title={
               song && song.audio_type === "none"
-                ? "本歌暂无音频 · 可在旧版界面上传"
+                ? "请在设置中上传音频"
                 : undefined
             }
             onClick={toggle}
@@ -105,6 +105,16 @@ export default function PlayerBar({
           </button>
           <button className="text-ink2 opacity-40" aria-label="跳副歌" title="迁移中 · 暂在旧版界面" disabled>
             <IconSkipChorus />
+          </button>
+          <button
+            className="text-ink2 transition-colors hover:text-ink"
+            aria-label="静音"
+            onClick={() => {
+              const a = audioRef.current;
+              if (a) a.muted = !a.muted;
+            }}
+          >
+            <IconVolume />
           </button>
         </div>
         <div className="flex w-full max-w-[560px] items-center gap-2.5">
@@ -133,16 +143,6 @@ export default function PlayerBar({
         )}
         <button className="text-ink2 opacity-40" aria-label="韵脚高亮" title="迁移中 · 暂在旧版界面" disabled>
           <IconRhyme />
-        </button>
-        <button
-          className="text-ink2 transition-colors hover:text-ink"
-          aria-label="静音"
-          onClick={() => {
-            const a = audioRef.current;
-            if (a) a.muted = !a.muted;
-          }}
-        >
-          <IconVolume />
         </button>
       </div>
     </footer>

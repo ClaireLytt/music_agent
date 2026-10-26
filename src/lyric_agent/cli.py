@@ -36,11 +36,21 @@ def generate(song_dir: str, chunk_size: int, fresh: bool) -> None:
 
 @cli.command("serve-web")
 @click.option("--port", default=8765, type=int, help="API/SPA port")
-def serve_web(port: int) -> None:
+@click.option("--no-browser", is_flag=True,
+              help="don't auto-open the page in the default browser")
+def serve_web(port: int, no_browser: bool) -> None:
     """Launch the new React SPA + FastAPI layer (play page vertical slice)."""
+    import threading
+    import webbrowser
+
     import uvicorn
 
     from .api import create_app
+
+    url = f"http://127.0.0.1:{port}"
+    if not no_browser:
+        # uvicorn.run 阻塞到退出,延时开页避免抢在服务就绪之前
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     uvicorn.run(create_app(), host="127.0.0.1", port=port)
 
 

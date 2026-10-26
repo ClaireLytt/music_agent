@@ -9,16 +9,22 @@ interface PlayerState {
   currentLine: number;
   /** 点选的歌词行（解读坞展示该句讲解） */
   pickedLine: number | null;
-  /** 双击取词 */
-  pickedWord: string | null;
   showMv: boolean;
+  /** 跳播请求（ms，歌词时间轴口径）；App 消费后置 null */
+  seekMs: number | null;
+  /** MV 歌词跟随：B 站 iframe 读不到进度，用本地时钟近似驱动。
+      null = 未开启；否则记录对齐点（墙钟 ↔ 歌词时间轴） */
+  follow: { wallStart: number; msStart: number } | null;
   setSong: (id: string) => void;
   setPlaying: (p: boolean) => void;
   setTime: (ms: number, duration: number) => void;
   setCurrentLine: (i: number) => void;
   pickLine: (i: number | null) => void;
-  pickWord: (w: string | null) => void;
   toggleMv: () => void;
+  requestSeek: (ms: number) => void;
+  clearSeek: () => void;
+  startFollow: (msStart: number) => void;
+  stopFollow: () => void;
 }
 
 export const usePlayer = create<PlayerState>((set) => ({
@@ -28,14 +34,20 @@ export const usePlayer = create<PlayerState>((set) => ({
   durationMs: 0,
   currentLine: -1,
   pickedLine: null,
-  pickedWord: null,
-  showMv: true,
+  showMv: false, // MV 默认收起
+  seekMs: null,
+  follow: null,
   setSong: (id) =>
-    set({ songId: id, timeMs: 0, currentLine: -1, pickedLine: null, pickedWord: null }),
+    set({ songId: id, playing: false, timeMs: 0, currentLine: -1,
+          pickedLine: null, follow: null }),
   setPlaying: (playing) => set({ playing }),
   setTime: (timeMs, durationMs) => set({ timeMs, durationMs }),
   setCurrentLine: (currentLine) => set({ currentLine }),
   pickLine: (pickedLine) => set({ pickedLine }),
-  pickWord: (pickedWord) => set({ pickedWord }),
   toggleMv: () => set((s) => ({ showMv: !s.showMv })),
+  requestSeek: (seekMs) => set({ seekMs }),
+  clearSeek: () => set({ seekMs: null }),
+  startFollow: (msStart) =>
+    set({ follow: { wallStart: Date.now(), msStart } }),
+  stopFollow: () => set({ follow: null }),
 }));

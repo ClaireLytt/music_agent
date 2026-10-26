@@ -11,8 +11,15 @@ function karaokeP(timeMs: number, lines: Lyrics["timed_lines"], i: number) {
   return Math.min(100, Math.max(0, ((timeMs - start) / (end - start)) * 100));
 }
 
-export default function LyricsView({ lyrics }: { lyrics: Lyrics }) {
-  const { timeMs, currentLine, pickedLine, pickLine, pickWord } = usePlayer();
+export default function LyricsView({
+  lyrics,
+  hasAudio,
+}: {
+  lyrics: Lyrics;
+  hasAudio: boolean;
+}) {
+  const { timeMs, currentLine, pickedLine, pickLine, requestSeek, follow } =
+    usePlayer();
   const curRef = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
@@ -32,12 +39,13 @@ export default function LyricsView({ lyrics }: { lyrics: Lyrics }) {
             <li
               key={i}
               ref={cur ? curRef : undefined}
-              onClick={() => pickLine(picked ? null : i)}
-              onDoubleClick={() => {
-                const w = window.getSelection()?.toString().trim();
-                if (w && /^[A-Za-z'-]{2,}$/.test(w)) pickWord(w);
+              data-line={i}
+              onClick={() => {
+                pickLine(picked ? null : i);
+                // 点句即跳播；MV 跟随中 = 重对齐本地时钟
+                if (hasAudio || follow) requestSeek(l.timestamp_ms);
               }}
-              className={`cursor-pointer rounded-[10px] px-3 py-[7px] leading-[1.55] transition-colors ${
+              className={`lyric-line cursor-pointer rounded-[10px] px-3 py-[7px] leading-[1.55] transition-colors ${
                 cur
                   ? "text-[26px] font-bold text-ink"
                   : near
