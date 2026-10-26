@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Lyrics } from "../api";
 import { usePlayer } from "../store";
+import Scrollable from "./Scrollable";
 
 /** 卡拉OK进度：当前行已唱比例（按行时间戳线性估算） */
 function karaokeP(timeMs: number, lines: Lyrics["timed_lines"], i: number) {
@@ -29,7 +30,11 @@ export default function LyricsView({
   const p = karaokeP(timeMs, lyrics.timed_lines, currentLine);
 
   return (
-    <section aria-label="同步歌词" className="lyrics-mask min-h-0 w-full max-w-[680px] flex-1 overflow-y-auto scroll-smooth">
+    <Scrollable
+      ariaLabel="同步歌词"
+      className="lyrics-mask min-h-0 w-full max-w-[680px] flex-1"
+      contentClassName="scroll-smooth"
+    >
       <ol className="flex flex-col gap-1.5 px-2 pb-28 pt-7 text-center">
         {lyrics.timed_lines.map((l, i) => {
           const cur = i === currentLine;
@@ -64,6 +69,6 @@ export default function LyricsView({
           );
         })}
       </ol>
-    </section>
+    </Scrollable>
   );
 }

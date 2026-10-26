@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
 import { Song } from "../api";
 import { usePlayer } from "../store";
+import Scrollable from "./Scrollable";
 import {
   IconBook, IconExplore, IconGear, IconLibrary, IconNote, IconPlayNav,
 } from "../icons";
@@ -73,7 +74,7 @@ export default function Sidebar({
         aria-label="搜索曲库"
         className="mx-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[12.5px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
       />
-      <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
+      <Scrollable className="min-h-0" contentClassName="flex flex-col gap-0.5">
         {songs.length === 0 && query && (
           <p className="px-2.5 py-2 text-xs text-ink3">
             没有匹配「{query}」的歌曲
@@ -98,7 +99,7 @@ export default function Sidebar({
             <span className="text-[11.5px] text-ink3">{s.artist}</span>
           </button>
         ))}
-      </div>
+      </Scrollable>
     </aside>
   );
 }

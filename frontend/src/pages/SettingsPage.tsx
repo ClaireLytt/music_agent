@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAdminActions, useRebuild, useSettings, useUsage } from "../api";
+import Scrollable from "../components/Scrollable";
 
 const chip = (primary = false) =>
   `whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -49,7 +50,7 @@ export default function SettingsPage() {
       : [];
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5 overflow-y-auto bg-bg2 px-10 py-6">
+    <Scrollable className="h-full min-h-0 bg-bg2" contentClassName="flex flex-col gap-5 px-10 py-6">
       <header className="flex items-center gap-3">
         <h1 className="text-sm font-bold tracking-wide">设置</h1>
         {status && <span className="ml-auto text-xs text-ink3">{status}</span>}
@@ -177,6 +178,6 @@ export default function SettingsPage() {
           </p>
         )}
       </section>
-    </div>
+    </Scrollable>
   );
 }

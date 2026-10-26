@@ -4,6 +4,7 @@ import {
   useSongs,
 } from "../api";
 import { usePlayer } from "../store";
+import Scrollable from "../components/Scrollable";
 
 const chip = (on: boolean) =>
   `whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors ${
@@ -52,7 +53,7 @@ function Lore() {
   const d = lore.data;
   return (
     <div className="grid min-h-0 flex-1 grid-cols-[1fr_320px] gap-5">
-      <section className="min-h-0 overflow-y-auto">
+      <Scrollable className="min-h-0">
         <h2 className="mb-3 text-center text-base font-bold">
           {song ? `《${song.title}》· ${song.artist}` : "先在左侧选一首歌"}
         </h2>
@@ -125,11 +126,11 @@ function Lore() {
             {err && <p className="text-[12.5px] text-ink3">{err}</p>}
           </div>
         )}
-      </section>
+      </Scrollable>
 
       <aside className="flex min-h-0 flex-col rounded-card border border-edge bg-panel p-4">
         <div className="mb-2 text-xs font-semibold text-ink2">AI 助手</div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <Scrollable className="min-h-0 flex-1">
           {history.length === 0 && (
             <p className="text-center text-[12.5px] leading-6 text-ink3">
               考据页哪里看不懂，随时在这里问——AI 会结合本页内容回答。
@@ -149,7 +150,7 @@ function Lore() {
           ))}
           {asking && <p className="text-[12px] text-ink3">思考中…</p>}
           {err && <p className="text-[12px] text-ink3">{err}</p>}
-        </div>
+        </Scrollable>
         <form
           className="mt-2 flex gap-2"
           onSubmit={(e) => {

@@ -3,6 +3,7 @@ import {
   Lyrics, Song, useActions, useIntro, useNotes, useWordbook,
 } from "../api";
 import { usePlayer } from "../store";
+import Scrollable from "./Scrollable";
 
 function Chip({
   children, primary, onClick, disabled, title, type = "button",
@@ -94,9 +95,10 @@ export default function Dock({
   const phrases = (wordbook.data ?? []).filter((e) => e.word?.includes(" "));
 
   return (
-    <aside
-      aria-label="解读面板"
-      className="flex flex-col gap-3.5 overflow-y-auto border-l border-line bg-bg2 px-[18px] py-5"
+    <Scrollable
+      ariaLabel="解读面板"
+      className="min-h-0 border-l border-line bg-bg2"
+      contentClassName="flex flex-col gap-3.5 px-[18px] py-5"
     >
       <h2 className="flex items-center text-xs font-semibold tracking-[0.1em] text-ink3">
         本句解读
@@ -295,6 +297,6 @@ export default function Dock({
           </div>
         </div>
       </Fold>
-    </aside>
+    </Scrollable>
   );
 }

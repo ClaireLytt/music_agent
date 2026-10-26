@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useAdminActions, useCatalog, useSongs } from "../api";
 import { usePlayer } from "../store";
+import Scrollable from "../components/Scrollable";
 
 const chip = (primary = false) =>
   `whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
@@ -46,7 +47,7 @@ export default function LibraryPage() {
     }).catch((e) => setStatus(e instanceof Error ? e.message : "操作失败"));
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5 overflow-y-auto bg-bg2 px-10 py-6">
+    <Scrollable className="h-full min-h-0 bg-bg2" contentClassName="flex flex-col gap-5 px-10 py-6">
       <header className="flex items-center gap-3">
         <h1 className="text-sm font-bold tracking-wide">曲库管理</h1>
         <span className="text-xs text-ink3">共 {songs.length} 首歌</span>
@@ -95,7 +96,7 @@ export default function LibraryPage() {
             添加勾选的歌曲
           </button>
         </div>
-        <div className="grid max-h-80 grid-cols-2 gap-1 overflow-y-auto xl:grid-cols-3">
+        <Scrollable className="max-h-80" contentClassName="grid grid-cols-2 gap-1 xl:grid-cols-3">
           {rows.map((r) => {
             const v = label(r);
             return (
@@ -117,7 +118,7 @@ export default function LibraryPage() {
               </label>
             );
           })}
-        </div>
+        </Scrollable>
       </section>
 
       <section className="rounded-card border border-edge bg-panel p-5">
@@ -202,6 +203,6 @@ export default function LibraryPage() {
           ))}
         </ul>
       </section>
-    </div>
+    </Scrollable>
   );
 }

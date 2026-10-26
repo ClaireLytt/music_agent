@@ -4,6 +4,7 @@ import {
   exportUrl, useDrillActions, useDrillQueue, useGroups,
 } from "../api";
 import Drill, { ROUND_LENS, loadRoundLen, saveRoundLen } from "../components/Drill";
+import Scrollable from "../components/Scrollable";
 
 // Recharts 很重：分析视图按需加载，不拖慢播放页
 const Analysis = lazy(() => import("../components/Analysis"));
@@ -36,7 +37,7 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
   const search = params.toString() ? `?${params.toString()}` : "";
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto bg-bg2 px-10 py-6">
+    <Scrollable className="h-full min-h-0 bg-bg2" contentClassName="flex flex-col gap-4 px-10 py-6">
       <header className="flex flex-wrap items-center gap-2">
         <h1 className="mr-2 text-sm font-bold tracking-wide">歌曲寻词</h1>
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="练习范围">
@@ -159,6 +160,6 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
           导出 Anki
         </a>
       </footer>
-    </div>
+    </Scrollable>
   );
 }

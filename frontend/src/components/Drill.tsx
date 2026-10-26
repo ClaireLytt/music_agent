@@ -4,6 +4,7 @@ import {
   useDrillCard,
 } from "../api";
 import { IconVolume } from "../icons";
+import Scrollable from "./Scrollable";
 
 /** 盲打偏好与旧版同款：localStorage 记忆，默认盲打 */
 const BLIND_KEY = "ll-drill-blind";
@@ -198,7 +199,11 @@ export default function Drill({
   if (phase === "review") {
     const pct = round.words ? Math.round((100 * round.perfect) / round.words) : 0;
     return (
-      <section aria-label="本轮回顾" className="flex flex-1 flex-col items-center gap-[18px] overflow-y-auto pt-6">
+      <Scrollable
+        ariaLabel="本轮回顾"
+        className="min-h-0 flex-1"
+        contentClassName="flex flex-col items-center gap-[18px] pt-6"
+      >
         <h2 className="text-xl font-bold">
           {missed.length ? `本轮完成 · ${missed.length} 个错词` : "本轮完成 · 全部一遍过"}
         </h2>
@@ -248,7 +253,7 @@ export default function Drill({
           </button>
         </div>
         <p className="text-[11px] text-ink3">按 Enter 直接开下一轮</p>
-      </section>
+      </Scrollable>
     );
   }
 
