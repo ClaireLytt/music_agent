@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>歌词配色原型</title>
+<style>
+  :root{ --ink:#f5f5f4; }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:#0c0c0e; color:var(--ink);
+    font-family:Inter,"Noto Sans SC",system-ui,sans-serif;
+    display:flex; flex-wrap:wrap; gap:24px; justify-content:center;
+    padding:36px 16px 60px;
+  }
+  .col{width:430px}
+  .col h2{font-size:12px;font-weight:600;letter-spacing:.1em;color:#a8a8b3;margin:0 0 4px}
+  .col p.meta{font-size:12.5px;color:#a8a8b3;margin:0 0 10px}
+  .stage{
+    border-radius:14px; padding:28px 18px; text-align:center;
+    background:radial-gradient(90% 70% at 50% -10%, #2e4639 0%, #1a2420 45%, #121212 100%);
+    border:1px solid #232329;
+  }
+  .ln{font-size:17px;font-weight:500;line-height:1.55;padding:6px 10px;border-radius:10px;margin:2px 0}
+  .cur{font-size:23px;font-weight:700}
+  .cur span{
+    background:linear-gradient(90deg, var(--ka) 62%, var(--hi) 62%);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .near{color:var(--mid)}
+  .far{color:var(--dim)}
+  .picked{background:var(--pick)}
+</style>
+</head>
+<body>
+<script>
+const LINES=[
+  ["far","Vintage tee, brand new phone"],
+  ["near","High heels on cobblestones"],
+  ["cur","When you are young, they assume you know nothing"],
+  ["near","Sequin smile, black lipstick"],
+  ["far","Sensual politics"],
+  ["picked far","But I knew you"],
+  ["far","Dancin' in your Levi's"],
+];
+const V=[
+  ["现状 · accent 蓝","卡拉OK已唱部分 accent 蓝，其余白灰层级",
+   {ka:"#7c9eff",hi:"#f5f5f4",mid:"#a8a8b3",dim:"#8d8d96",pick:"rgba(124,158,255,.16)"}],
+  ["A · 暖金","已唱部分鎏金，暖白主色——复古、唱片感",
+   {ka:"#f0c36a",hi:"#f7f2e8",mid:"#beb8a8",dim:"#8f8a7c",pick:"rgba(240,195,106,.14)"}],
+  ["B · 青绿","呼应专辑底色的绿系，已唱部分薄荷绿",
+   {ka:"#5fc79b",hi:"#eef5f0",mid:"#a4b5ab",dim:"#7c8a81",pick:"rgba(95,199,155,.15)"}],
+  ["C · 冷青","已唱部分青色霓虹，整体更冷更锐",
+   {ka:"#55c6d8",hi:"#eef4f5",mid:"#9fb2b6",dim:"#76868a",pick:"rgba(85,198,216,.14)"}],
+  ["D · 玫瑰","已唱部分玫瑰色，暖白正文——柔和情歌气质",
+   {ka:"#ef8fa6",hi:"#f7efef",mid:"#bfaab0",dim:"#8d7e83",pick:"rgba(239,143,166,.14)"}],
+];
+document.body.innerHTML=V.map(([name,meta,c])=>`
+  <div class="col" style="--ka:${c.ka};--hi:${c.hi};--mid:${c.mid};--dim:${c.dim};--pick:${c.pick}">
+    <h2>${name}</h2><p class="meta">${meta}</p>
+    <div class="stage">
+      ${LINES.map(([cls,t])=>cls.startsWith("cur")
+        ? `<div class="ln cur"><span>${t}</span></div>`
+        : `<div class="ln ${cls}">${t}</div>`).join("")}
+    </div>
+  </div>`).join("");
+</script>
+</body>
+</html>
