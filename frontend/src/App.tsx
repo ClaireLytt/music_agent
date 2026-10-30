@@ -170,25 +170,27 @@ export default function App() {
           element={
             <>
               <main className="relative overflow-hidden [background:radial-gradient(90%_70%_at_50%_-10%,#2e4639_0%,#1a2420_45%,#121212_100%)]">
-                {drillReturn && (
-                  <button
-                    className="absolute right-3 top-1/3 z-10 -translate-y-1/2 rounded-full border border-edge bg-panel px-3.5 py-1.5 text-[12.5px] font-medium text-ink2 shadow-art transition-colors hover:border-accent hover:text-accent"
-                    onClick={() => {
-                      const url = drillReturn;
-                      setDrillReturn(null);
-                      navigate(url);
-                    }}
-                  >
-                    回到打字练习
-                  </button>
-                )}
                 <div className="flex h-full flex-col items-center gap-5 px-12 pb-3 pt-7">
                   {song && <MvPanel song={song} />}
                   {lyrics ? (
-                    <LyricsView
-                      lyrics={lyrics}
-                      hasAudio={!!song && song.audio_type !== "none"}
-                    />
+                    <div className="relative flex min-h-0 w-full max-w-[680px] flex-1 justify-center">
+                      <LyricsView
+                        lyrics={lyrics}
+                        hasAudio={!!song && song.audio_type !== "none"}
+                      />
+                      {drillReturn && (
+                        <button
+                          className="absolute left-full top-1/3 z-10 ml-4 -translate-y-1/2 whitespace-nowrap rounded-full bg-[#5fc79b] px-4 py-2 text-[13px] font-semibold text-[#0e1016] shadow-art transition-transform hover:scale-105"
+                          onClick={() => {
+                            const url = drillReturn;
+                            setDrillReturn(null);
+                            navigate(url);
+                          }}
+                        >
+                          回到打字练习
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <p className="flex flex-1 items-center text-sm text-ink3">
                       {isLoading
