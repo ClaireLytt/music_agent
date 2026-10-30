@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   backupExportUrl, importBackup, useAdminActions, useRebuild, useSettings,
-  useUsage,
 } from "../api";
 import Scrollable from "../components/Scrollable";
 
@@ -25,7 +24,6 @@ export default function SettingsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [restoring, setRestoring] = useState(false);
   const [restoreMsg, setRestoreMsg] = useState("");
-  const usage = useUsage();
   const rebuild = useRebuild();
   const acts = useAdminActions();
   const [provider, setProvider] = useState("openai");
@@ -42,51 +40,12 @@ export default function SettingsPage() {
     setEmbModel(s.embedding_model);
   }, [settings.data]);
 
-  const u = usage.data;
-  const day = new Date().toISOString().slice(0, 10);
-  const usageRows: [string, { calls?: number; input_tokens?: number; output_tokens?: number }][] =
-    u?.total?.calls
-      ? [
-          ["今天", u.days?.[day] ?? {}],
-          ["累计", u.total ?? {}],
-          ...Object.entries(u.models ?? {}).sort(),
-        ]
-      : [];
-
   return (
     <Scrollable className="h-full min-h-0 bg-bg2" contentClassName="flex flex-col gap-5 px-10 py-6">
       <header className="flex items-center gap-3">
         <h1 className="text-sm font-bold tracking-wide">设置</h1>
         {status && <span className="ml-auto text-xs text-ink3">{status}</span>}
       </header>
-
-      <section className="rounded-card border border-edge bg-panel p-5">
-        <h2 className="mb-2 text-[13px] font-semibold">用量</h2>
-        {usageRows.length ? (
-          <table className="text-[13px]">
-            <thead>
-              <tr className="text-[11px] text-ink3">
-                <th className="pb-1 pr-6 text-left font-medium"> </th>
-                <th className="pb-1 pr-6 text-left font-medium">调用</th>
-                <th className="pb-1 pr-6 text-left font-medium">输入 tokens</th>
-                <th className="pb-1 text-left font-medium">输出 tokens</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usageRows.map(([name, b]) => (
-                <tr key={name} className="border-t border-line">
-                  <td className="py-1 pr-6 text-ink2">{name}</td>
-                  <td className="py-1 pr-6 tabular-nums">{b.calls ?? 0}</td>
-                  <td className="py-1 pr-6 tabular-nums">{(b.input_tokens ?? 0).toLocaleString()}</td>
-                  <td className="py-1 tabular-nums">{(b.output_tokens ?? 0).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="text-[12.5px] text-ink3">还没有任何 LLM 调用记录。</p>
-        )}
-      </section>
 
       <section className="rounded-card border border-edge bg-panel p-5">
         <h2 className="mb-3 text-[13px] font-semibold">API 设置</h2>
