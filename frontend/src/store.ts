@@ -15,6 +15,9 @@ interface PlayerState {
   /** MV 歌词跟随：B 站 iframe 读不到进度，用本地时钟近似驱动。
       null = 未开启；否则记录对齐点（墙钟 ↔ 歌词时间轴） */
   follow: { wallStart: number; msStart: number } | null;
+  /** 从打字练习跳歌过来时的返回地址（/words?...）；null = 无待返回 */
+  drillReturn: string | null;
+  setDrillReturn: (url: string | null) => void;
   setSong: (id: string) => void;
   setPlaying: (p: boolean) => void;
   setTime: (ms: number, duration: number) => void;
@@ -37,6 +40,8 @@ export const usePlayer = create<PlayerState>((set) => ({
   showMv: false, // MV 默认收起
   seekMs: null,
   follow: null,
+  drillReturn: null,
+  setDrillReturn: (drillReturn) => set({ drillReturn }),
   setSong: (id) =>
     set({ songId: id, playing: false, timeMs: 0, currentLine: -1,
           pickedLine: null, follow: null }),

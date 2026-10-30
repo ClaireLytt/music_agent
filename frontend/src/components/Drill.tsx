@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   BookStats, DrillEntry, DrillQueue, drillTtsUrl, useDrillActions,
   useDrillCard, useSongs,
@@ -66,12 +66,19 @@ export default function Drill({
 }) {
   const acts = useDrillActions();
   const navigate = useNavigate();
-  const { setSong, pickLine } = usePlayer();
+  const location = useLocation();
+  const { setSong, pickLine, setDrillReturn } = usePlayer();
   const { data: allSongs = [] } = useSongs("");
   // 词条只存歌名：跳转前按 title 兜底解析成 song id（同收藏夹口径）
   const jumpToSong = (title: string, lineIndex?: number) => {
     const hit = allSongs.find((sg) => sg.title === title);
     if (!hit) return;
+    // 记住打字位置：回来后同一轮同一个词接着打（旧版「回到打字练习」）
+    try {
+      sessionStorage.setItem("ll-drill-resume", JSON.stringify(
+        { group, roundLen, offset, qi }));
+    } catch { /* 忽略 */ }
+    setDrillReturn(location.pathname + location.search);
     setSong(hit.id);
     if (lineIndex !== undefined && lineIndex >= 0) pickLine(lineIndex);
     navigate("/");
@@ -113,9 +120,28 @@ export default function Drill({
     startRef.current = null;
   }, []);
 
-  // 范围/档位/队列变化 → 从头开一轮（切片前 N 个）
+  // 范围/档位/队列变化 → 从头开一轮（切片前 N 个）；
+  // 若是从「跳转到歌曲」回来，则恢复到离开时的那一轮那一个词
   useEffect(() => {
     const all = queue?.entries ?? [];
+    let resume: { group: string; roundLen: number;
+                  offset: number; qi: number } | null = null;
+    try {
+      const raw = sessionStorage.getItem("ll-drill-resume");
+      if (raw) resume = JSON.parse(raw);
+      sessionStorage.removeItem("ll-drill-resume");
+    } catch { /* 忽略 */ }
+    if (resume && resume.group === group && resume.roundLen === roundLen
+        && all.length) {
+      const words = roundLen > 0
+        ? all.slice(resume.offset, resume.offset + roundLen) : all;
+      if (resume.qi < words.length) {
+        setOffset(resume.offset);
+        beginRound(words);
+        setQi(resume.qi);
+        return;
+      }
+    }
     setOffset(0);
     beginRound(roundLen > 0 ? all.slice(0, roundLen) : all);
   }, [group, roundLen, queue, beginRound]);
@@ -344,7 +370,14 @@ export default function Drill({
 
       {e2.line && (
         <p className="max-w-xl text-center text-[23.8px] leading-[1.7] text-ink3">
-          「{masked(e2.line)}」
+          <button
+            className="text-ink3 underline-offset-4 transition-colors hover:text-accent hover:underline"
+            title={e2.song ? `打开《${e2.song}》并定位到这句` : undefined}
+            disabled={!e2.song}
+            onClick={() => e2.song && jumpToSong(e2.song, e2.line_index)}
+          >
+            「{masked(e2.line)}」
+          </button>
           {e2.song && (
             <button
               className="text-ink3 underline-offset-4 transition-colors hover:text-accent hover:underline"

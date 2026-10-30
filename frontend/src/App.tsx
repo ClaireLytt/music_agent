@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useNavigate } from "react-router-dom";
 import { audioUrl, useLyrics, useSongs } from "./api";
 import { usePlayer } from "./store";
 import DictPops from "./components/DictPops";
@@ -18,9 +18,10 @@ export default function App() {
   const { data: songs = [], isLoading } = useSongs(query);
   const {
     songId, setSong, setPlaying, setTime, setCurrentLine, currentLine,
-    seekMs, clearSeek, follow, startFollow,
+    seekMs, clearSeek, follow, startFollow, drillReturn, setDrillReturn,
   } = usePlayer();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const navigate = useNavigate();
 
   // 侧栏宽度：拖动右缘调整，拖到很窄自动收起；双击分隔条展开/收起。
   // localStorage 只是每浏览器的便利记忆，读写都要兜底。
@@ -169,6 +170,18 @@ export default function App() {
           element={
             <>
               <main className="relative overflow-hidden [background:radial-gradient(90%_70%_at_50%_-10%,#2e4639_0%,#1a2420_45%,#121212_100%)]">
+                {drillReturn && (
+                  <button
+                    className="absolute right-4 top-4 z-10 rounded-full border border-edge bg-panel px-3.5 py-1.5 text-[12.5px] font-medium text-ink2 shadow-art transition-colors hover:border-accent hover:text-accent"
+                    onClick={() => {
+                      const url = drillReturn;
+                      setDrillReturn(null);
+                      navigate(url);
+                    }}
+                  >
+                    回到打字练习
+                  </button>
+                )}
                 <div className="flex h-full flex-col items-center gap-5 px-12 pb-3 pt-7">
                   {song && <MvPanel song={song} />}
                   {lyrics ? (
