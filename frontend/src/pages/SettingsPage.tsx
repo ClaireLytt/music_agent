@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
-import { useAdminActions, useRebuild, useSettings, useUsage } from "../api";
+import { useEffect, useRef, useState } from "react";
+import {
+  backupExportUrl, importBackup, useAdminActions, useRebuild, useSettings,
+  useUsage,
+} from "../api";
 import Scrollable from "../components/Scrollable";
 
 const chip = (primary = false) =>
@@ -19,6 +22,9 @@ const EMB_MODELS = [
 
 export default function SettingsPage() {
   const settings = useSettings();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreMsg, setRestoreMsg] = useState("");
   const usage = useUsage();
   const rebuild = useRebuild();
   const acts = useAdminActions();
@@ -178,6 +184,57 @@ export default function SettingsPage() {
           </p>
         )}
       </section>
+      {!settings.data?.public && (
+        <section className="rounded-card border border-edge bg-panel p-5">
+          <h2 className="mb-1 text-[13px] font-semibold">数据备份</h2>
+          <p className="mb-1 max-w-2xl text-[12.5px] leading-6 text-ink3">
+            导出整个数据目录（学习数据、AI 缓存、歌曲音频）为 zip，换电脑时
+            在新机器上传恢复即可。备份包内不含你的 API Key。
+          </p>
+          <p className="mb-3 max-w-2xl text-[12.5px] font-medium leading-6 text-[#e5484d]">
+            恢复会替换当前全部数据（原数据自动留底为 data.bak_时间戳）；
+            请勿修改备份文件内容。
+          </p>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <a className={chip(true)} href={backupExportUrl} download>
+              导出全部数据 (zip)
+            </a>
+            <button
+              className={chip(false)}
+              disabled={restoring}
+              onClick={() => fileRef.current?.click()}
+            >
+              {restoring ? "恢复中…" : "从备份恢复…"}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".zip,application/zip"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (!f) return;
+                if (!window.confirm(
+                  `确定用「${f.name}」替换当前全部数据？\n原数据会留底为 data.bak_时间戳，可手动找回。`))
+                  return;
+                setRestoring(true);
+                setRestoreMsg("");
+                importBackup(f)
+                  .then((r) => setRestoreMsg(
+                    `✅ 恢复完成，旧数据留底于 ${r.backup_of_old_data}；请刷新页面。`))
+                  .catch((err) => setRestoreMsg(`⚠️ ${err.message}`))
+                  .finally(() => setRestoring(false));
+              }}
+            />
+          </div>
+          {restoreMsg && (
+            <p className="mt-2.5 text-[12.5px] text-ink2" aria-live="polite">
+              {restoreMsg}
+            </p>
+          )}
+        </section>
+      )}
     </Scrollable>
   );
 }

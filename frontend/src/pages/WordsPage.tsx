@@ -75,7 +75,11 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
         <div className="ml-auto flex items-center gap-2">
           {toast && <span className="text-xs text-ink3">{toast}</span>}
           <button
-            className={chip(analysis)}
+            className={
+              analysis
+                ? chip(true)
+                : "whitespace-nowrap rounded-full bg-[#5fc79b] px-3.5 py-1.5 text-[12.5px] font-semibold text-[#0e1016] transition-colors hover:brightness-110"
+            }
             onClick={() =>
               navigate(analysis ? `/words${search}` : `/words/analysis${search}`)
             }

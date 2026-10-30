@@ -22,9 +22,47 @@ export default function App() {
   } = usePlayer();
   const audioRef = useRef<HTMLAudioElement>(null);
 
-  // 首次加载：默认选第一首（黄金路径）
+  // 侧栏宽度：拖动右缘调整，拖到很窄自动收起；双击分隔条展开/收起。
+  // localStorage 只是每浏览器的便利记忆，读写都要兜底。
+  const SIDEBAR_W = 420;
+  const [sideW, setSideW] = useState(() => {
+    try {
+      const v = localStorage.getItem("ll_side_w");
+      return v === null ? SIDEBAR_W : Math.max(0, Number(v) || 0);
+    } catch {
+      return SIDEBAR_W;
+    }
+  });
+  const applySideW = (w: number) => {
+    setSideW(w);
+    try {
+      localStorage.setItem("ll_side_w", String(w));
+    } catch {
+      /* 私密窗口等场景忽略 */
+    }
+  };
+  const onSplitDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sideW;
+    const move = (ev: PointerEvent) => {
+      const w = Math.min(520, Math.max(0, startW + ev.clientX - startX));
+      setSideW(w < 140 ? 0 : w); // 太窄直接吸附收起
+    };
+    const up = (ev: PointerEvent) => {
+      const w = Math.min(520, Math.max(0, startW + ev.clientX - startX));
+      applySideW(w < 140 ? 0 : w);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  // 首次加载：默认进入 cardigan（没有则退回第一首）
   useEffect(() => {
-    if (!songId && songs.length) setSong(songs[0].id);
+    if (!songId && songs.length)
+      setSong((songs.find((s) => s.id === "cardigan") ?? songs[0]).id);
   }, [songId, songs, setSong]);
 
   const song = useMemo(() => songs.find((s) => s.id === songId), [songs, songId]);
@@ -67,7 +105,7 @@ export default function App() {
     return () => clearInterval(tick);
   }, [follow, lyrics, setTime, setCurrentLine]);
 
-  // HTML5 Audio → 歌词同步（含 audio_offset_ms 试听片段对齐 + A-B 循环）
+  // HTML5 Audio → 歌词同步（含 audio_offset_ms 试听片段对齐）
   useEffect(() => {
     const a = audioRef.current;
     if (!a || !lyrics || !song) return;
@@ -75,14 +113,6 @@ export default function App() {
     const onTime = () => {
       const t = a.currentTime * 1000 + song.audio_offset_ms;
       setTime(t, (a.duration || 0) * 1000 + song.audio_offset_ms);
-      // A-B 循环（PlayerBar 经 rail dataset 传递区间）
-      const rail = document.querySelector<HTMLElement>("[data-a]");
-      const A = rail?.dataset.a ? Number(rail.dataset.a) : NaN;
-      const B = rail?.dataset.b ? Number(rail.dataset.b) : NaN;
-      if (!Number.isNaN(A) && !Number.isNaN(B) && t > B) {
-        a.currentTime = (A - song.audio_offset_ms) / 1000;
-        return;
-      }
       let i = -1;
       for (let k = 0; k < lines.length; k++) {
         if (lines[k].timestamp_ms <= t) i = k;
@@ -103,8 +133,22 @@ export default function App() {
   }, [lyrics, song, currentLine, setTime, setCurrentLine, setPlaying]);
 
   return (
-    <div className="grid h-screen grid-cols-[232px_1fr_320px] grid-rows-[1fr_88px] overflow-hidden bg-bg font-sans text-ink">
-      <Sidebar songs={songs} query={query} onQuery={setQuery} />
+    <div
+      className="relative grid h-screen grid-rows-[1fr_88px] overflow-hidden bg-bg font-sans text-ink"
+      style={{ gridTemplateColumns: `${sideW}px 1fr 460px` }}
+    >
+      <div className="min-w-0 overflow-hidden">
+        <Sidebar songs={songs} query={query} onQuery={setQuery} />
+      </div>
+      <div
+        role="separator"
+        aria-label="拖动调整侧栏宽度，双击收起/展开"
+        title="拖动调整侧栏；双击收起/展开"
+        className="absolute bottom-[88px] top-0 z-20 w-[7px] -translate-x-1/2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-accent"
+      style={{ left: sideW }}
+        onPointerDown={onSplitDown}
+        onDoubleClick={() => applySideW(sideW === 0 ? SIDEBAR_W : 0)}
+      />
       <Routes>
         <Route
           path="/"

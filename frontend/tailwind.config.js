@@ -14,7 +14,7 @@ export default {
         edge2: "#2e2e36",
         ink: "#f5f5f4",
         ink2: "#a8a8b3",
-        ink3: "#6e6e78",
+        ink3: "#a8a8b3",
         accent: "#7c9eff",
         "accent-soft": "rgba(124,158,255,.16)",
       },
@@ -25,6 +25,24 @@ export default {
       boxShadow: {
         mv: "0 18px 40px -18px rgba(0,0,0,.65)",
         art: "0 6px 16px -6px rgba(0,0,0,.6)",
+        pop: "0 14px 32px -14px rgba(0,0,0,.75)",
+      },
+      keyframes: {
+        headshake: {
+          "0%, 100%": { transform: "translateX(0)" },
+          "20%": { transform: "translateX(-4px)" },
+          "40%": { transform: "translateX(4px)" },
+          "60%": { transform: "translateX(-2px)" },
+          "80%": { transform: "translateX(2px)" },
+        },
+        popin: {
+          from: { opacity: "0", transform: "translate(-50%, 4px)" },
+          to: { opacity: "1", transform: "translate(-50%, 0)" },
+        },
+      },
+      animation: {
+        headshake: "headshake .4s ease",
+        popin: "popin .18s cubic-bezier(.16,1,.3,1) both",
       },
     },
   },

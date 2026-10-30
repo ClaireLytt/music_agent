@@ -30,7 +30,7 @@ export default function Sidebar({
         <span className="grid h-[26px] w-[26px] place-items-center rounded-lg bg-gradient-to-br from-accent to-[#4a6cf7]">
           <IconNote />
         </span>
-        歌词透镜
+        Learn from Music
       </div>
       <nav className="flex flex-col gap-0.5" aria-label="主导航">
         {NAV.map((n) =>
@@ -40,7 +40,7 @@ export default function Sidebar({
               to={n.to}
               end={n.to === "/"}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-2.5 py-[9px] text-left text-[13.5px] font-medium transition-colors ${
+                `flex items-center gap-3 rounded-lg px-2.5 py-[9px] text-left text-[16.2px] font-medium transition-colors ${
                   isActive
                     ? "bg-[#202026] text-ink"
                     : "text-ink2 hover:bg-[#1b1b1f] hover:text-ink"
@@ -54,7 +54,7 @@ export default function Sidebar({
             <button
               key={n.label}
               title="迁移中 · 暂在旧版界面"
-              className="flex items-center gap-3 rounded-lg px-2.5 py-[9px] text-left text-[13.5px] font-medium text-ink2 transition-colors hover:bg-[#1b1b1f] hover:text-ink"
+              className="flex items-center gap-3 rounded-lg px-2.5 py-[9px] text-left text-[16.2px] font-medium text-ink2 transition-colors hover:bg-[#1b1b1f] hover:text-ink"
             >
               {n.icon}
               {n.label}
@@ -62,7 +62,7 @@ export default function Sidebar({
           ),
         )}
       </nav>
-      <div className="px-2.5 text-[11px] font-semibold tracking-[0.12em] text-ink3">
+      <div className="px-2.5 text-[13.2px] font-semibold tracking-[0.12em] text-ink3">
         曲库
       </div>
       <input
@@ -72,11 +72,11 @@ export default function Sidebar({
         onChange={(e) => onQuery(e.target.value)}
         placeholder="搜歌名 / 歌手 / 歌词…"
         aria-label="搜索曲库"
-        className="mx-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[12.5px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
+        className="mx-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[15px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
       />
       <Scrollable className="min-h-0" contentClassName="flex flex-col gap-0.5">
         {songs.length === 0 && query && (
-          <p className="px-2.5 py-2 text-xs text-ink3">
+          <p className="px-2.5 py-2 text-[14.4px] text-ink3">
             没有匹配「{query}」的歌曲
           </p>
         )}
@@ -90,13 +90,13 @@ export default function Sidebar({
             }`}
           >
             <span
-              className={`text-[13.5px] font-medium ${
+              className={`text-[16.2px] font-medium ${
                 s.id === songId ? "text-accent" : "text-ink2"
               }`}
             >
               {s.title}
             </span>
-            <span className="text-[11.5px] text-ink3">{s.artist}</span>
+            <span className="text-[13.8px] text-ink3">{s.artist}</span>
           </button>
         ))}
       </Scrollable>

@@ -81,6 +81,16 @@ export interface WordEntry {
   line?: string;
   song?: string;
   line_index?: number;
+  note?: string;
+}
+
+export interface Favorite {
+  id: string;
+  line: string;
+  title: string;
+  artist: string;
+  song_id?: string;
+  line_index: number;
 }
 
 export interface IntroState {
@@ -106,6 +116,12 @@ export const useNotes = (songId: string | null) =>
     queryKey: ["notes", songId],
     queryFn: () => get<Note[]>(`/api/songs/${songId}/notes`),
     enabled: !!songId,
+  });
+
+export const useFavorites = () =>
+  useQuery({
+    queryKey: ["favorites"],
+    queryFn: () => get<Favorite[]>("/api/favorites"),
   });
 
 export const useWordbook = (songTitle: string | null) =>
@@ -309,6 +325,7 @@ export const useCatalog = (q: string) =>
 export interface SettingsInfo {
   llm_provider: string;
   has_key: boolean;
+  public: boolean;
   llm_base_url: string;
   model_name: string;
   embedding_model: string;
@@ -413,6 +430,19 @@ export function useActions(songId: string | null, songTitle: string) {
       send(`/api/wordbook/${encodeURIComponent(word)}`, "DELETE").then(() =>
         refetch(["wordbook", songTitle]),
       ),
+    setWordNote: (word: string, note: string) =>
+      send(`/api/wordbook/${encodeURIComponent(word)}/note`, "PUT", {
+        note,
+      }).then(() => refetch(["wordbook", songTitle])),
+    addFav: (line_index: number) =>
+      send("/api/favorites", "POST", {
+        song_id: songId,
+        line_index,
+      }).then(() => refetch(["favorites"])),
+    delFav: (fid: string) =>
+      send(`/api/favorites/${encodeURIComponent(fid)}`, "DELETE").then(() =>
+        refetch(["favorites"]),
+      ),
     saveBvid: (value: string) =>
       send(`/api/songs/${songId}/bvid`, "PUT", { value }).then(() =>
         refetch(["songs"]),
@@ -439,4 +469,47 @@ export function useActions(songId: string | null, songTitle: string) {
       refetch(["songs"]);
     },
   };
+}
+
+// ── 数据备份（spec: .scratch/backup-restore/spec.md） ──
+export const backupExportUrl = "/api/backup/export";
+
+export async function importBackup(file: File): Promise<{ backup_of_old_data: string }> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const resp = await fetch("/api/backup/import", { method: "POST", body: fd });
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => null);
+    throw new Error(detail?.detail ?? `恢复失败（HTTP ${resp.status}）`);
+  }
+  return resp.json();
+}
+
+// ── 行级 AI 助手（旧播放页「💬 AI 助手」迁移） ──
+export interface ChatTurn {
+  speaker: string;
+  text: string;
+}
+
+export const useLineChat = (songId: string | null, line: number | null) =>
+  useQuery({
+    queryKey: ["lineChat", songId, line],
+    enabled: !!songId && line !== null && line >= 0,
+    queryFn: () =>
+      get<{ history: ChatTurn[] }>(`/api/songs/${songId}/chat/${line}`),
+  });
+
+export async function askLine(
+  songId: string, line: number, question: string, history: ChatTurn[],
+): Promise<{ answer: string; history: ChatTurn[] }> {
+  const resp = await fetch(`/api/songs/${songId}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ line_index: line, question, history }),
+  });
+  if (!resp.ok) {
+    const detail = await resp.json().catch(() => null);
+    throw new Error(detail?.detail ?? `提问失败（HTTP ${resp.status}）`);
+  }
+  return resp.json();
 }

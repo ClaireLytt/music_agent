@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  Lyrics, Song, useActions, useIntro, useNotes, useWordbook,
+  ChatTurn, Lyrics, Song, askLine, useActions, useFavorites, useIntro,
+  useLineChat, useNotes, useWordbook,
 } from "../api";
 import { usePlayer } from "../store";
 import Scrollable from "./Scrollable";
@@ -21,7 +22,7 @@ function Chip({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors ${
+      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[15px] font-medium transition-colors ${
         primary
           ? "bg-accent font-semibold text-[#0e1016] hover:brightness-110"
           : "border border-[#33333c] text-ink2 hover:border-accent hover:text-accent"
@@ -35,7 +36,7 @@ function Chip({
 function Card({ k, children }: { k: string; children: React.ReactNode }) {
   return (
     <div className="rounded-card border border-edge bg-panel p-4">
-      <div className="mb-2.5 flex items-center gap-2 text-xs font-semibold text-ink2">
+      <div className="mb-2.5 flex items-center gap-2 text-[14.4px] font-semibold text-ink2">
         {k}
       </div>
       {children}
@@ -43,10 +44,12 @@ function Card({ k, children }: { k: string; children: React.ReactNode }) {
   );
 }
 
-function Fold({ k, children }: { k: string; children: React.ReactNode }) {
+function Fold({
+  k, id, children,
+}: { k: string; id?: string; children: React.ReactNode }) {
   return (
-    <details className="group rounded-card border border-edge bg-panel">
-      <summary className="cursor-pointer select-none list-none p-4 text-xs font-semibold text-ink2 transition-colors hover:text-ink">
+    <details id={id} className="group rounded-card border border-edge bg-panel">
+      <summary className="cursor-pointer select-none list-none p-4 text-[14.4px] font-semibold text-ink2 transition-colors hover:text-ink">
         <span className="mr-1 inline-block transition-transform group-open:rotate-90">
           ▸
         </span>
@@ -63,7 +66,92 @@ function fmt(ms: number) {
 }
 
 const inputCls =
-  "min-w-0 flex-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-[9px] text-[13px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none";
+  "min-w-0 flex-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-[9px] text-[15.6px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none";
+
+function AskAiCard({
+  songId, line, lineText,
+}: { songId: string | null; line: number | null; lineText: string }) {
+  const saved = useLineChat(songId, line);
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  // 切句/切歌时载入该句已保存的问答
+  useEffect(() => {
+    setTurns(saved.data?.history ?? []);
+    setErr("");
+  }, [songId, line, saved.data]);
+
+  const send = () => {
+    const text = q.trim();
+    if (!text || busy || !songId || line === null || line < 0) return;
+    setBusy(true);
+    setErr("");
+    setTurns((t) => [...t, { speaker: "user", text }]);
+    setQ("");
+    askLine(songId, line, text, turns)
+      .then((r) => {
+        // 失败路径的回答以 ⚠️ 开头且不入历史——作为错误显示而非静默丢弃
+        if (r.answer.startsWith("⚠️")) setErr(r.answer.replace(/^⚠️\s*/, ""));
+        setTurns(r.history);
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : "提问失败"))
+      .finally(() => setBusy(false));
+  };
+
+  const picked = line !== null && line >= 0;
+  return (
+    <Card k={picked ? `💬 AI 助手 · 第 ${(line ?? 0) + 1} 句` : "💬 AI 助手"}>
+      {picked ? (
+        <p className="mb-2 truncate text-center text-[14.4px] italic text-ink3"
+           title={lineText}>
+          「{lineText}」
+        </p>
+      ) : (
+        <p className="mb-2 text-center text-[15.6px] text-ink3">
+          点一句歌词，针对这句提问
+        </p>
+      )}
+      {turns.length > 0 && (
+        <div className="mb-2.5 flex max-h-72 flex-col gap-2 overflow-y-auto">
+          {turns.map((t, i) => (
+            <div
+              key={i}
+              className={`max-w-[85%] whitespace-pre-line rounded-lg px-3 py-2 text-[15px] leading-relaxed ${
+                t.speaker === "user"
+                  ? "self-end bg-accent-soft text-ink"
+                  : "self-start bg-panel2 text-ink2"
+              }`}
+            >
+              {t.text}
+            </div>
+          ))}
+          {busy && (
+            <div className="self-start rounded-lg bg-panel2 px-3 py-2 text-[15px] text-ink3">
+              思考中…
+            </div>
+          )}
+        </div>
+      )}
+      {err && (
+        <p className="mb-2 text-center text-[14.4px] text-ink3">⚠️ {err}</p>
+      )}
+      <div className="flex gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && send()}
+          placeholder="针对这句歌词提问 ..."
+          disabled={!picked || busy}
+          className={inputCls}
+        />
+        <Chip primary onClick={send} disabled={!picked || busy || !q.trim()}>
+          提问
+        </Chip>
+      </div>
+    </Card>
+  );
+}
 
 export default function Dock({
   lyrics,
@@ -72,17 +160,39 @@ export default function Dock({
   lyrics: Lyrics | undefined;
   song: Song | undefined;
 }) {
-  const { currentLine, pickedLine, timeMs, requestSeek } = usePlayer();
-  const line = pickedLine ?? currentLine;
+  const { pickedLine, timeMs, requestSeek, setSong, pickLine } =
+    usePlayer();
+  // 批注/AI 助手只跟手动点选的句子，不随播放自动切换（2026-10-30 用户定）
+  const line = pickedLine ?? -1;
   const ann = lyrics?.annotations[String(line)];
   const songId = song?.id ?? null;
+
+  useEffect(() => {
+    const open = () => {
+      const d = document.getElementById("song-tools") as
+        HTMLDetailsElement | null;
+      if (!d) return;
+      d.open = true;
+      d.scrollIntoView({ behavior: "smooth", block: "center" });
+    };
+    window.addEventListener("ll-open-song-tools", open);
+    return () => window.removeEventListener("ll-open-song-tools", open);
+  }, []);
   const songTitle = song?.title ?? "";
   const acts = useActions(songId, songTitle);
   const intro = useIntro(songId);
   const notes = useNotes(songId);
   const wordbook = useWordbook(songTitle || null);
+  const favorites = useFavorites();
+  // 只显示本首歌收藏的歌词（旧数据没有 song_id，用 title 匹配兜底）
+  const songFavs = (favorites.data ?? []).filter(
+    (f) => (f.song_id ? f.song_id === songId : f.title === songTitle));
   const [noteText, setNoteText] = useState("");
   const [offset, setOffset] = useState<string>("");
+  // 切歌/打开时带出已保存的校准值，避免每次都要重填
+  useEffect(() => {
+    setOffset(song ? String(song.audio_offset_ms ?? 0) : "");
+  }, [songId, song?.audio_offset_ms]);
   const [toast, setToast] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -100,7 +210,7 @@ export default function Dock({
       className="min-h-0 border-l border-line bg-bg2"
       contentClassName="flex flex-col gap-3.5 px-[18px] py-5"
     >
-      <h2 className="flex items-center text-xs font-semibold tracking-[0.1em] text-ink3">
+      <h2 className="flex items-center text-[14.4px] font-semibold tracking-[0.1em] text-ink3">
         本句解读
         {toast && (
           <span className="ml-auto font-normal normal-case tracking-normal text-ink3">
@@ -111,38 +221,44 @@ export default function Dock({
 
       <Card k={ann ? `✏️ AI 批注 · 第 ${line + 1} 句` : "✏️ AI 批注"}>
         {ann ? (
-          <div className="mx-auto text-center text-[13.5px] leading-[1.8] text-ink2">
+          <div className="mx-auto text-center text-[16.2px] leading-[1.8] text-ink2">
             <p>{ann.summary}</p>
             {ann.metaphor_analysis && (
               <p className="mt-1 text-ink">{ann.metaphor_analysis}</p>
             )}
             {ann.wordplay && <p className="mt-1">{ann.wordplay}</p>}
             {ann.emotional_tone && (
-              <p className="mt-1.5 text-xs text-ink3">
+              <p className="mt-1.5 text-[14.4px] text-ink3">
                 情绪基调 · {ann.emotional_tone}
               </p>
             )}
           </div>
         ) : (
-          <p className="mx-auto text-center text-[13.5px] leading-[1.8] text-ink3">
+          <p className="mx-auto text-center text-[16.2px] leading-[1.8] text-ink3">
             点一句歌词，看这句的 AI 批注
           </p>
         )}
       </Card>
 
+      <AskAiCard
+        songId={songId}
+        line={line ?? null}
+        lineText={lyrics?.timed_lines?.find((l) => l.line_index === line)?.text ?? ""}
+      />
+
       <Card k="📖 歌曲导读">
         {intro.data?.status === "done" ? (
-          <p className="mx-auto whitespace-pre-line text-center text-[13.5px] leading-[1.8] text-ink2">
+          <p className="mx-auto whitespace-pre-line text-center text-[16.2px] leading-[1.8] text-ink2">
             {intro.data.text}
           </p>
         ) : intro.data?.status === "running" ? (
-          <p className="text-center text-[13px] text-ink3">
+          <p className="text-center text-[15.6px] text-ink3">
             AI 正在通读整首歌词，生成导读…（可随意切歌，回来还在）
           </p>
         ) : (
           <>
             {intro.data?.status === "error" && (
-              <p className="mb-2 text-center text-[12.5px] text-ink3">
+              <p className="mb-2 text-center text-[15px] text-ink3">
                 生成失败：{intro.data.text}
               </p>
             )}
@@ -180,7 +296,7 @@ export default function Dock({
           {(notes.data ?? []).map((n) => (
             <li
               key={n.ts_ms}
-              className="group flex items-start gap-2 rounded-lg bg-panel2 px-3 py-2 text-[13px]"
+              className="group flex items-start gap-2 rounded-lg bg-panel2 px-3 py-2"
             >
               <button
                 className="font-semibold tabular-nums text-accent hover:underline"
@@ -202,6 +318,55 @@ export default function Dock({
         </ul>
       </Fold>
 
+      <Fold k={`⭐ 歌词收藏夹 ${songFavs.length}`}>
+        <div className="mb-2">
+          <Chip
+            disabled={line < 0 || !songId}
+            title={line < 0 ? "先在歌词区点选一句歌词" : undefined}
+            onClick={() => {
+              // 旧版口径：按 timed_lines 的 line_index 收藏，而非数组下标
+              const tl = lyrics?.timed_lines[line];
+              if (tl) run(acts.addFav(tl.line_index), "已收藏这句歌词");
+            }}
+          >
+            ⭐ 收藏当前选中的歌词
+          </Chip>
+        </div>
+        {songFavs.length ? (
+          <ul className="flex flex-col gap-1.5">
+            {songFavs.map((f) => (
+              <li
+                key={f.id}
+                className="group flex items-start gap-2 rounded-lg bg-panel2 px-3 py-2"
+              >
+                <button
+                  className="min-w-0 flex-1 text-left transition-colors hover:text-accent"
+                  title="跳到这首歌的这句"
+                  onClick={() => {
+                    if (f.song_id && f.song_id !== songId) setSong(f.song_id);
+                    pickLine(f.line_index);
+                  }}
+                >
+                  <span className="text-[16.2px] font-medium text-ink2">{f.line}</span>
+                  <span className="mt-0.5 block text-[13.8px] text-ink3">
+                    {f.title}{f.artist ? ` · ${f.artist}` : ""}
+                  </span>
+                </button>
+                <button
+                  className="invisible text-ink3 hover:text-ink group-hover:visible"
+                  aria-label="删除收藏"
+                  onClick={() => run(acts.delFav(f.id), "已删除收藏")}
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[15px] text-ink3">这首歌还没有收藏的歌词。</p>
+        )}
+      </Fold>
+
       <Fold k={`📒 单词本 ${words.length} · 词组本 ${phrases.length}`}>
         {[
           ["单词", words] as const,
@@ -209,31 +374,54 @@ export default function Dock({
         ].map(([label, list]) =>
           list.length ? (
             <div key={label} className="mb-2">
-              <div className="mb-1 text-[11px] text-ink3">{label}</div>
+              <div className="mb-1 text-[12.6px] text-ink3">{label}</div>
               <ul className="flex flex-col gap-1.5">
                 {list.map((e) => (
                   <li
                     key={e.word}
-                    className="group rounded-lg bg-panel2 px-3 py-2 text-[13px]"
+                    className="group rounded-lg bg-panel2 px-3 py-2 text-[15px]"
                   >
                     <div className="flex items-center gap-2">
                       <b className="text-ink">{e.word}</b>
                       {e.phonetic && (
-                        <span className="text-[11px] text-ink3">
+                        <span className="text-[15.4px] text-ink3">
                           /{e.phonetic}/
                         </span>
                       )}
                       <button
                         className="invisible ml-auto text-ink3 hover:text-ink group-hover:visible"
+                        aria-label={`编辑 ${e.word} 的笔记`}
+                        title="编辑笔记"
+                        onClick={() => {
+                          const v = window.prompt(
+                            `「${e.word}」的笔记：`, e.note ?? "");
+                          if (v !== null)
+                            run(acts.setWordNote(e.word, v), "笔记已保存");
+                        }}
+                      >
+                        📝
+                      </button>
+                      <button
+                        className="invisible text-ink3 hover:text-ink group-hover:visible"
                         aria-label={`移除 ${e.word}`}
                         onClick={() => run(acts.removeWord(e.word), "已移除")}
                       >
                         ✕
                       </button>
                     </div>
+                    {e.translation && (
+                      <p className="mt-0.5 whitespace-pre-line text-[15.4px] text-ink2">
+                        {e.translation.replace(/\\n/g, "\n")}
+                      </p>
+                    )}
                     {e.line && (
-                      <p className="mt-0.5 truncate text-[12px] text-ink3">
-                        {e.line}
+                      <p className="mt-0.5 truncate text-[15.4px] text-ink3">
+                        「{e.line}」
+                      </p>
+                    )}
+                    {e.note && (
+                      <p className="mt-0.5 whitespace-pre-line text-[15.4px] text-accent">
+                        📝 {e.note}
                       </p>
                     )}
                   </li>
@@ -243,16 +431,16 @@ export default function Dock({
           ) : null,
         )}
         {!words.length && !phrases.length && (
-          <p className="text-[12.5px] text-ink3">
+          <p className="text-[14.4px] text-ink3">
             双击歌词里的单词 → 生词卡 → 收藏，单词会跟随这首歌
           </p>
         )}
       </Fold>
 
-      <Fold k="⚙️ 歌曲工具">
+      <Fold k="⚙️ 歌曲工具" id="song-tools">
         <div className="flex flex-col gap-3">
           <div>
-            <div className="mb-1 text-[11px] text-ink3">
+            <div className="mb-1 text-[12.6px] text-ink3">
               歌词时间校准（毫秒，正=歌词提前）
             </div>
             <form
@@ -279,7 +467,7 @@ export default function Dock({
             </form>
           </div>
           <div>
-            <div className="mb-1 text-[11px] text-ink3">
+            <div className="mb-1 text-[12.6px] text-ink3">
               为当前歌曲上传音频（mp3/wav/flac/ogg/m4a）
             </div>
             <input

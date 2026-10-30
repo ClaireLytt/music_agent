@@ -81,9 +81,9 @@ export default function Analysis() {
         <ResponsiveContainer width="100%" height={160}>
           <BarChart data={last30} margin={{ top: 8, right: 8, left: -22, bottom: 0 }}>
             <CartesianGrid stroke="#2a2a31" vertical={false} />
-            <XAxis dataKey="day" tick={{ fill: "#6e6e78", fontSize: 10 }} tickLine={false}
+            <XAxis dataKey="day" tick={{ fill: "#a8a8b3", fontSize: 10 }} tickLine={false}
               axisLine={{ stroke: "#2a2a31" }} interval={4} />
-            <YAxis tick={{ fill: "#6e6e78", fontSize: 10 }} tickLine={false}
+            <YAxis tick={{ fill: "#a8a8b3", fontSize: 10 }} tickLine={false}
               axisLine={false} allowDecimals={false} />
             <Tooltip
               cursor={{ fill: "rgba(124,158,255,.08)" }}
