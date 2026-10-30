@@ -128,6 +128,12 @@ export default function Drill({
     beginRound(all.slice(next, next + roundLen));
   }, [queue, roundLen, offset, onNewQueue, beginRound]);
 
+  // 跳过：不计成绩、不进错词表——队列前排老是同几个词时的出口
+  const skipWord = useCallback(() => {
+    if (qi + 1 >= roundWords.length) setPhase("review");
+    else { setQi((i) => i + 1); resetWord(); }
+  }, [qi, roundWords.length]);
+
   // 键击循环：打错整词重来；Tab 偷看；Enter 换词/回顾页开下一轮
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -285,7 +291,7 @@ export default function Drill({
         </span>
       </div>
 
-      <p className="max-w-xl text-center text-[15px] leading-7 text-ink2">
+      <p className="max-w-xl text-center text-[19.5px] leading-7 text-ink">
         {(e2.translation ?? "").replace(/\\n/g, "；")}
       </p>
 
@@ -338,6 +344,23 @@ export default function Drill({
       {e2.ai && (
         <p className="max-w-xl text-center text-[12.5px] leading-6 text-ink3">{e2.ai}</p>
       )}
+
+      <div className="flex gap-2.5">
+        <button
+          className="rounded-full border border-[#33333c] px-3.5 py-1.5 text-[12.5px] font-medium text-ink2 transition-colors hover:border-accent hover:text-accent"
+          title="这个词不想打：不计成绩，直接看下一个"
+          onClick={skipWord}
+        >
+          跳过这个词
+        </button>
+        <button
+          className="rounded-full border border-[#33333c] px-3.5 py-1.5 text-[12.5px] font-medium text-ink2 transition-colors hover:border-accent hover:text-accent"
+          title="这一轮的词都不想打：直接换下一批"
+          onClick={nextRound}
+        >
+          跳过这一轮
+        </button>
+      </div>
 
       <p className="text-xs text-ink3" aria-live="polite">
         {done
