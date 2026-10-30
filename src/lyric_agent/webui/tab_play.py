@@ -206,7 +206,10 @@ def build(rt: Runtime, ui) -> None:
                                 ui.audio_up_status = gr.Markdown("")
                             with gr.Accordion("🎚 歌词时间校准", open=False):
                                 gr.Markdown(
-                                    "歌词快/慢半拍时微调（正值 = 歌词提前）。"
+                                    "以耳朵为准：**听到的唱词比高亮快**"
+                                    "（歌词亮得晚）→ 往**正**方向调，"
+                                    "歌词会提前亮；**高亮比听到的快**"
+                                    "（歌词亮得早）→ 往**负**方向调。"
                                     "拖动即实时预览，满意后保存。",
                                     elem_id=None)
                                 ui.offset_slider = gr.Slider(

@@ -15,6 +15,10 @@ from .lrc_parser import load_lrc_file
 
 logger = logging.getLogger(__name__)
 
+# Built-in lyric-sync defaults (ms) for songs whose audio needs a fixed
+# calibration; metadata.json audio_offset_ms still wins when present.
+DEFAULT_AUDIO_OFFSETS = {"cardigan": 2500}
+
 # 刻意最小的公开 API：仅这四个名字是稳定契约。其余 `_` 前缀符号均为
 # 私有实现，ui_helpers 重导出它们只为旧导入路径兼容（兼容面由
 # tests/test_features.py::test_ui_helpers_compat_surface 锁定）。
@@ -103,7 +107,9 @@ def _discover_songs(songs_dir: str,
             "era": era,
             "audio_type": audio.type, "audio_src": audio.path_or_url or "",
             # preview clips start mid-song; shift lyric sync by this many ms
-            "audio_offset_ms": int(meta.get("audio_offset_ms", 0) or 0),
+            "audio_offset_ms": int(
+                meta.get("audio_offset_ms",
+                         DEFAULT_AUDIO_OFFSETS.get(d.name, 0)) or 0),
             # bound bilibili video for the 📺 video playback mode
             "bvid": meta.get("bvid", ""),
             "bvid_no_auto": bool(meta.get("bvid_no_auto")),
