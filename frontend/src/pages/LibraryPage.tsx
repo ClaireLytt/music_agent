@@ -66,10 +66,19 @@ export default function LibraryPage() {
             placeholder="搜索曲库（歌名 / 歌手 / 专辑）"
             className={`${inputCls} ml-auto w-64`}
           />
-          <button className={chip()} onClick={() => setChecked(new Set(addable.map(label)))}>
+          <button
+            className={chip()}
+            disabled={!addable.length}
+            title={addable.length ? undefined : "全部歌曲都已在曲库，没有可勾选的"}
+            onClick={() => setChecked(new Set(addable.map(label)))}
+          >
             全选
           </button>
-          <button className={chip()} onClick={() => setChecked(new Set())}>
+          <button
+            className={chip()}
+            disabled={!checked.size}
+            onClick={() => setChecked(new Set())}
+          >
             取消全选
           </button>
           <button
@@ -106,13 +115,20 @@ export default function LibraryPage() {
                   r.in_library ? "cursor-default text-ink3" : "text-ink2 hover:bg-panel2"
                 }`}
               >
-                <input
-                  type="checkbox"
-                  disabled={r.in_library}
-                  checked={checked.has(v)}
-                  onChange={() => toggle(v)}
-                  className="accent-[#7c9eff]"
-                />
+                {r.in_library ? (
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                    strokeLinejoin="round" className="flex-none">
+                    <path d="M3 8.5l3.2 3L13 4.5" />
+                  </svg>
+                ) : (
+                  <input
+                    type="checkbox"
+                    checked={checked.has(v)}
+                    onChange={() => toggle(v)}
+                    className="accent-[#7c9eff]"
+                  />
+                )}
                 <span className="truncate">{v}</span>
                 {r.in_library && <span className="ml-auto flex-none text-[16.5px]">已在列表</span>}
               </label>
