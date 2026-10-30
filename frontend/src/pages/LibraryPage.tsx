@@ -13,6 +13,73 @@ const chip = (primary = false) =>
 const inputCls =
   "rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[19.5px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none";
 
+
+/** 自绘自动补全（替代无法改样式的原生 datalist 白框）。 */
+function AutoInput({
+  value, onChange, onPick, options, placeholder, required, className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onPick?: (label: string) => void;
+  options: { label: string; sub?: string }[];
+  placeholder: string;
+  required?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const hits = value.trim()
+    ? options.filter((o) =>
+        o.label.toLowerCase().includes(value.trim().toLowerCase())).slice(0, 7)
+    : [];
+  const mark = (t: string) => {
+    const q = value.trim();
+    const i = t.toLowerCase().indexOf(q.toLowerCase());
+    if (i < 0 || !q) return t;
+    return (
+      <>
+        {t.slice(0, i)}
+        <span className="font-bold text-accent">{t.slice(i, i + q.length)}</span>
+        {t.slice(i + q.length)}
+      </>
+    );
+  };
+  return (
+    <div className={`relative ${className ?? ""}`}>
+      <input
+        required={required}
+        value={value}
+        placeholder={placeholder}
+        className={`${inputCls} w-full`}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && hits.length > 0 && (
+        <div className="absolute inset-x-0 top-[calc(100%+6px)] z-10 overflow-hidden rounded-[12px] border border-edge bg-panel shadow-[0_18px_40px_-16px_rgba(0,0,0,.8)]">
+          {hits.map((o) => (
+            <button
+              type="button"
+              key={o.label + (o.sub ?? "")}
+              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[17px] text-ink hover:bg-panel2"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onChange(o.label);
+                onPick?.(o.label);
+                setOpen(false);
+              }}
+            >
+              <span className="truncate font-medium">{mark(o.label)}</span>
+              {o.sub && (
+                <span className="ml-auto flex-none text-[14px] text-ink2">{o.sub}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LibraryPage() {
   const acts = useAdminActions();
   const { data: songs = [] } = useSongs();
@@ -63,7 +130,6 @@ export default function LibraryPage() {
       .filter((sg) => !artist.trim() || sg.artist === artist.trim())
       .map((sg) => sg.album ?? ""),
   ])].filter(Boolean).sort();
-  const titleOptions = [...new Set(catRows.map((r) => r.title))].sort();
 
   return (
     <Scrollable className="h-full min-h-0 bg-bg2" contentClassName="flex flex-col gap-5 px-10 py-6">
@@ -188,9 +254,13 @@ export default function LibraryPage() {
           }}
         >
           <div className="flex flex-wrap items-center gap-2.5">
-            <input name="add-title" required value={title} list="title-options"
-              onChange={(e) => {
-                const v = e.target.value;
+            <AutoInput
+              required
+              value={title}
+              className="w-80"
+              placeholder="歌曲标题（必填 — 输入几个词可从热门歌曲里选）"
+              options={catRows.map((r) => ({ label: r.title, sub: r.artist }))}
+              onChange={(v) => {
                 setTitle(v);
                 // 命中热门歌曲 → 自动带出歌手/专辑（不覆盖已填内容）
                 const hit = catRows.find((r) => r.title === v);
@@ -199,16 +269,25 @@ export default function LibraryPage() {
                   if (!album.trim()) setAlbum(hit.album);
                 }
               }}
-              placeholder="歌曲标题（必填 — 输入几个词可从热门歌曲里选）"
-              className={`${inputCls} w-72`} />
-            <input name="add-artist" value={artist} list="artist-options"
-              onChange={(e) => setArtist(e.target.value)}
+              onPick={(v) => {
+                const hit = catRows.find((r) => r.title === v);
+                if (hit) { setArtist(hit.artist); setAlbum(hit.album); }
+              }}
+            />
+            <AutoInput
+              value={artist}
+              className="w-60"
               placeholder="歌手（选填 — 可选可输入）"
-              className={`${inputCls} w-56`} />
-            <input name="add-album" value={album} list="album-options"
-              onChange={(e) => setAlbum(e.target.value)}
+              options={artistOptions.map((a) => ({ label: a }))}
+              onChange={setArtist}
+            />
+            <AutoInput
+              value={album}
+              className="w-60"
               placeholder="专辑（选填 — 可选可输入）"
-              className={`${inputCls} w-56`} />
+              options={albumOptions.map((a) => ({ label: a }))}
+              onChange={setAlbum}
+            />
             <input
               ref={lrcFileRef}
               type="file"
@@ -223,15 +302,6 @@ export default function LibraryPage() {
             <button type="button" className={chip()} onClick={() => lrcFileRef.current?.click()}>
               {lrc ? `已选歌词（${lrc.split("\n").length} 行，点击更换）` : "上传 .lrc 歌词（选填，留空自动获取）…"}
             </button>
-            <datalist id="title-options">
-              {titleOptions.map((t) => <option key={t} value={t} />)}
-            </datalist>
-            <datalist id="artist-options">
-              {artistOptions.map((a) => <option key={a} value={a} />)}
-            </datalist>
-            <datalist id="album-options">
-              {albumOptions.map((a) => <option key={a} value={a} />)}
-            </datalist>
           </div>
           <div className="flex items-center gap-2">
             <input
