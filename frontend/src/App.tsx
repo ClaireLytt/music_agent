@@ -172,7 +172,7 @@ export default function App() {
               <main className="relative overflow-hidden [background:radial-gradient(90%_70%_at_50%_-10%,#2e4639_0%,#1a2420_45%,#121212_100%)]">
                 {drillReturn && (
                   <button
-                    className="absolute right-4 top-4 z-10 rounded-full border border-edge bg-panel px-3.5 py-1.5 text-[12.5px] font-medium text-ink2 shadow-art transition-colors hover:border-accent hover:text-accent"
+                    className="absolute right-3 top-1/3 z-10 -translate-y-1/2 rounded-full border border-edge bg-panel px-3.5 py-1.5 text-[12.5px] font-medium text-ink2 shadow-art transition-colors hover:border-accent hover:text-accent"
                     onClick={() => {
                       const url = drillReturn;
                       setDrillReturn(null);
