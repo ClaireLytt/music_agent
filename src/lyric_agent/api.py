@@ -13,8 +13,9 @@ import threading
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import Body, FastAPI, HTTPException, UploadFile
+from fastapi import Depends, Body, FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
+from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 
 from . import dictionary, songdata
@@ -22,9 +23,12 @@ from .config import load_settings
 from .songdata import (
     _INTRO_FILENAME,
     _discover_songs,
+    _fav_id,
+    _load_favorites,
     _load_intro,
     _load_notes,
     _load_song_data,
+    _save_favorites,
     _save_notes,
 )
 
@@ -215,6 +219,15 @@ def _gen_intro_bg(song_id: str, info: dict) -> None:
 def create_app() -> FastAPI:
     app = FastAPI(title="Lyric Lens API")
 
+    # ── public 写闸门 ─────────────────────────────────────────
+    # public 演示模式：不写服务器盘、管理功能不可达（服务端强制，
+    # 而非仅前端隐藏——旧版只藏按钮是已知缺陷）。写类端点统一挂此依赖。
+    def _forbid_public() -> None:
+        if load_settings().public_mode:
+            raise HTTPException(403, "public 演示模式为只读，该操作不可用")
+
+    WRITE_GATE = {"dependencies": [Depends(_forbid_public)]}
+
     @app.get("/api/songs")
     def list_songs(q: str = "") -> list[dict]:
         songs = _songs()
@@ -263,7 +276,7 @@ def create_app() -> FastAPI:
 
     # ── 歌曲工具（旧 tab_play_tools 的 REST 化） ──────────────
 
-    @app.put("/api/songs/{song_id}/bvid")
+    @app.put("/api/songs/{song_id}/bvid", **WRITE_GATE)
     def put_bvid(song_id: str, value: str = Body("", embed=True)) -> dict:
         from .bilibili import extract_bvid
         s = _find_song(song_id)
@@ -282,7 +295,7 @@ def create_app() -> FastAPI:
         _write_meta(s["dir"], mutate)
         return {"bvid": bvid}
 
-    @app.put("/api/songs/{song_id}/offset")
+    @app.put("/api/songs/{song_id}/offset", **WRITE_GATE)
     def put_offset(song_id: str,
                    offset_ms: int = Body(0, embed=True)) -> dict:
         s = _find_song(song_id)
@@ -295,7 +308,7 @@ def create_app() -> FastAPI:
         _write_meta(s["dir"], mutate)
         return {"audio_offset_ms": int(offset_ms)}
 
-    @app.post("/api/songs/{song_id}/audio")
+    @app.post("/api/songs/{song_id}/audio", **WRITE_GATE)
     async def upload_audio(song_id: str, file: UploadFile) -> dict:
         s = _find_song(song_id)
         ext = Path(file.filename or "").suffix.lower()
@@ -315,7 +328,7 @@ def create_app() -> FastAPI:
     def get_notes(song_id: str) -> list[dict]:
         return _load_notes(_find_song(song_id)["dir"])
 
-    @app.post("/api/songs/{song_id}/notes")
+    @app.post("/api/songs/{song_id}/notes", **WRITE_GATE)
     def add_note(song_id: str, ts_ms: int = Body(...),
                  text: str = Body(...)) -> list[dict]:
         s = _find_song(song_id)
@@ -327,13 +340,46 @@ def create_app() -> FastAPI:
         _save_notes(s["dir"], notes)
         return notes
 
-    @app.delete("/api/songs/{song_id}/notes/{ts_ms}")
+    @app.delete("/api/songs/{song_id}/notes/{ts_ms}", **WRITE_GATE)
     def del_note(song_id: str, ts_ms: int) -> list[dict]:
         s = _find_song(song_id)
         notes = [n for n in _load_notes(s["dir"])
                  if int(n.get("ts_ms", -1)) != int(ts_ms)]
         _save_notes(s["dir"], notes)
         return notes
+
+    # ── 歌词收藏夹（全局，与旧版共用 data/favorites.json） ────
+
+    @app.get("/api/favorites")
+    def get_favorites() -> list[dict]:
+        return _load_favorites()
+
+    @app.post("/api/favorites", **WRITE_GATE)
+    def add_favorite(song_id: str = Body(...),
+                     line_index: int = Body(...)) -> list[dict]:
+        s_ = _find_song(song_id)
+        data = _load_song_data(s_["dir"])
+        line = next((ln for ln in data["timed_lines"]
+                     if ln.line_index == int(line_index)), None)
+        if line is None:
+            raise HTTPException(404, "未找到选中的歌词行")
+        favs = _load_favorites()
+        title = s_.get("title", "")
+        if not any(f.get("line") == line.text and f.get("title") == title
+                   for f in favs):
+            favs.append({"id": _fav_id(line.text, title),
+                         "line": line.text, "title": title,
+                         "artist": s_.get("artist", ""),
+                         "song_id": s_["name"],
+                         "line_index": line.line_index})
+            _save_favorites(favs)
+        return favs
+
+    @app.delete("/api/favorites/{fid}", **WRITE_GATE)
+    def del_favorite(fid: str) -> list[dict]:
+        favs = [f for f in _load_favorites() if f.get("id") != fid]
+        _save_favorites(favs)
+        return favs
 
     # ── 单词本 / 词组本（跟随歌曲） ───────────────────────────
 
@@ -344,7 +390,7 @@ def create_app() -> FastAPI:
             book = [e for e in book if e.get("song", "") == song]
         return book
 
-    @app.post("/api/wordbook")
+    @app.post("/api/wordbook", **WRITE_GATE)
     def post_word(word: str = Body(...), line: str = Body(""),
                   song: str = Body(""),
                   line_index: int = Body(-1)) -> list[dict]:
@@ -362,9 +408,13 @@ def create_app() -> FastAPI:
         return dictionary.add_word(word.strip(), line=line, song=song,
                                    line_index=line_index, ai=ai)
 
-    @app.delete("/api/wordbook/{word}")
+    @app.delete("/api/wordbook/{word}", **WRITE_GATE)
     def delete_word(word: str) -> list[dict]:
         return dictionary.remove_word(word)
+
+    @app.put("/api/wordbook/{word}/note", **WRITE_GATE)
+    def put_word_note(word: str, note: str = Body("", embed=True)) -> list[dict]:
+        return dictionary.set_note(word, note)
 
     # ── 歌曲导读（缓存命中直接回；否则后台生成 + 轮询） ──────
 
@@ -442,7 +492,7 @@ def create_app() -> FastAPI:
             raise HTTPException(404, "TTS 不可用")
         return FileResponse(mp3, media_type="audio/mpeg")
 
-    @app.post("/api/drill/result")
+    @app.post("/api/drill/result", **WRITE_GATE)
     def drill_result(word: str = Body(...), clean: bool = Body(...),
                      blind: bool = Body(False),
                      peeks: int = Body(0)) -> dict:
@@ -476,11 +526,11 @@ def create_app() -> FastAPI:
     def wordbook_groups() -> list[str]:
         return dictionary.word_groups()
 
-    @app.delete("/api/wordbook/groups/{group}")
+    @app.delete("/api/wordbook/groups/{group}", **WRITE_GATE)
     def wordbook_del_group(group: str) -> dict:
         return {"removed": dictionary.delete_group(group)}
 
-    @app.post("/api/wordbook/import")
+    @app.post("/api/wordbook/import", **WRITE_GATE)
     async def wordbook_import(file: UploadFile,
                               group: str = "") -> dict:
         import tempfile
@@ -548,6 +598,75 @@ def create_app() -> FastAPI:
             threading.Thread(target=_gen_fanlore_bg, args=(song_id, s),
                              daemon=True).start()
         return {"status": "running"}
+
+    # ── 行级 AI 助手（旧播放页「💬 AI 助手」迁移） ──────────────
+
+    @app.get("/api/songs/{song_id}/chat/{line_index}")
+    def get_line_chat(song_id: str, line_index: int) -> dict:
+        """该句歌词已保存的问答历史。public：访客不能看彼此的问答。"""
+        if load_settings().public_mode:
+            return {"history": []}
+        from .songdata import _load_chat_history
+        s_info = _find_song(song_id)
+        saved = _load_chat_history(s_info["dir"]).get(str(line_index))
+        turns = (saved or {}).get("turns")
+        return {"history": turns if isinstance(turns, list) else []}
+
+    @app.post("/api/songs/{song_id}/chat")
+    def ask_line(song_id: str, line_index: int = Body(...),
+                 question: str = Body(...),
+                 history: list[dict] = Body(default=[])) -> dict:
+        """针对一句歌词提问。批注作为上下文喂给 AI（与旧版同口径；
+        互文档案 echo_context 依赖重型索引，薄层暂不带，留待后续）。"""
+        from .debate import DebateSession, speak as ai_speak
+        from .songdata import _load_chat_history, _save_chat_history
+        question = (question or "").strip()
+        if not question:
+            raise HTTPException(422, "问题不能为空")
+        s_info = _find_song(song_id)
+        data = _load_song_data(s_info["dir"])
+        line = next((ln for ln in data["timed_lines"]
+                     if ln.line_index == line_index), None)
+        if line is None:
+            raise HTTPException(404, "没有这句歌词")
+        settings = load_settings()
+        if not settings.api_key:
+            raise HTTPException(400, "未配置 API Key：请到「设置」页填写")
+
+        ann = data["annotations"].get(line_index)
+        ann_parts = []
+        if ann:
+            ann_parts.append(ann.summary)
+            if getattr(ann, "metaphor_analysis", None):
+                ann_parts.append(f"修辞：{ann.metaphor_analysis}")
+            if getattr(ann, "taylor_swift_context", None):
+                ann_parts.append(f"背景：{ann.taylor_swift_context}")
+
+        session = DebateSession(
+            lyric_line=line.text,
+            song_title=s_info.get("title", ""),
+            artist=s_info.get("artist", ""),
+            annotation_context="　".join(ann_parts),
+            line_index=line_index,
+        )
+        if history:
+            session.history = [h for h in history
+                               if isinstance(h, dict) and h.get("text")]
+        elif not settings.public_mode:
+            saved = _load_chat_history(s_info["dir"]).get(str(line_index))
+            if saved and isinstance(saved.get("turns"), list):
+                session.history = saved["turns"]
+        session.history.append({"speaker": "user", "text": question})
+        answer = "".join(ai_speak(settings, session, "assistant",
+                                  user_prompt=question))
+        if answer and not answer.startswith("⚠️"):
+            if session.history and session.history[-1].get("speaker") == "user":
+                session.history.append({"speaker": "🤖 AI 助手",
+                                        "text": answer})
+            if not settings.public_mode:
+                _save_chat_history(s_info["dir"], line_index, line.text,
+                                   session.history)
+        return {"answer": answer, "history": session.history}
 
     @app.post("/api/chat/lore")
     def chat_lore(song_id: str = Body(...), question: str = Body(...),
@@ -640,7 +759,7 @@ def create_app() -> FastAPI:
                         "album": s.get("album", ""), "in_library": True})
         return out
 
-    @app.post("/api/songs/from-catalog")
+    @app.post("/api/songs/from-catalog", **WRITE_GATE)
     def add_from_catalog(labels: list[str] = Body(..., embed=True)) -> dict:
         import re as _re
         import time as _time
@@ -685,7 +804,7 @@ def create_app() -> FastAPI:
             _kick_corpus_rebuild()
         return {"added": added, "existed": existed, "missing": missing}
 
-    @app.post("/api/songs")
+    @app.post("/api/songs", **WRITE_GATE)
     async def add_song(title: str = Body(...), artist: str = Body(""),
                        album: str = Body(""),
                        lrc_text: str = Body("")) -> dict:
@@ -728,7 +847,7 @@ def create_app() -> FastAPI:
         _kick_corpus_rebuild()
         return {"id": slug, "note": lrc_note}
 
-    @app.delete("/api/songs/{song_id}")
+    @app.delete("/api/songs/{song_id}", **WRITE_GATE)
     def delete_song(song_id: str) -> dict:
         import shutil
         from .songdata import _SONG_DATA_CACHE
@@ -748,10 +867,11 @@ def create_app() -> FastAPI:
     def get_settings() -> dict:
         s = load_settings()
         return {"llm_provider": s.llm_provider, "has_key": bool(s.api_key),
+                "public": s.public_mode,
                 "llm_base_url": s.llm_base_url, "model_name": s.model_name,
                 "embedding_model": s.embedding_model}
 
-    @app.put("/api/settings")
+    @app.put("/api/settings", **WRITE_GATE)
     def put_settings(provider: str = Body(...), key: str = Body(...),
                      base: str = Body(""), model: str = Body("")) -> dict:
         from .config import default_model_for, save_user_settings
@@ -774,7 +894,7 @@ def create_app() -> FastAPI:
     def rebuild_status() -> dict:
         return dict(_REBUILD_STATE)
 
-    @app.post("/api/rebuild-index")
+    @app.post("/api/rebuild-index", **WRITE_GATE)
     def rebuild_index(model: str = Body("", embed=True)) -> dict:
         model = (model or "").strip() or load_settings().embedding_model
         if _REBUILD_STATE.get("status") == "running":
@@ -852,6 +972,111 @@ def create_app() -> FastAPI:
             json.dumps(cache, ensure_ascii=False, indent=2),
             encoding="utf-8")
         return {"ai": text}
+
+    # ── 数据备份与恢复（spec: .scratch/backup-restore/spec.md） ──
+    # 术语见 GLOSSARY.md 数据备份域：备份包 / 恢复(清空替换) / 留底 / key 剥离。
+    _DATA_ROOT = Path("data")
+    _SETTINGS_NAME = "user_settings.json"
+
+    @app.get("/api/backup/export", **WRITE_GATE)
+    def export_backup():
+        """整个 data/ 打成 zip 下载；包内 settings 副本剥离 api_key。"""
+        import tempfile
+        import zipfile
+        from datetime import date
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        tmp.close()
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in sorted(_DATA_ROOT.rglob("*")):
+                if not f.is_file():
+                    continue
+                arc = f.relative_to(_DATA_ROOT).as_posix()
+                if arc == _SETTINGS_NAME:
+                    cfg = json.loads(f.read_text(encoding="utf-8"))
+                    cfg.pop("api_key", None)  # key 剥离：密钥不离开本机
+                    zf.writestr(arc, json.dumps(cfg, ensure_ascii=False,
+                                                indent=2))
+                else:
+                    zf.write(f, arc)
+        name = f"lyric_lens_backup_{date.today().isoformat()}.zip"
+        return FileResponse(
+            tmp.name, media_type="application/zip", filename=name,
+            background=BackgroundTask(lambda: Path(tmp.name)
+                                      .unlink(missing_ok=True)))
+
+    @app.post("/api/backup/import", **WRITE_GATE)
+    def import_backup(file: UploadFile):
+        """恢复 = 清空替换：校验 → 留底 → 解包 → 本机 key 保留 → 失败回滚。"""
+        import shutil
+        import tempfile
+        import time
+        import zipfile
+
+        # 1. 校验：是 zip、像备份包（防传错文件）、无 zip-slip
+        try:
+            zf = zipfile.ZipFile(file.file)
+            names = zf.namelist()
+        except zipfile.BadZipFile:
+            raise HTTPException(400, "不是有效的 zip 文件")
+        if not any(n == "wordbook.json" or n.startswith("songs/")
+                   for n in names):
+            raise HTTPException(400, "这不像歌词透镜的备份包"
+                                     "（没有 songs/ 或 wordbook.json）")
+        for n in names:
+            parts = Path(n).parts
+            if ".." in parts or Path(n).is_absolute():
+                raise HTTPException(400, f"备份包含非法路径：{n}")
+
+        # 2. 解包到临时目录（先解后替换，解包失败不影响现有数据）
+        staging = Path(tempfile.mkdtemp(prefix="ll_restore_"))
+        try:
+            zf.extractall(staging)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise HTTPException(400, "备份包解压失败")
+
+        # 3. 留底 → 换入；任一步失败回滚留底
+        bak = Path(f"data.bak_{time.strftime('%Y%m%d_%H%M%S')}")
+        try:
+            _DATA_ROOT.rename(bak)
+        except OSError as exc:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise HTTPException(409, f"数据目录被占用，无法恢复："
+                                     f"{str(exc)[:120]}")
+        try:
+            staging.rename(_DATA_ROOT)
+        except OSError:
+            # 跨盘 rename 可能失败，退回复制
+            try:
+                shutil.copytree(staging, _DATA_ROOT)
+                shutil.rmtree(staging, ignore_errors=True)
+            except Exception as exc:
+                bak.rename(_DATA_ROOT)  # 回滚
+                shutil.rmtree(staging, ignore_errors=True)
+                raise HTTPException(500, f"恢复失败，已回滚：{str(exc)[:120]}")
+
+        # 4. 本机 api_key 保留：包内 key 不写入，本机旧 key 拷回
+        try:
+            old_cfg = json.loads((bak / _SETTINGS_NAME)
+                                 .read_text(encoding="utf-8"))
+            key = old_cfg.get("api_key")
+        except Exception:
+            key = None
+        if key:
+            new_path = _DATA_ROOT / _SETTINGS_NAME
+            try:
+                cfg = json.loads(new_path.read_text(encoding="utf-8"))
+            except Exception:
+                cfg = {}
+            cfg["api_key"] = key
+            new_path.write_text(
+                json.dumps(cfg, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+
+        from .songdata import _SONG_DATA_CACHE
+        _SONG_DATA_CACHE.clear()
+        return {"restored": True, "backup_of_old_data": str(bak)}
 
     # 生产形态：Vite build 产物由同一进程托管（部署体验与 serve 一致）。
     # SPA 路由（/words 等）回退到 index.html。
