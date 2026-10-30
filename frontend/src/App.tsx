@@ -149,6 +149,20 @@ export default function App() {
         onPointerDown={onSplitDown}
         onDoubleClick={() => applySideW(sideW === 0 ? SIDEBAR_W : 0)}
       />
+      {sideW === 0 && (
+        <button
+          aria-label="展开侧栏"
+          title="展开侧栏"
+          className="absolute left-2 top-2 z-20 grid h-8 w-8 place-items-center rounded-full border border-edge bg-panel text-ink2 shadow-art transition-colors hover:border-accent hover:text-ink"
+          onClick={() => applySideW(SIDEBAR_W)}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M6 3l5 5-5 5" />
+          </svg>
+        </button>
+      )}
       <Routes>
         <Route
           path="/"
