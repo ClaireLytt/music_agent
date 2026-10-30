@@ -39,8 +39,6 @@ export default function SettingsPage() {
     const s = settings.data;
     if (!s) return;
     setProvider(s.llm_provider);
-    setBase(s.llm_base_url);
-    setModel(s.model_name);
     setEmbModel(s.embedding_model);
   }, [settings.data]);
 
@@ -91,11 +89,7 @@ export default function SettingsPage() {
       </section>
 
       <section className="rounded-card border border-edge bg-panel p-5">
-        <h2 className="mb-1 text-[13px] font-semibold">API 设置</h2>
-        <p className="mb-3 text-[12.5px] text-ink3">
-          填入你自己的大模型 API Key，保存后立即生效，无需改文件、无需重启。
-          {settings.data?.has_key && "（当前已配置 Key）"}
-        </p>
+        <h2 className="mb-3 text-[13px] font-semibold">API 设置</h2>
         <form
           className="flex flex-col gap-2.5"
           onSubmit={(e) => {
@@ -109,23 +103,6 @@ export default function SettingsPage() {
               .catch((err) => setStatus(err.message));
           }}
         >
-          <div className="flex gap-4 text-[13px]" role="radiogroup" aria-label="接口类型">
-            {[
-              ["openai", "OpenAI 兼容接口（DeepSeek / 通义 / Kimi 等）"],
-              ["anthropic", "Anthropic（Claude）"],
-            ].map(([v, label]) => (
-              <label key={v} className="flex cursor-pointer items-center gap-1.5 text-ink2">
-                <input
-                  type="radio"
-                  name="provider"
-                  checked={provider === v}
-                  onChange={() => setProvider(v)}
-                  className="accent-[#7c9eff]"
-                />
-                {label}
-              </label>
-            ))}
-          </div>
           <div className="flex flex-wrap gap-2.5">
             <input name="api-key" type="password" autoComplete="off" required value={key}
               onChange={(e) => setKey(e.target.value)}
