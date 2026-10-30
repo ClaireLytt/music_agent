@@ -207,7 +207,7 @@ export default function Dock({
   return (
     <Scrollable
       ariaLabel="解读面板"
-      className="min-h-0 border-l border-line bg-bg2"
+      className="h-full min-h-0 border-l border-line bg-bg2"
       contentClassName="flex flex-col gap-3.5 px-[18px] py-5"
     >
       <h2 className="flex items-center text-[14.4px] font-semibold tracking-[0.1em] text-ink3">
