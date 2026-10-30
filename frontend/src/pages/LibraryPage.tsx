@@ -187,63 +187,51 @@ export default function LibraryPage() {
             );
           }}
         >
-          <div className="flex flex-wrap gap-2.5">
-            <div className="flex w-64 flex-col gap-2.5">
-              <input name="add-title" required value={title} list="title-options"
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setTitle(v);
-                  // 命中热门歌曲 → 自动带出歌手/专辑（不覆盖已填内容）
-                  const hit = catRows.find((r) => r.title === v);
-                  if (hit) {
-                    if (!artist.trim()) setArtist(hit.artist);
-                    if (!album.trim()) setAlbum(hit.album);
-                  }
-                }}
-                placeholder="歌曲标题（必填 — 输入几个词可从热门歌曲里选）"
-                className={inputCls} />
-              <input name="add-artist" value={artist} list="artist-options"
-                onChange={(e) => setArtist(e.target.value)}
-                placeholder="歌手（选填 — 可从已有歌手里选，也可直接输入）"
-                className={inputCls} />
-              <input name="add-album" value={album} list="album-options"
-                onChange={(e) => setAlbum(e.target.value)}
-                placeholder="专辑（选填 — 可从该歌手的专辑里选）"
-                className={inputCls} />
-              <datalist id="title-options">
-                {titleOptions.map((t) => <option key={t} value={t} />)}
-              </datalist>
-              <datalist id="artist-options">
-                {artistOptions.map((a) => <option key={a} value={a} />)}
-              </datalist>
-              <datalist id="album-options">
-                {albumOptions.map((a) => <option key={a} value={a} />)}
-              </datalist>
-            </div>
-            <textarea
-              name="add-lrc"
-              value={lrc}
-              onChange={(e) => setLrc(e.target.value)}
-              placeholder={"LRC 歌词（选填 — 格式如 [00:12.34] 歌词内容，留空将自动从 LRCLIB 获取）"}
-              rows={5}
-              className="min-w-[280px] flex-1 rounded-card border border-edge2 bg-panel2 px-3.5 py-2.5 text-[19.5px] leading-6 text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
+          <div className="flex flex-wrap items-center gap-2.5">
+            <input name="add-title" required value={title} list="title-options"
+              onChange={(e) => {
+                const v = e.target.value;
+                setTitle(v);
+                // 命中热门歌曲 → 自动带出歌手/专辑（不覆盖已填内容）
+                const hit = catRows.find((r) => r.title === v);
+                if (hit) {
+                  if (!artist.trim()) setArtist(hit.artist);
+                  if (!album.trim()) setAlbum(hit.album);
+                }
+              }}
+              placeholder="歌曲标题（必填 — 输入几个词可从热门歌曲里选）"
+              className={`${inputCls} w-72`} />
+            <input name="add-artist" value={artist} list="artist-options"
+              onChange={(e) => setArtist(e.target.value)}
+              placeholder="歌手（选填 — 可选可输入）"
+              className={`${inputCls} w-56`} />
+            <input name="add-album" value={album} list="album-options"
+              onChange={(e) => setAlbum(e.target.value)}
+              placeholder="专辑（选填 — 可选可输入）"
+              className={`${inputCls} w-56`} />
+            <input
+              ref={lrcFileRef}
+              type="file"
+              accept=".lrc,.txt"
+              className="hidden"
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (f) setLrc(await f.text());
+                e.target.value = "";
+              }}
             />
-            <div className="flex flex-col justify-start">
-              <input
-                ref={lrcFileRef}
-                type="file"
-                accept=".lrc,.txt"
-                className="hidden"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0];
-                  if (f) setLrc(await f.text());
-                  e.target.value = "";
-                }}
-              />
-              <button type="button" className={chip()} onClick={() => lrcFileRef.current?.click()}>
-                上传 .lrc 文件…
-              </button>
-            </div>
+            <button type="button" className={chip()} onClick={() => lrcFileRef.current?.click()}>
+              {lrc ? `已选歌词（${lrc.split("\n").length} 行，点击更换）` : "上传 .lrc 歌词（选填，留空自动获取）…"}
+            </button>
+            <datalist id="title-options">
+              {titleOptions.map((t) => <option key={t} value={t} />)}
+            </datalist>
+            <datalist id="artist-options">
+              {artistOptions.map((a) => <option key={a} value={a} />)}
+            </datalist>
+            <datalist id="album-options">
+              {albumOptions.map((a) => <option key={a} value={a} />)}
+            </datalist>
           </div>
           <div className="flex items-center gap-2">
             <input
