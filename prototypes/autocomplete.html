@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>歌名自动补全 原型</title>
+<style>
+  :root{
+    --bg:#121212; --panel:#1e1e22; --panel2:#24242a;
+    --ink:#f5f5f4; --ink2:#a8a8b3; --edge:#2a2a31;
+    --accent:#7c9eff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:Inter,"Noto Sans SC",system-ui,sans-serif;
+    display:flex; flex-wrap:wrap; gap:36px; justify-content:center;
+    padding:40px 16px 320px;
+  }
+  .col{width:400px}
+  .col h2{font-size:12px;font-weight:600;letter-spacing:.1em;color:var(--ink2);margin:0 0 4px}
+  .col p.meta{font-size:12.5px;color:var(--ink2);margin:0 0 12px;line-height:1.5}
+  .wrap{position:relative}
+  input{
+    width:100%; border-radius:999px; border:1px solid #2e2e36;
+    background:var(--panel2); color:var(--ink); padding:10px 16px;
+    font-size:15px; outline:none; font-family:inherit;
+  }
+  input:focus{border-color:var(--accent)}
+  .pop{
+    position:absolute; left:0; right:0; top:calc(100% + 6px); z-index:5;
+    background:var(--panel); border:1px solid var(--edge); border-radius:12px;
+    box-shadow:0 18px 40px -16px rgba(0,0,0,.8); overflow:hidden;
+    max-height:264px; overflow-y:auto;
+  }
+  .pop::-webkit-scrollbar{width:8px}
+  .pop::-webkit-scrollbar-thumb{background:#3a3a42;border-radius:4px}
+  .pop::-webkit-scrollbar-track{background:transparent}
+  .it{
+    display:flex; align-items:center; gap:10px;
+    padding:9px 14px; cursor:pointer; font-size:14.5px;
+  }
+  .it:hover,.it.on{background:var(--panel2)}
+  .it b{font-weight:500}
+  .it b mark{background:none;color:var(--accent);font-weight:700}
+  .sub{margin-left:auto; font-size:12px; color:var(--ink2); flex:none}
+  .badge{flex:none; font-size:11px; color:var(--ink2);
+         border:1px solid var(--edge); border-radius:999px; padding:1px 8px}
+  .cover{flex:none; width:26px; height:26px; border-radius:6px;
+         background:linear-gradient(135deg,#4a6b58,#22332a);
+         display:grid; place-items:center; color:#cfe3d6}
+  .cover svg{display:block}
+  .hint{padding:8px 14px; font-size:12px; color:var(--ink2);
+        border-top:1px solid var(--edge)}
+</style>
+</head>
+<body>
+<div class="col" id="A"><h2>A 极简面板（推荐）</h2>
+  <p class="meta">深色卡片 + 命中字符 accent 高亮；键盘 ↑↓ 可选。最安静，和现有卡片语言一致。</p>
+  <div class="wrap"><input placeholder="歌曲标题（试输入 wh / lo / ba）"><div class="pop"></div></div>
+</div>
+<div class="col" id="B"><h2>B 带歌手副标</h2>
+  <p class="meta">右侧灰字标出歌手——同名歌不迷路，选中即自动带出歌手/专辑的预告。</p>
+  <div class="wrap"><input placeholder="歌曲标题（试输入 wh / lo / ba）"><div class="pop"></div></div>
+</div>
+<div class="col" id="C"><h2>C 专辑封面占位 + 已在列表徽标</h2>
+  <p class="meta">信息最全：封面色块 + 歌手 + 已在曲库的歌打标（选中它会提示直接去播放）。</p>
+  <div class="wrap"><input placeholder="歌曲标题（试输入 wh / lo / ba）"><div class="pop"></div></div>
+</div>
+
+<script>
+const SONGS=[
+  ["What Was I Made For?","Billie Eilish",false],
+  ["We Are Never Ever Getting Back Together","Taylor Swift",true],
+  ["White Horse","Taylor Swift",true],
+  ["When I Was Your Man","Bruno Mars",false],
+  ["Wildest Dreams","Taylor Swift",true],
+  ["Love Story","Taylor Swift",true],
+  ["Lover","Taylor Swift",true],
+  ["Long Live","Taylor Swift",true],
+  ["lovely","Billie Eilish",false],
+  ["Back to December","Taylor Swift",true],
+  ["bad guy","Billie Eilish",false],
+  ["Bad Blood","Taylor Swift",true],
+  ["Blank Space","Taylor Swift",true],
+];
+const note=`<svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M6 13.5a2 2 0 1 1-1.3-1.87V4.2a.8.8 0 0 1 .62-.78l6-1.5A.8.8 0 0 1 12.3 2.7v8a2 2 0 1 1-1.3-1.88V5.1l-4.4 1.1v7.3z"/></svg>`;
+
+function hi(t,q){
+  const i=t.toLowerCase().indexOf(q.toLowerCase());
+  if(i<0) return t;
+  return t.slice(0,i)+'<mark>'+t.slice(i,i+q.length)+'</mark>'+t.slice(i+q.length);
+}
+function wire(col, render){
+  const input=col.querySelector('input'), pop=col.querySelector('.pop');
+  let items=[], on=-1;
+  const paint=()=>{
+    pop.querySelectorAll('.it').forEach((el,i)=>el.classList.toggle('on',i===on));
+  };
+  input.addEventListener('input',()=>{
+    const q=input.value.trim();
+    if(!q){pop.style.display='none';return;}
+    items=SONGS.filter(s=>s[0].toLowerCase().includes(q.toLowerCase())).slice(0,7);
+    on=-1;
+    pop.style.display=items.length?'block':'none';
+    pop.innerHTML=items.map(s=>render(s,q)).join('')
+      + '<div class="hint">↑↓ 选择 · Enter 填入</div>';
+    pop.querySelectorAll('.it').forEach((el,i)=>el.onclick=()=>{
+      input.value=items[i][0]; pop.style.display='none';
+    });
+  });
+  input.addEventListener('keydown',e=>{
+    if(pop.style.display==='none'||!items.length) return;
+    if(e.key==='ArrowDown'){e.preventDefault();on=(on+1)%items.length;paint();}
+    else if(e.key==='ArrowUp'){e.preventDefault();on=(on-1+items.length)%items.length;paint();}
+    else if(e.key==='Enter'&&on>=0){e.preventDefault();input.value=items[on][0];pop.style.display='none';}
+    else if(e.key==='Escape'){pop.style.display='none';}
+  });
+  document.addEventListener('click',e=>{if(!col.contains(e.target))pop.style.display='none';});
+}
+wire(document.getElementById('A'),(s,q)=>`
+  <div class="it"><b>${hi(s[0],q)}</b></div>`);
+wire(document.getElementById('B'),(s,q)=>`
+  <div class="it"><b>${hi(s[0],q)}</b><span class="sub">${s[1]}</span></div>`);
+wire(document.getElementById('C'),(s,q)=>`
+  <div class="it"><span class="cover">${note}</span><b>${hi(s[0],q)}</b>
+  <span class="sub">${s[1]}</span>${s[2]?'<span class="badge">已在曲库</span>':''}</div>`);
+</script>
+</body>
+</html>
