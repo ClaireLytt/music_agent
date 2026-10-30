@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BookStats, DrillEntry, DrillQueue, drillTtsUrl, useDrillActions,
-  useDrillCard,
+  useDrillCard, useSongs,
 } from "../api";
+import { usePlayer } from "../store";
 import { IconVolume } from "../icons";
 import Scrollable from "./Scrollable";
 
@@ -63,6 +65,17 @@ export default function Drill({
   onNewQueue: () => void;
 }) {
   const acts = useDrillActions();
+  const navigate = useNavigate();
+  const { setSong, pickLine } = usePlayer();
+  const { data: allSongs = [] } = useSongs("");
+  // 词条只存歌名：跳转前按 title 兜底解析成 song id（同收藏夹口径）
+  const jumpToSong = (title: string, lineIndex?: number) => {
+    const hit = allSongs.find((sg) => sg.title === title);
+    if (!hit) return;
+    setSong(hit.id);
+    if (lineIndex !== undefined && lineIndex >= 0) pickLine(lineIndex);
+    navigate("/");
+  };
   // 本轮词表：优先级队列切片，或「重打错词」的自定义列表
   const [roundWords, setRoundWords] = useState<DrillEntry[]>([]);
   const [offset, setOffset] = useState(0);
@@ -330,19 +343,28 @@ export default function Drill({
       </div>
 
       {e2.line && (
-        <p className="max-w-xl text-center text-[14px] leading-7 text-ink3">
-          「{masked(e2.line)}」{e2.song ? ` ·《${e2.song}》` : ""}
+        <p className="max-w-xl text-center text-[23.8px] leading-[1.7] text-ink3">
+          「{masked(e2.line)}」
+          {e2.song && (
+            <button
+              className="text-ink3 underline-offset-4 transition-colors hover:text-accent hover:underline"
+              title={`打开《${e2.song}》并定位到这句`}
+              onClick={() => jumpToSong(e2.song!, e2.line_index)}
+            >
+              {` ·《${e2.song}》`}
+            </button>
+          )}
         </p>
       )}
       {!!card.data?.examples?.length && (
-        <ul className="max-w-xl text-center text-[12.5px] leading-6 text-ink3">
+        <ul className="max-w-xl text-center text-[21.3px] leading-[1.6] text-ink3">
           {card.data.examples.slice(0, 2).map((ex) => (
             <li key={ex}>{masked(ex)}</li>
           ))}
         </ul>
       )}
       {e2.ai && (
-        <p className="max-w-xl text-center text-[12.5px] leading-6 text-ink3">{e2.ai}</p>
+        <p className="max-w-xl text-center text-[21.3px] leading-[1.6] text-ink3">{e2.ai}</p>
       )}
 
       <div className="flex gap-2.5">
@@ -362,13 +384,11 @@ export default function Drill({
         </button>
       </div>
 
-      <p className="text-xs text-ink3" aria-live="polite">
-        {done
-          ? `完成（${mistakes === 0 ? "一遍过" : `${mistakes} 次重来`}）· 按 Enter 下一个`
-          : blind
-            ? "直接敲键盘开始 · 打错整词重来 · Tab 偷看一眼"
-            : "直接敲键盘开始 · 打错整词重来"}
-      </p>
+      {done && (
+        <p className="text-xs text-ink3" aria-live="polite">
+          完成（{mistakes === 0 ? "一遍过" : `${mistakes} 次重来`}）· 按 Enter 下一个
+        </p>
+      )}
       <p className="text-xs tabular-nums text-ink3">{statsLine(round, bookStats)}</p>
     </section>
   );
