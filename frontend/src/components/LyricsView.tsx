@@ -22,10 +22,17 @@ export default function LyricsView({
   const { timeMs, currentLine, pickedLine, pickLine, requestSeek, follow } =
     usePlayer();
   const curRef = useRef<HTMLLIElement>(null);
+  const pickedRef = useRef<HTMLLIElement>(null);
 
   useEffect(() => {
     curRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [currentLine]);
+
+  // 外部跳转（打字练习/收藏夹点过来）：滚到被点选的句子并闪一下高光
+  useEffect(() => {
+    if (pickedLine === null) return;
+    pickedRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [pickedLine]);
 
   const p = karaokeP(timeMs, lyrics.timed_lines, currentLine);
 
@@ -43,7 +50,7 @@ export default function LyricsView({
           return (
             <li
               key={i}
-              ref={cur ? curRef : undefined}
+              ref={cur ? curRef : picked ? pickedRef : undefined}
               data-line={i}
               onClick={() => {
                 pickLine(picked ? null : i);
@@ -56,7 +63,7 @@ export default function LyricsView({
                   : near
                     ? "text-[19px] font-medium text-ink2 hover:bg-white/5"
                     : "text-[19px] font-medium text-ink3 hover:bg-white/5 hover:text-ink2"
-              } ${picked && !cur ? "bg-accent-soft" : ""}`}
+              } ${picked && !cur ? "animate-citeflash bg-accent-soft" : ""}`}
             >
               {cur ? (
                 <span className="karaoke" style={{ "--p": `${p}%` } as React.CSSProperties}>
