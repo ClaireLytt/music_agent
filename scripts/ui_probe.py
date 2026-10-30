@@ -146,7 +146,8 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def run_probe(base: str, server_log: Path | None) -> list[dict]:
+def run_probe(base: str, server_log: Path | None,
+              data_root: Path | None = None) -> list[dict]:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
@@ -517,7 +518,8 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 lambda: pg.locator(".song-title-display").inner_text().strip()
                 == PLAIN_SONG, msg="could not open the starting song")
             write_mcp_command("play", title=AUDIO_SONG,
-                              path=ROOT / "data" / "cache" / "mcp_command.json")
+                              path=(data_root or ROOT / "data")
+                                   / "cache" / "mcp_command.json")
             probe.wait_until(
                 lambda: pg.locator(".song-title-display").inner_text().strip()
                 == AUDIO_SONG,
@@ -1003,18 +1005,32 @@ def main() -> int:
                "LL_WORD_EXAMPLES": "0",
                # 探针继续覆盖全曲库行为（含中文歌检查）
                "LL_SHOW_CJK": "1"}
+        # 数据沙箱：把 data/ 复制到临时目录并让服务跑在那里——
+        # 巡检会真实练词/收藏，绝不能污染真实 stats/wordbook
+        # （2026-10-30 定，热力图曾被 probe 刷出虚高练习数）。
+        import tempfile
+        sandbox = Path(tempfile.mkdtemp(prefix="ll_probe_"))
+        shutil.copytree(
+            ROOT / "data", sandbox / "data",
+            ignore=shutil.ignore_patterns("ui_probe", "design_loop",
+                                          "reports"))
+        print(f"data sandbox: {sandbox}")
         with open(server_log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "lyric_agent.cli", "serve", "--no-browser"],
-                cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT, env=env)
+                cwd=str(sandbox), stdout=lf, stderr=subprocess.STDOUT, env=env)
         print(f"spawned server on {base} (pid {proc.pid})")
 
     try:
         wait_server(base)
-        results = run_probe(base, server_log)
+        results = run_probe(
+            base, server_log,
+            data_root=(sandbox / "data") if proc is not None else None)
     finally:
         if proc is not None:
             proc.kill()
+            proc.wait(timeout=15)
+            shutil.rmtree(sandbox, ignore_errors=True)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     report = {
