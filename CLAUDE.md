@@ -74,6 +74,11 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **Never commit placeholder output.** Failed LLM runs still write files
   (e.g. annotations.json full of "[Annotation generation failed]"). Grep for
   that marker before committing anything under data/songs/.
+- **测试必须隔离真实 data/**（2026-10-30 已删过一次库）：API 写端点直接
+  操作相对路径 `data/` 且真实生效（`DELETE /api/songs/{id}` 就是 rmtree）。
+  任何涉及写端点的测试——尤其 TDD 红灯阶段"预期被拒"的请求——必须用
+  tmp 数据树 + `monkeypatch.chdir` 隔离（样板：tests/test_public_gate.py
+  的 isolated_data fixture）。untracked 的 mp3/笔记/LLM 缓存删了就是没了。
 - **Verification gates:** `python -m pytest tests/ -q` (unit) and
   `python scripts/ui_probe.py` (real-browser, all tabs) must both be green
   before claiming UI work done. Probe failures: read the screenshot in

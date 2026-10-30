@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>无音频播放提醒 原型</title>
+<style>
+  :root{
+    --bg:#121212; --deep:#0c0c0e; --panel:#1e1e22; --panel2:#24242a;
+    --ink:#f5f5f4; --ink2:#a8a8b3; --ink3:#a8a8b3;
+    --line:#232329; --edge2:#2a2a31;
+    --accent:#7c9eff; --accent-soft:rgba(124,158,255,.16);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:Inter,"Noto Sans SC",system-ui,sans-serif;
+    display:flex; flex-direction:column; gap:36px; align-items:center;
+    padding:40px 16px 80px;
+  }
+  h2{font-size:12px; font-weight:600; letter-spacing:.1em; color:var(--ink2);
+     margin:0 0 2px; width:min(860px,100%)}
+  p.meta{font-size:13px; color:var(--ink2); margin:0 0 10px; width:min(860px,100%)}
+  .bar{
+    width:min(860px,100%); height:88px; position:relative;
+    display:grid; grid-template-columns:220px 1fr 220px; align-items:center;
+    gap:16px; padding:0 20px; background:var(--deep);
+    border:1px solid var(--line); border-radius:14px;
+  }
+  .meta-l{display:flex; align-items:center; gap:12px; min-width:0}
+  .art{width:52px;height:52px;border-radius:10px;flex:none;
+       background:linear-gradient(135deg,#4a6b58,#22332a);
+       box-shadow:0 10px 24px -12px rgba(0,0,0,.7)}
+  .t{font-size:13.5px;font-weight:600}
+  .a{font-size:12px;color:var(--ink3)}
+  .ctr{display:flex;flex-direction:column;align-items:center;gap:7px;position:relative}
+  .row{display:flex;align-items:center;gap:20px}
+  .ghost{color:var(--ink2);background:none;border:0;cursor:pointer;display:grid;place-items:center}
+  .play{
+    width:38px;height:38px;border-radius:999px;border:0;cursor:pointer;
+    display:grid;place-items:center;background:var(--ink);color:#111;
+    transition:transform .15s ease;position:relative;
+  }
+  .play:hover{transform:scale(1.05)}
+  .play.dim{opacity:.4}
+  svg{display:block}
+  .rail{display:flex;align-items:center;gap:10px;width:100%;max-width:460px}
+  .rail time{font-size:11px;color:var(--ink3);font-variant-numeric:tabular-nums}
+  .track{height:4px;flex:1;border-radius:2px;background:var(--edge2)}
+
+  /* A. 锚定气泡 */
+  .pop{
+    position:absolute; bottom:calc(100% + 12px); left:50%;
+    transform:translateX(-50%) translateY(4px); opacity:0; pointer-events:none;
+    background:var(--panel2); border:1px solid var(--edge2); border-radius:10px;
+    padding:10px 14px; width:max-content; max-width:260px;
+    box-shadow:0 14px 32px -14px rgba(0,0,0,.75);
+    transition:opacity .18s ease, transform .18s cubic-bezier(.2,.9,.3,1.2);
+    font-size:13px; line-height:1.5; text-align:left;
+  }
+  .pop::after{
+    content:""; position:absolute; top:100%; left:50%; margin-left:-5px;
+    border:5px solid transparent; border-top-color:var(--panel2);
+  }
+  .pop.show{opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto}
+  .pop b{display:block; font-size:13px; color:var(--ink); font-weight:600; margin-bottom:2px}
+  .pop span{color:var(--ink2)}
+  .pop a{color:var(--accent); text-decoration:none; font-weight:500; white-space:nowrap}
+  .pop a:hover{text-decoration:underline}
+
+  /* B. 播放条内联提示（进度条位置换成提示） */
+  .inline-hint{
+    display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--ink2);
+    opacity:0; transform:translateY(3px);
+    transition:opacity .2s ease, transform .2s ease;
+  }
+  .inline-hint.show{opacity:1; transform:none}
+  .inline-hint .ic{color:var(--accent)}
+  .inline-hint a{color:var(--accent); text-decoration:none; font-weight:500}
+  .inline-hint a:hover{text-decoration:underline}
+
+  /* C. toast */
+  .toast{
+    position:absolute; bottom:calc(100% + 14px); left:50%;
+    transform:translateX(-50%) translateY(6px); opacity:0; pointer-events:none;
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel); border:1px solid var(--edge2); border-radius:999px;
+    padding:9px 16px 9px 12px; font-size:13px; color:var(--ink);
+    box-shadow:0 16px 36px -16px rgba(0,0,0,.8);
+    transition:opacity .22s ease, transform .22s ease; white-space:nowrap;
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto}
+  .toast .dot{width:26px;height:26px;border-radius:999px;background:var(--accent-soft);
+              display:grid;place-items:center;color:var(--accent);flex:none}
+  .toast a{color:var(--accent);text-decoration:none;font-weight:500;margin-left:2px}
+  .toast a:hover{text-decoration:underline}
+
+  /* 摇头动画（方案 A 附带） */
+  @keyframes headshake{
+    0%,100%{transform:translateX(0)}
+    20%{transform:translateX(-4px)} 40%{transform:translateX(4px)}
+    60%{transform:translateX(-2px)} 80%{transform:translateX(2px)}
+  }
+  .play.shake{animation:headshake .4s ease}
+  @media (prefers-reduced-motion: reduce){
+    .play.shake{animation:none}
+    .pop,.toast,.inline-hint{transition:opacity .18s ease}
+  }
+</style>
+</head>
+<body>
+
+<div>
+<h2>A 锚定气泡 + 轻微摇头（推荐）</h2>
+<p class="meta">点播放键：按钮摇头一下，上方弹出气泡说明原因并给出口；3 秒后自动收起。提醒长在失败的地方，视线不用移动。</p>
+</div>
+<div class="bar" id="barA"></div>
+
+<div>
+<h2>B 进度条位置内联提示</h2>
+<p class="meta">点播放键：进度条那一行原地换成一句提示 + 入口链接，3 秒后换回。不新增任何浮层，最安静。</p>
+</div>
+<div class="bar" id="barB"></div>
+
+<div>
+<h2>C 胶囊 toast</h2>
+<p class="meta">点播放键：播放条上方浮出胶囊 toast（图标 + 文案 + 入口），4 秒后退场。和未来其他全局提示（已收藏/已保存）可共用一套样式。</p>
+</div>
+<div class="bar" id="barC"></div>
+
+<script>
+const icons = {
+  play:'<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 2.7a.7.7 0 0 1 1.06-.6l8.1 4.7a.7.7 0 0 1 0 1.2l-8.1 4.7a.7.7 0 0 1-1.06-.6z"/></svg>',
+  prev:'<svg width="15" height="15" viewBox="0 0 16 16"><path d="M5 8l6.5 3.8V4.2z" fill="currentColor"/><rect x="3.2" y="3" width="1.8" height="10" rx=".9" fill="currentColor"/></svg>',
+  next:'<svg width="15" height="15" viewBox="0 0 16 16"><path d="M11 8 4.5 11.8V4.2z" fill="currentColor"/><rect x="11" y="3" width="1.8" height="10" rx=".9" fill="currentColor"/></svg>',
+  up:'<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11V3.5M4.8 6.7 8 3.5l3.2 3.2M3 12.5h10"/></svg>'
+};
+function bar(id, extraCtr, extraRail){
+  document.getElementById(id).innerHTML = `
+    <div class="meta-l">
+      <div class="art"></div>
+      <div><div class="t">cardigan</div><div class="a">Taylor Swift · folklore</div></div>
+    </div>
+    <div class="ctr">
+      <div class="row">
+        <button class="ghost">${icons.prev}</button>
+        <button class="play dim" data-play>${icons.play}</button>
+        <button class="ghost">${icons.next}</button>
+      </div>
+      <div class="rail" data-rail>
+        <time>0:00</time><div class="track"></div><time>0:00</time>
+      </div>
+      ${extraCtr||""}
+    </div>
+    <div></div>`;
+}
+
+/* A */
+bar('barA', `
+  <div class="pop" data-pop>
+    <b>这首歌还没有音频</b>
+    <span>上传音频文件后即可播放。</span>
+    <a href="#">去设置上传 →</a>
+  </div>`);
+const barA=document.getElementById('barA');
+let tA;
+barA.querySelector('[data-play]').onclick=e=>{
+  const btn=e.currentTarget, pop=barA.querySelector('[data-pop]');
+  btn.classList.remove('shake'); void btn.offsetWidth; btn.classList.add('shake');
+  pop.classList.add('show');
+  clearTimeout(tA); tA=setTimeout(()=>pop.classList.remove('show'),8000);
+};
+
+/* B */
+bar('barB');
+const barB=document.getElementById('barB');
+const railB=barB.querySelector('[data-rail]');
+const hintB=document.createElement('div');
+hintB.className='inline-hint';
+hintB.innerHTML=`<span class="ic">${icons.up}</span>这首歌还没有音频，<a href="#">去设置上传</a>后即可播放`;
+railB.insertAdjacentElement('afterend', hintB);
+let tB;
+barB.querySelector('[data-play]').onclick=()=>{
+  railB.style.display='none'; hintB.classList.add('show');
+  clearTimeout(tB);
+  tB=setTimeout(()=>{hintB.classList.remove('show'); railB.style.display='flex';},8000);
+};
+
+/* C */
+bar('barC', `
+  <div class="toast" data-toast>
+    <span class="dot">${icons.up}</span>
+    这首歌还没有音频，上传后即可播放<a href="#">去设置 →</a>
+  </div>`);
+const barC=document.getElementById('barC');
+let tC;
+barC.querySelector('[data-play]').onclick=()=>{
+  const t=barC.querySelector('[data-toast]');
+  t.classList.add('show');
+  clearTimeout(tC); tC=setTimeout(()=>t.classList.remove('show'),8000);
+};
+</script>
+</body>
+</html>
