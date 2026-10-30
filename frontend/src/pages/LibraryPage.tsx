@@ -19,10 +19,14 @@ export default function LibraryPage() {
   const { songId, setSong } = usePlayer();
   const [q, setQ] = useState("");
   const catalog = useCatalog(q);
+  // 热门歌曲候选/歌手/专辑建议：用不带筛选的完整内置曲库
+  const fullCatalog = useCatalog("");
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState("");
   // 手动添加
   const [title, setTitle] = useState("");
+  const [mp3, setMp3] = useState<File | null>(null);
+  const mp3Ref = useRef<HTMLInputElement>(null);
   const [artist, setArtist] = useState("");
   const [album, setAlbum] = useState("");
   const [lrc, setLrc] = useState("");
@@ -45,6 +49,21 @@ export default function LibraryPage() {
       setStatus(msg);
       after?.();
     }).catch((e) => setStatus(e instanceof Error ? e.message : "操作失败"));
+
+  const catRows = fullCatalog.data ?? [];
+  const artistOptions = [...new Set([
+    ...catRows.map((r) => r.artist),
+    ...songs.map((sg) => sg.artist),
+  ])].filter(Boolean).sort();
+  const albumOptions = [...new Set([
+    ...catRows
+      .filter((r) => !artist.trim() || r.artist === artist.trim())
+      .map((r) => r.album),
+    ...songs
+      .filter((sg) => !artist.trim() || sg.artist === artist.trim())
+      .map((sg) => sg.album ?? ""),
+  ])].filter(Boolean).sort();
+  const titleOptions = [...new Set(catRows.map((r) => r.title))].sort();
 
   return (
     <Scrollable className="h-full min-h-0 bg-bg2" contentClassName="flex flex-col gap-5 px-10 py-6">
@@ -146,47 +165,99 @@ export default function LibraryPage() {
           className="flex flex-col gap-2.5"
           onSubmit={(e) => {
             e.preventDefault();
+            const file = mp3;
             run(
-              acts.addSong(title, artist, album, lrc).then((r) => {
+              acts.addSong(title, artist, album, lrc).then(async (r) => {
                 setSong(r.id);
-                return `已添加《${title}》（${r.note}）· 音频可在播放页「歌曲工具」上传`;
+                let audioNote = "音频可在播放页「歌曲工具」上传";
+                if (file) {
+                  const fd = new FormData();
+                  fd.append("file", file);
+                  const res = await fetch(`/api/songs/${r.id}/audio`, {
+                    method: "POST", body: fd,
+                  });
+                  audioNote = res.ok ? "音频已上传" : "音频上传失败，可稍后在播放页「歌曲工具」重试";
+                }
+                return `已添加《${title}》（${r.note}）· ${audioNote}`;
               }),
               () => {
                 setTitle(""); setArtist(""); setAlbum(""); setLrc("");
+                setMp3(null);
               },
             );
           }}
         >
           <div className="flex flex-wrap gap-2.5">
-            <input name="add-title" required value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="歌曲标题（必填）" className={`${inputCls} w-56`} />
-            <input name="add-artist" value={artist} onChange={(e) => setArtist(e.target.value)}
-              placeholder="歌手（选填）" className={`${inputCls} w-48`} />
-            <input name="add-album" value={album} onChange={(e) => setAlbum(e.target.value)}
-              placeholder="专辑（选填）" className={`${inputCls} w-48`} />
+            <div className="flex w-64 flex-col gap-2.5">
+              <input name="add-title" required value={title} list="title-options"
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setTitle(v);
+                  // 命中热门歌曲 → 自动带出歌手/专辑（不覆盖已填内容）
+                  const hit = catRows.find((r) => r.title === v);
+                  if (hit) {
+                    if (!artist.trim()) setArtist(hit.artist);
+                    if (!album.trim()) setAlbum(hit.album);
+                  }
+                }}
+                placeholder="歌曲标题（必填 — 输入几个词可从热门歌曲里选）"
+                className={inputCls} />
+              <input name="add-artist" value={artist} list="artist-options"
+                onChange={(e) => setArtist(e.target.value)}
+                placeholder="歌手（选填 — 可从已有歌手里选，也可直接输入）"
+                className={inputCls} />
+              <input name="add-album" value={album} list="album-options"
+                onChange={(e) => setAlbum(e.target.value)}
+                placeholder="专辑（选填 — 可从该歌手的专辑里选）"
+                className={inputCls} />
+              <datalist id="title-options">
+                {titleOptions.map((t) => <option key={t} value={t} />)}
+              </datalist>
+              <datalist id="artist-options">
+                {artistOptions.map((a) => <option key={a} value={a} />)}
+              </datalist>
+              <datalist id="album-options">
+                {albumOptions.map((a) => <option key={a} value={a} />)}
+              </datalist>
+            </div>
+            <textarea
+              name="add-lrc"
+              value={lrc}
+              onChange={(e) => setLrc(e.target.value)}
+              placeholder={"LRC 歌词（选填 — 格式如 [00:12.34] 歌词内容，留空将自动从 LRCLIB 获取）"}
+              rows={5}
+              className="min-w-[280px] flex-1 rounded-card border border-edge2 bg-panel2 px-3.5 py-2.5 text-[19.5px] leading-6 text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
+            />
+            <div className="flex flex-col justify-start">
+              <input
+                ref={lrcFileRef}
+                type="file"
+                accept=".lrc,.txt"
+                className="hidden"
+                onChange={async (e) => {
+                  const f = e.target.files?.[0];
+                  if (f) setLrc(await f.text());
+                  e.target.value = "";
+                }}
+              />
+              <button type="button" className={chip()} onClick={() => lrcFileRef.current?.click()}>
+                上传 .lrc 文件…
+              </button>
+            </div>
           </div>
-          <textarea
-            name="add-lrc"
-            value={lrc}
-            onChange={(e) => setLrc(e.target.value)}
-            placeholder={"LRC 歌词（选填 — 格式如 [00:12.34] 歌词内容，留空将自动从 LRCLIB 获取）"}
-            rows={6}
-            className="rounded-card border border-edge2 bg-panel2 px-3.5 py-2.5 text-[19.5px] leading-6 text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
-          />
           <div className="flex items-center gap-2">
             <input
-              ref={lrcFileRef}
+              ref={mp3Ref}
               type="file"
-              accept=".lrc,.txt"
+              accept=".mp3,.wav,.flac,.ogg,.m4a,audio/*"
               className="hidden"
-              onChange={async (e) => {
-                const f = e.target.files?.[0];
-                if (f) setLrc(await f.text());
+              onChange={(e) => {
+                setMp3(e.target.files?.[0] ?? null);
                 e.target.value = "";
               }}
             />
-            <button type="button" className={chip()} onClick={() => lrcFileRef.current?.click()}>
-              或上传 .lrc 文件…
+            <button type="button" className={chip()} onClick={() => mp3Ref.current?.click()}>
+              {mp3 ? `已选音频：${mp3.name}（点击更换）` : "上传歌曲音频（mp3/wav/flac/ogg/m4a）…"}
             </button>
             <button type="submit" className={chip(true)}>
               保存歌曲
