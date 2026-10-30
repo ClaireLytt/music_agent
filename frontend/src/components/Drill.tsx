@@ -402,14 +402,14 @@ export default function Drill({
 
       <div className="flex gap-2.5">
         <button
-          className="rounded-full border border-[#33333c] px-3.5 py-1.5 text-[12.5px] font-medium text-ink2 transition-colors hover:border-accent hover:text-accent"
+          className="rounded-full bg-[#3d9bff] px-4 py-2 text-[16.3px] font-semibold text-[#0e1016] transition-transform hover:scale-105"
           title="这个词不想打：不计成绩，直接看下一个"
           onClick={skipWord}
         >
           跳过这个词
         </button>
         <button
-          className="rounded-full border border-[#33333c] px-3.5 py-1.5 text-[12.5px] font-medium text-ink2 transition-colors hover:border-accent hover:text-accent"
+          className="rounded-full bg-[#3d9bff] px-4 py-2 text-[16.3px] font-semibold text-[#0e1016] transition-transform hover:scale-105"
           title="这一轮的词都不想打：直接换下一批"
           onClick={nextRound}
         >

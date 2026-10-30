@@ -72,7 +72,7 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
             ))}
           </div>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto mr-[23%] flex items-center gap-2">
           {toast && <span className="text-xs text-ink3">{toast}</span>}
           <button
             className={
