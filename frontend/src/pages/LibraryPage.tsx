@@ -54,11 +54,14 @@ export default function LibraryPage() {
         {status && <span className="ml-auto text-[18px] text-ink3">{status}</span>}
       </header>
 
-      <section className="rounded-card border border-edge bg-panel p-5">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h2 className="text-[19.5px] font-semibold">
-            从内置曲库挑选（{rows.length} 首，其中 {addable.length} 首可添加）
-          </h2>
+      <details className="group/pick rounded-card border border-edge bg-panel p-5">
+        <summary className="cursor-pointer select-none list-none text-[19.5px] font-semibold transition-colors hover:text-ink">
+          <span className="mr-1.5 inline-block transition-transform group-open/pick:rotate-90">
+            ▸
+          </span>
+          从内置曲库挑选（{rows.length} 首，其中 {addable.length} 首可添加）
+        </summary>
+        <div className="mb-3 mt-3 flex flex-wrap items-center gap-2">
           <input
             name="catalog-search"
             value={q}
@@ -135,7 +138,7 @@ export default function LibraryPage() {
             );
           })}
         </Scrollable>
-      </section>
+      </details>
 
       <section className="rounded-card border border-edge bg-panel p-5">
         <h2 className="mb-3 text-[19.5px] font-semibold">手动添加曲库以外的歌曲</h2>
@@ -192,9 +195,14 @@ export default function LibraryPage() {
         </form>
       </section>
 
-      <section className="rounded-card border border-edge bg-panel p-5">
-        <h2 className="mb-3 text-[19.5px] font-semibold">管理列表（删除歌曲）</h2>
-        <ul className="grid grid-cols-2 gap-1 xl:grid-cols-3">
+      <details className="group/manage rounded-card border border-edge bg-panel p-5">
+        <summary className="cursor-pointer select-none list-none text-[19.5px] font-semibold transition-colors hover:text-ink">
+          <span className="mr-1.5 inline-block transition-transform group-open/manage:rotate-90">
+            ▸
+          </span>
+          管理列表（删除歌曲）
+        </summary>
+        <ul className="mt-3 grid grid-cols-2 gap-1 xl:grid-cols-3">
           {songs.map((s) => (
             <li
               key={s.id}
@@ -218,7 +226,7 @@ export default function LibraryPage() {
             </li>
           ))}
         </ul>
-      </section>
+      </details>
     </Scrollable>
   );
 }
