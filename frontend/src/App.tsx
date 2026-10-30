@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Route, Routes, useNavigate } from "react-router-dom";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { audioUrl, useLyrics, useSongs } from "./api";
 import { usePlayer } from "./store";
 import DictPops from "./components/DictPops";
@@ -22,6 +22,7 @@ export default function App() {
   } = usePlayer();
   const audioRef = useRef<HTMLAudioElement>(null);
   const navigate = useNavigate();
+  const onPlayPage = useLocation().pathname === "/";
 
   // 侧栏宽度：拖动右缘调整，拖到很窄自动收起；双击分隔条展开/收起。
   // localStorage 只是每浏览器的便利记忆，读写都要兜底。
@@ -53,6 +54,42 @@ export default function App() {
     const up = (ev: PointerEvent) => {
       const w = Math.min(520, Math.max(0, startW + ev.clientX - startX));
       applySideW(w < 140 ? 0 : w);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  // 右侧解读坞：同款拖动条（镜像方向），只在播放页出现
+  const DOCK_W = 460;
+  const [dockW, setDockW] = useState(() => {
+    try {
+      const v = localStorage.getItem("ll_dock_w");
+      return v === null ? DOCK_W : Math.max(0, Number(v) || 0);
+    } catch {
+      return DOCK_W;
+    }
+  });
+  const applyDockW = (w: number) => {
+    setDockW(w);
+    try {
+      localStorage.setItem("ll_dock_w", String(w));
+    } catch {
+      /* 忽略 */
+    }
+  };
+  const onDockSplitDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = dockW;
+    const move = (ev: PointerEvent) => {
+      const w = Math.min(600, Math.max(0, startW - (ev.clientX - startX)));
+      setDockW(w < 140 ? 0 : w);
+    };
+    const up = (ev: PointerEvent) => {
+      const w = Math.min(600, Math.max(0, startW - (ev.clientX - startX)));
+      applyDockW(w < 140 ? 0 : w);
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
     };
@@ -136,7 +173,7 @@ export default function App() {
   return (
     <div
       className="relative grid h-screen grid-rows-[1fr_88px] overflow-hidden bg-bg font-sans text-ink"
-      style={{ gridTemplateColumns: `${sideW}px 1fr 460px` }}
+      style={{ gridTemplateColumns: `${sideW}px 1fr ${onPlayPage ? dockW : 460}px` }}
     >
       <div className="h-full min-h-0 min-w-0 overflow-hidden">
         <Sidebar songs={songs} query={query} onQuery={setQuery} />
@@ -161,6 +198,31 @@ export default function App() {
             stroke="currentColor" strokeWidth="2" strokeLinecap="round"
             strokeLinejoin="round">
             <path d="M6 3l5 5-5 5" />
+          </svg>
+        </button>
+      )}
+      {onPlayPage && (
+        <div
+          role="separator"
+          aria-label="拖动调整解读坞宽度，双击收起/展开"
+          title="拖动调整解读坞；双击收起/展开"
+          className="absolute bottom-[88px] top-0 z-20 w-[7px] translate-x-1/2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-accent"
+          style={{ right: dockW }}
+          onPointerDown={onDockSplitDown}
+          onDoubleClick={() => applyDockW(dockW === 0 ? DOCK_W : 0)}
+        />
+      )}
+      {onPlayPage && dockW === 0 && (
+        <button
+          aria-label="展开解读坞"
+          title="展开解读坞"
+          className="absolute right-2 top-2 z-20 grid h-8 w-8 place-items-center rounded-full border border-edge bg-panel text-ink2 shadow-art transition-colors hover:border-accent hover:text-ink"
+          onClick={() => applyDockW(DOCK_W)}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M10 3L5 8l5 5" />
           </svg>
         </button>
       )}
@@ -200,7 +262,9 @@ export default function App() {
                   )}
                 </div>
               </main>
-              <Dock lyrics={lyrics} song={song} />
+              <div className="h-full min-h-0 min-w-0 overflow-hidden">
+                <Dock lyrics={lyrics} song={song} />
+              </div>
               <DictPops song={song} />
             </>
           }
