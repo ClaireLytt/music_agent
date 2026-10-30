@@ -25,7 +25,7 @@ export default function Sidebar({
 }) {
   const { songId, setSong } = usePlayer();
   return (
-    <aside className="bg-deep flex min-h-0 flex-col gap-[18px] px-3 py-5">
+    <aside className="bg-deep flex h-full min-h-0 flex-col gap-[18px] px-3 py-5">
       <div className="flex items-center gap-2.5 px-2.5 font-bold tracking-wide">
         <span className="grid h-[26px] w-[26px] place-items-center rounded-lg bg-gradient-to-br from-accent to-[#4a6cf7]">
           <IconNote />

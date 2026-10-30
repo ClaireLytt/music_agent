@@ -138,7 +138,7 @@ export default function App() {
       className="relative grid h-screen grid-rows-[1fr_88px] overflow-hidden bg-bg font-sans text-ink"
       style={{ gridTemplateColumns: `${sideW}px 1fr 460px` }}
     >
-      <div className="min-w-0 overflow-hidden">
+      <div className="h-full min-h-0 min-w-0 overflow-hidden">
         <Sidebar songs={songs} query={query} onQuery={setQuery} />
       </div>
       <div
