@@ -4,14 +4,14 @@ import { usePlayer } from "../store";
 import Scrollable from "../components/Scrollable";
 
 const chip = (primary = false) =>
-  `whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+  `whitespace-nowrap rounded-full px-3.5 py-1.5 text-[18.8px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
     primary
       ? "bg-accent font-semibold text-[#0e1016] hover:brightness-110"
       : "border border-[#33333c] text-ink2 hover:border-accent hover:text-accent"
   }`;
 
 const inputCls =
-  "rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[13px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none";
+  "rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[19.5px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none";
 
 export default function LibraryPage() {
   const acts = useAdminActions();
@@ -49,14 +49,14 @@ export default function LibraryPage() {
   return (
     <Scrollable className="h-full min-h-0 bg-bg2" contentClassName="flex flex-col gap-5 px-10 py-6">
       <header className="flex items-center gap-3">
-        <h1 className="text-sm font-bold tracking-wide">曲库管理</h1>
-        <span className="text-xs text-ink3">共 {songs.length} 首歌</span>
-        {status && <span className="ml-auto text-xs text-ink3">{status}</span>}
+        <h1 className="text-[21px] font-bold tracking-wide">曲库管理</h1>
+        <span className="text-[18px] text-ink3">共 {songs.length} 首歌</span>
+        {status && <span className="ml-auto text-[18px] text-ink3">{status}</span>}
       </header>
 
       <section className="rounded-card border border-edge bg-panel p-5">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <h2 className="text-[13px] font-semibold">
+          <h2 className="text-[19.5px] font-semibold">
             从内置曲库挑选（{rows.length} 首，其中 {addable.length} 首可添加）
           </h2>
           <input
@@ -102,7 +102,7 @@ export default function LibraryPage() {
             return (
               <label
                 key={v}
-                className={`flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] ${
+                className={`flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-[19.5px] ${
                   r.in_library ? "cursor-default text-ink3" : "text-ink2 hover:bg-panel2"
                 }`}
               >
@@ -114,7 +114,7 @@ export default function LibraryPage() {
                   className="accent-[#7c9eff]"
                 />
                 <span className="truncate">{v}</span>
-                {r.in_library && <span className="ml-auto flex-none text-[11px]">已在列表</span>}
+                {r.in_library && <span className="ml-auto flex-none text-[16.5px]">已在列表</span>}
               </label>
             );
           })}
@@ -122,7 +122,7 @@ export default function LibraryPage() {
       </section>
 
       <section className="rounded-card border border-edge bg-panel p-5">
-        <h2 className="mb-3 text-[13px] font-semibold">手动添加曲库以外的歌曲</h2>
+        <h2 className="mb-3 text-[19.5px] font-semibold">手动添加曲库以外的歌曲</h2>
         <form
           className="flex flex-col gap-2.5"
           onSubmit={(e) => {
@@ -152,7 +152,7 @@ export default function LibraryPage() {
             onChange={(e) => setLrc(e.target.value)}
             placeholder={"LRC 歌词（选填 — 格式如 [00:12.34] 歌词内容，留空将自动从 LRCLIB 获取）"}
             rows={6}
-            className="rounded-card border border-edge2 bg-panel2 px-3.5 py-2.5 text-[13px] leading-6 text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
+            className="rounded-card border border-edge2 bg-panel2 px-3.5 py-2.5 text-[19.5px] leading-6 text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
           />
           <div className="flex items-center gap-2">
             <input
@@ -177,12 +177,12 @@ export default function LibraryPage() {
       </section>
 
       <section className="rounded-card border border-edge bg-panel p-5">
-        <h2 className="mb-3 text-[13px] font-semibold">管理列表（删除歌曲）</h2>
+        <h2 className="mb-3 text-[19.5px] font-semibold">管理列表（删除歌曲）</h2>
         <ul className="grid grid-cols-2 gap-1 xl:grid-cols-3">
           {songs.map((s) => (
             <li
               key={s.id}
-              className={`group flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] ${
+              className={`group flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[19.5px] ${
                 s.id === songId ? "bg-accent-soft" : "hover:bg-panel2"
               }`}
             >
