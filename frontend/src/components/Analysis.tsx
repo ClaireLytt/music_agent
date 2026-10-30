@@ -105,9 +105,9 @@ export default function Analysis() {
           弱点词（盲打错误 ≥3 次）
         </div>
         {data.weak.length ? (
-          <table className="w-full text-left text-[13px]">
+          <table className="w-full text-left text-[19.5px]">
             <thead>
-              <tr className="text-[11px] text-ink3">
+              <tr className="text-[16.5px] text-ink3">
                 <th className="pb-1.5 font-medium">单词</th>
                 <th className="pb-1.5 font-medium">练习</th>
                 <th className="pb-1.5 font-medium">错误</th>
