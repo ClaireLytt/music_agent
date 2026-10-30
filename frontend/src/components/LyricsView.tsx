@@ -59,11 +59,11 @@ export default function LyricsView({
               }}
               className={`lyric-line cursor-pointer rounded-[10px] px-3 py-[7px] leading-[1.55] transition-colors ${
                 cur
-                  ? "text-[26px] font-bold text-[#eef5f0]"
+                  ? "text-[26px] font-bold text-[#f7f2e8]"
                   : near
-                    ? "text-[19px] font-medium text-[#a4b5ab] hover:bg-white/5"
-                    : "text-[19px] font-medium text-[#7c8a81] hover:bg-white/5 hover:text-[#a4b5ab]"
-              } ${picked && !cur ? "bg-[#5fc79b]/15" : ""}`}
+                    ? "text-[19px] font-medium text-[#beb8a8] hover:bg-white/5"
+                    : "text-[19px] font-medium text-[#8f8a7c] hover:bg-white/5 hover:text-[#beb8a8]"
+              } ${picked && !cur ? "bg-[#f0c36a]/15" : ""}`}
             >
               {cur ? (
                 <span className="karaoke" style={{ "--p": `${p}%` } as React.CSSProperties}>

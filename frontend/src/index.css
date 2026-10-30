@@ -57,8 +57,8 @@ input:focus-visible {
 .karaoke {
   background: linear-gradient(
     90deg,
-    #5fc79b var(--p, 0%),
-    #eef5f0 var(--p, 0%)
+    #f0c36a var(--p, 0%),
+    #f7f2e8 var(--p, 0%)
   );
   -webkit-background-clip: text;
   background-clip: text;
