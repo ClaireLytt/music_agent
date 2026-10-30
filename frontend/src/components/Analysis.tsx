@@ -9,30 +9,63 @@ const levelOf = (c: number) =>
   c <= 0 ? 0 : c <= 2 ? 1 : c <= 4 ? 2 : c <= 7 ? 3 : c <= 11 ? 4 : 5;
 
 function Heatmap({ title, series }: { title: string; series: [string, number][] }) {
-  // series 从一年前的周日对齐到今天：列=周，行=周日..周六
+  // series 从一年前的周日对齐到今天：列=周，行=周日..周六（GitHub 同款网格）
   const weeks: [string, number][][] = [];
   for (let i = 0; i < series.length; i += 7) weeks.push(series.slice(i, i + 7));
+  const total = series.reduce((a, [, c]) => a + c, 0);
+  // 月份标签：该周出现新月份时标注在列顶
+  let lastLabelAt = -9;
+  const months = weeks.map((w, wi) => {
+    const m = new Date(w[0][0]).getMonth();
+    const prev = wi > 0 ? new Date(weeks[wi - 1][0][0]).getMonth() : -1;
+    if (m === prev || wi - lastLabelAt < 3) return "";
+    lastLabelAt = wi;
+    return `${m + 1}月`;
+  });
+  const DAY_ROWS = [1, 3, 5]; // 周一 / 周三 / 周五
+  const DAY_NAMES = ["一", "三", "五"];
   return (
     <div className="rounded-card border border-edge bg-panel p-4">
-      <div className="mb-2.5 text-xs font-semibold text-ink2">{title}</div>
-      <div className="flex gap-[3px] overflow-x-auto pb-1">
-        {weeks.map((w, wi) => (
-          <div key={wi} className="flex flex-col gap-[3px]">
-            {w.map(([d, c]) => (
-              <div
-                key={d}
-                title={`${d} · ${c} 次`}
-                className="h-[11px] w-[11px] rounded-[2px]"
-                style={{ background: LEVELS[levelOf(c)] }}
-              />
+      <div className="mb-2.5 text-[15px] font-semibold text-ink2">
+        {title}（{total} 次）
+      </div>
+      <div className="overflow-x-auto pb-1">
+        {/* 月份行 */}
+        <div className="mb-1 flex gap-[3px] text-[11px] leading-none text-ink3">
+          <div className="w-6 flex-none" />
+          {months.map((m, i) => (
+            <div key={i} className="w-[12px] flex-none overflow-visible whitespace-nowrap">
+              {m}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-[3px]">
+          {/* 星期列 */}
+          <div className="relative w-6 flex-none text-[11px] leading-none text-ink3">
+            {DAY_ROWS.map((row, i) => (
+              <span key={row} className="absolute left-0" style={{ top: row * 15 + 2 }}>
+                {DAY_NAMES[i]}
+              </span>
             ))}
           </div>
-        ))}
+          {weeks.map((w, wi) => (
+            <div key={wi} className="flex flex-col gap-[3px]">
+              {w.map(([d, c]) => (
+                <div
+                  key={d}
+                  title={`${d} · ${c} 次`}
+                  className="h-[12px] w-[12px] rounded-[3px]"
+                  style={{ background: LEVELS[levelOf(c)] }}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
-      <div className="mt-2 flex items-center justify-end gap-1 text-[10px] text-ink3">
+      <div className="mt-2 flex items-center justify-end gap-1 text-[12px] text-ink3">
         少
         {LEVELS.map((c) => (
-          <span key={c} className="h-[9px] w-[9px] rounded-[2px]" style={{ background: c }} />
+          <span key={c} className="h-[11px] w-[11px] rounded-[3px]" style={{ background: c }} />
         ))}
         多
       </div>
