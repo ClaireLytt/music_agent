@@ -113,7 +113,7 @@ function AskAiCard({
         </p>
       )}
       {turns.length > 0 && (
-        <div className="mb-2.5 flex max-h-72 flex-col gap-2 overflow-y-auto">
+        <Scrollable className="mb-2.5 max-h-72" contentClassName="flex flex-col gap-2">
           {turns.map((t, i) => (
             <div
               key={i}
@@ -131,7 +131,7 @@ function AskAiCard({
               思考中…
             </div>
           )}
-        </div>
+        </Scrollable>
       )}
       {err && (
         <p className="mb-2 text-center text-[14.4px] text-ink3">⚠️ {err}</p>
