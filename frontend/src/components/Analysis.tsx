@@ -62,13 +62,6 @@ function Heatmap({ title, series }: { title: string; series: [string, number][] 
           ))}
         </div>
       </div>
-      <div className="mt-2 flex items-center justify-end gap-1 text-[12px] text-ink3">
-        少
-        {LEVELS.map((c) => (
-          <span key={c} className="h-[11px] w-[11px] rounded-[3px]" style={{ background: c }} />
-        ))}
-        多
-      </div>
     </div>
   );
 }
