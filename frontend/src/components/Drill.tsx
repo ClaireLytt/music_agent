@@ -5,6 +5,7 @@ import {
   useDrillCard, useSongs,
 } from "../api";
 import { usePlayer } from "../store";
+import { useQueryClient } from "@tanstack/react-query";
 import { IconVolume } from "../icons";
 import Scrollable from "./Scrollable";
 
@@ -106,6 +107,18 @@ export default function Drill({
   const word = entry?.word ?? "";
   const card = useDrillCard(word || null);
 
+  // 预取下一个词的卡片：换词瞬间例句/释义已在缓存里，消掉可感知的加载空档
+  const qc = useQueryClient();
+  useEffect(() => {
+    const nxt = roundWords[qi + 1]?.word;
+    if (!nxt) return;
+    void qc.prefetchQuery({
+      queryKey: ["drill-card", nxt],
+      queryFn: () => fetch(`/api/drill/card/${encodeURIComponent(nxt)}`)
+        .then((r) => r.json()),
+    });
+  }, [qi, roundWords, qc]);
+
   const resetWord = () => {
     setTyped(0); setMistakes(0); setPeeks(0); setDone(false);
     startRef.current = null;
@@ -188,7 +201,7 @@ export default function Drill({
         if (blind && !done) {
           setPeeks((p) => p + 1);
           setPeeking(true);
-          setTimeout(() => setPeeking(false), 200);
+          setTimeout(() => setPeeking(false), 500);
         }
         return;
       }

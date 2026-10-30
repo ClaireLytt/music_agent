@@ -12,7 +12,7 @@ const Analysis = lazy(() => import("../components/Analysis"));
 const PRESET_GROUPS = ["全部", "📖 歌词收藏", "🔤 单词", "🧩 词组"];
 
 const chip = (on: boolean) =>
-  `whitespace-nowrap rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-colors ${
+  `whitespace-nowrap rounded-full px-4 py-2 text-[18.8px] font-medium transition-colors ${
     on
       ? "bg-accent font-semibold text-[#0e1016]"
       : "border border-[#33333c] text-ink2 hover:border-accent hover:text-accent"
@@ -39,7 +39,7 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
   return (
     <Scrollable className="h-full min-h-0 bg-bg2" contentClassName="flex flex-col gap-4 px-10 py-6">
       <header className="flex flex-wrap items-center gap-2">
-        <h1 className="mr-2 text-sm font-bold tracking-wide">歌曲寻词</h1>
+        <h1 className="mr-2 text-[21px] font-bold tracking-wide">歌曲寻词</h1>
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="练习范围">
           {allGroups.map((g) => (
             <button
@@ -55,13 +55,13 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
         </div>
         {!analysis && (
           <div className="ml-3 flex items-center gap-1.5" role="radiogroup" aria-label="每轮词数">
-            <span className="text-[11px] tracking-[0.1em] text-ink3">每轮</span>
+            <span className="text-[16.5px] tracking-[0.1em] text-ink3">每轮</span>
             {ROUND_LENS.map((n) => (
               <button
                 key={n}
                 role="radio"
                 aria-checked={n === roundLen}
-                className={`${chip(n === roundLen)} !px-3 !py-1 !text-xs`}
+                className={`${chip(n === roundLen)} !px-3.5 !py-1.5 !text-[18px]`}
                 onClick={() => {
                   setRoundLen(n);
                   saveRoundLen(n);
@@ -78,7 +78,7 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
             className={
               analysis
                 ? chip(true)
-                : "whitespace-nowrap rounded-full bg-[#5fc79b] px-3.5 py-1.5 text-[12.5px] font-semibold text-[#0e1016] transition-colors hover:brightness-110"
+                : "whitespace-nowrap rounded-full bg-[#5fc79b] px-4 py-2 text-[18.8px] font-semibold text-[#0e1016] transition-colors hover:brightness-110"
             }
             onClick={() =>
               navigate(analysis ? `/words${search}` : `/words/analysis${search}`)
@@ -110,7 +110,7 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
       )}
 
       <footer className="mt-auto flex flex-wrap items-center gap-2 border-t border-line pt-4">
-        <span className="text-[11px] font-semibold tracking-[0.1em] text-ink3">
+        <span className="text-[16.5px] font-semibold tracking-[0.1em] text-ink3">
           单词本管理
         </span>
         <input
@@ -135,7 +135,7 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
           value={importGroup}
           onChange={(e) => setImportGroup(e.target.value)}
           placeholder="导入分组名（留空=文件名）"
-          className="w-48 rounded-full border border-edge2 bg-panel2 px-3.5 py-1.5 text-xs text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
+          className="w-64 rounded-full border border-edge2 bg-panel2 px-4 py-2 text-[18px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
         />
         <button className={chip(false)} onClick={() => fileRef.current?.click()}>
           导入词表…

@@ -63,7 +63,7 @@ export default function LyricsView({
                   : near
                     ? "text-[19px] font-medium text-ink2 hover:bg-white/5"
                     : "text-[19px] font-medium text-ink3 hover:bg-white/5 hover:text-ink2"
-              } ${picked && !cur ? "animate-citeflash bg-accent-soft" : ""}`}
+              } ${picked && !cur ? "bg-accent-soft" : ""}`}
             >
               {cur ? (
                 <span className="karaoke" style={{ "--p": `${p}%` } as React.CSSProperties}>

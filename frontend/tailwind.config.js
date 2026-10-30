@@ -35,10 +35,6 @@ export default {
           "60%": { transform: "translateX(-2px)" },
           "80%": { transform: "translateX(2px)" },
         },
-        citeflash: {
-          from: { backgroundColor: "rgba(124,158,255,.5)" },
-          to: { backgroundColor: "rgba(124,158,255,.16)" },
-        },
         popin: {
           from: { opacity: "0", transform: "translate(-50%, 4px)" },
           to: { opacity: "1", transform: "translate(-50%, 0)" },
@@ -46,7 +42,6 @@ export default {
       },
       animation: {
         headshake: "headshake .4s ease",
-        citeflash: "citeflash .6s ease-out 3",
         popin: "popin .18s cubic-bezier(.16,1,.3,1) both",
       },
     },
