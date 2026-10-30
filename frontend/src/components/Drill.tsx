@@ -188,7 +188,7 @@ export default function Drill({
         if (blind && !done) {
           setPeeks((p) => p + 1);
           setPeeking(true);
-          setTimeout(() => setPeeking(false), 1500);
+          setTimeout(() => setPeeking(false), 200);
         }
         return;
       }
@@ -353,10 +353,11 @@ export default function Drill({
           </button>
         )}
         <button
-          className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+          className={`grid h-7 w-7 place-items-center rounded-full border transition-colors ${
             blind ? "border-accent text-accent" : "border-[#33333c] text-ink2"
           }`}
-          title="切换 盲打 / 显示单词"
+          title={blind ? "盲打中：点击显示单词" : "点击开启盲打"}
+          aria-label="切换 盲打 / 显示单词"
           onClick={() => {
             setBlind((b) => {
               try { localStorage.setItem(BLIND_KEY, b ? "0" : "1"); } catch { /* 忽略 */ }
@@ -364,7 +365,13 @@ export default function Drill({
             });
           }}
         >
-          盲打
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M1.5 8s2.4-4.2 6.5-4.2S14.5 8 14.5 8s-2.4 4.2-6.5 4.2S1.5 8 1.5 8z" />
+            <circle cx="8" cy="8" r="2" />
+            {blind ? <path d="M2.5 13.5l11-11" /> : null}
+          </svg>
         </button>
       </div>
 
@@ -402,14 +409,14 @@ export default function Drill({
 
       <div className="flex gap-2.5">
         <button
-          className="rounded-full bg-[#3d9bff] px-4 py-2 text-[16.3px] font-semibold text-[#0e1016] transition-transform hover:scale-105"
+          className="rounded-full bg-accent px-4 py-2 text-[16.3px] font-semibold text-[#0e1016] transition-transform hover:scale-105"
           title="这个词不想打：不计成绩，直接看下一个"
           onClick={skipWord}
         >
           跳过这个词
         </button>
         <button
-          className="rounded-full bg-[#3d9bff] px-4 py-2 text-[16.3px] font-semibold text-[#0e1016] transition-transform hover:scale-105"
+          className="rounded-full bg-accent px-4 py-2 text-[16.3px] font-semibold text-[#0e1016] transition-transform hover:scale-105"
           title="这一轮的词都不想打：直接换下一批"
           onClick={nextRound}
         >
