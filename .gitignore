@@ -47,3 +47,5 @@ frontend/dist/
 # impeccable design-decision artifacts (session-local)
 .impeccable/
 frontend/tsconfig.tsbuildinfo
+data.bak_*/
+.scratch/
