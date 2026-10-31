@@ -19,7 +19,7 @@ export default function LyricsView({
   lyrics: Lyrics;
   hasAudio: boolean;
 }) {
-  const { timeMs, currentLine, pickedLine, pickLine, requestSeek, follow } =
+  const { timeMs, currentLine, pickedLine, pickLine, requestSeek } =
     usePlayer();
   const curRef = useRef<HTMLLIElement>(null);
   const pickedRef = useRef<HTMLLIElement>(null);
@@ -55,7 +55,7 @@ export default function LyricsView({
               onClick={() => {
                 pickLine(picked ? null : i);
                 // 点句即跳播；MV 跟随中 = 重对齐本地时钟
-                if (hasAudio || follow) requestSeek(l.timestamp_ms);
+                if (hasAudio) requestSeek(l.timestamp_ms);
               }}
               className={`lyric-line cursor-pointer rounded-[10px] px-3 py-[7px] leading-[1.55] transition-colors ${
                 cur

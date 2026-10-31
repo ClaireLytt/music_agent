@@ -6,7 +6,7 @@ const chip =
   "rounded-full bg-panel px-3 py-1 text-xs text-ink2 transition-colors hover:text-ink";
 
 export default function MvPanel({ song }: { song: Song }) {
-  const { showMv, toggleMv, follow, startFollow, stopFollow } = usePlayer();
+  const { showMv, toggleMv } = usePlayer();
   const { saveBvid } = useActions(song.id, song.title);
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -74,21 +74,6 @@ export default function MvPanel({ song }: { song: Song }) {
         </button>
         <button onClick={() => setEditing((v) => !v)} className={chip}>
           换一个视频
-        </button>
-        <button
-          onClick={() => (follow ? stopFollow() : startFollow(0))}
-          title={
-            follow
-              ? "停止本地时钟驱动的歌词高亮"
-              : "让 MV 从头播放的同时点此按钮，歌词随本地时钟跟着走；漂移时点任意歌词行重对齐"
-          }
-          className={`rounded-full px-3 py-1 text-xs transition-colors ${
-            follow
-              ? "bg-accent font-semibold text-[#0e1016]"
-              : "bg-panel text-ink2 hover:text-ink"
-          }`}
-        >
-          {follow ? "跟随中 · 点歌词行可重对齐" : "歌词跟随（与 MV 同点开始）"}
         </button>
         {msg && <span className="text-xs text-ink3">{msg}</span>}
       </div>

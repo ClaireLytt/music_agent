@@ -18,7 +18,7 @@ export default function App() {
   const { data: songs = [], isLoading } = useSongs(query);
   const {
     songId, setSong, setPlaying, setTime, setCurrentLine, currentLine,
-    seekMs, clearSeek, follow, startFollow, drillReturn, setDrillReturn,
+    seekMs, clearSeek, drillReturn, setDrillReturn,
   } = usePlayer();
   const audioRef = useRef<HTMLAudioElement>(null);
   const navigate = useNavigate();
@@ -107,41 +107,15 @@ export default function App() {
   const { data: lyrics } = useLyrics(songId);
 
   // 消费跳播请求（歌词时间轴口径 → 音频时间，扣掉试听片段偏移）。
-  // MV 跟随中：点句 = 重新对齐本地时钟（漂移时点一下对应行即可拉回）
   useEffect(() => {
     if (seekMs === null) return;
-    if (follow) {
-      startFollow(seekMs);
-      clearSeek();
-      return;
-    }
     const a = audioRef.current;
     if (a && song && song.audio_type !== "none") {
       a.currentTime = Math.max(0, (seekMs - song.audio_offset_ms) / 1000);
       if (a.paused) void a.play();
     }
     clearSeek();
-  }, [seekMs, song, follow, startFollow, clearSeek]);
-
-  // MV 歌词跟随：本地时钟驱动高亮（iframe 读不到进度的近似方案）
-  useEffect(() => {
-    if (!follow || !lyrics) return;
-    audioRef.current?.pause(); // 跟随与音频二选一
-    const lines = lyrics.timed_lines;
-    const end = lines.length
-      ? lines[lines.length - 1].timestamp_ms + 8000 : 0;
-    const tick = setInterval(() => {
-      const t = follow.msStart + (Date.now() - follow.wallStart);
-      setTime(Math.min(t, end), end);
-      let i = -1;
-      for (let k = 0; k < lines.length; k++) {
-        if (lines[k].timestamp_ms <= t) i = k;
-        else break;
-      }
-      setCurrentLine(i);
-    }, 250);
-    return () => clearInterval(tick);
-  }, [follow, lyrics, setTime, setCurrentLine]);
+  }, [seekMs, song, clearSeek]);
 
   // HTML5 Audio → 歌词同步（含 audio_offset_ms 试听片段对齐）
   useEffect(() => {
