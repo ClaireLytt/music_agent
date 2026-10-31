@@ -176,22 +176,60 @@ function Lore() {
 
 // ── 歌词竞猜 / 歌名拼图（共用一套四选一流程） ─────────────────
 
+const ROUND_SIZE = 10;
+
+interface GameResult {
+  prompt: string;
+  answer: string;
+  picked: string;
+  ok: boolean;
+}
+
 function Game({ kind }: { kind: "quiz" | "puzzle" }) {
   const [q, setQ] = useState<QuizQ | PuzzleQ | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
   const [verdict, setVerdict] = useState("");
-  const [score, setScore] = useState({ ok: 0, total: 0 });
+  const [results, setResults] = useState<GameResult[]>([]);
+  const [phase, setPhase] = useState<"idle" | "playing" | "review">("idle");
   const [hint, setHint] = useState("");
 
-  const draw = async () => {
+  const draw = async (seen: string[]) => {
     setVerdict("");
     setPicked(null);
+    setQ(null);
     try {
-      setQ(kind === "quiz" ? await fetchQuiz() : await fetchPuzzle());
+      let next: QuizQ | PuzzleQ | null = null;
+      for (let tries = 0; tries < 6; tries++) {
+        const cand = kind === "quiz" ? await fetchQuiz() : await fetchPuzzle();
+        const key = kind === "quiz" ? (cand as QuizQ).line : (cand as PuzzleQ).masked;
+        if (!seen.includes(key)) {
+          next = cand;
+          break;
+        }
+        next = cand;
+      }
+      setQ(next);
       setHint("");
     } catch (e) {
       setQ(null);
       setHint(e instanceof Error ? e.message : "出题失败");
+    }
+  };
+  const seenKeys = () =>
+    results.map((r) => r.prompt.replace(/^[“《]|[”》]$/g, ""));
+
+  const startRound = () => {
+    setResults([]);
+    setPhase("playing");
+    void draw([]);
+  };
+
+  const advance = () => {
+    if (results.length >= ROUND_SIZE) {
+      setQ(null);
+      setPhase("review");
+    } else {
+      void draw(seenKeys());
     }
   };
 
@@ -202,7 +240,15 @@ function Game({ kind }: { kind: "quiz" | "puzzle" }) {
       return;
     }
     const ok = picked === q.answer;
-    setScore((s) => ({ ok: s.ok + (ok ? 1 : 0), total: s.total + 1 }));
+    setResults((r) => [...r, {
+      prompt: kind === "quiz"
+        ? `“${(q as QuizQ).line}”`
+        : `《${(q as PuzzleQ).masked}》`,
+      answer: kind === "quiz" ? `《${q.answer}》`
+        : `「${q.answer}」（《${(q as PuzzleQ).title}》）`,
+      picked: picked ?? "",
+      ok,
+    }]);
     if (kind === "quiz")
       setVerdict(ok ? `答对了！正是《${q.answer}》` : `不对，这句出自《${q.answer}》`);
     else {
@@ -215,13 +261,14 @@ function Game({ kind }: { kind: "quiz" | "puzzle" }) {
     setHint("");
   };
 
-  // 键盘:1-4 选项、Enter 提交/下一题（与旧版一致）
+  // 键盘:1-4 选项、Enter 提交/下一题/回顾页开下一轮（与打单词一致）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (e.key === "Enter") {
-        if (verdict) void draw();
+        if (phase === "review" || phase === "idle") startRound();
+        else if (verdict) advance();
         else submit();
       } else if (/^[1-4]$/.test(e.key) && q) {
         const opt = q.options[Number(e.key) - 1];
@@ -231,6 +278,42 @@ function Game({ kind }: { kind: "quiz" | "puzzle" }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   });
+
+  // ── 回顾页（与打单词的轮回顾同构：本轮成绩 + 错题清单） ──
+  if (phase === "review") {
+    const wrong = results.filter((r) => !r.ok);
+    return (
+      <div className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center gap-5">
+        <p className="text-[24px] font-bold">
+          {wrong.length ? `本轮完成 · ${wrong.length} 题答错` : "本轮完成 · 全对"}
+        </p>
+        <p className="text-[18.8px] text-ink3">
+          本轮 {results.length} 题 · 答对 {results.length - wrong.length}
+          （{Math.round(((results.length - wrong.length) / results.length) * 100)}%）
+        </p>
+        {wrong.length ? (
+          <div className="w-full rounded-card border border-edge bg-panel">
+            <div className="px-4 pb-1 pt-3 text-[16.5px] font-semibold tracking-[.08em] text-ink3">
+              错题
+            </div>
+            {wrong.map((r, i) => (
+              <div key={i} className="border-t border-edge px-4 py-2.5">
+                <p className="text-[19.5px] text-ink">{r.prompt}</p>
+                <p className="text-[18px] text-ink3">
+                  你选「{r.picked}」 · 正确答案 {r.answer}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[18.8px] text-ink2">没有错题——这轮漂亮。</p>
+        )}
+        <button className={chip(true)} onClick={startRound}>
+          下一轮（Enter）
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-1 flex-col items-center justify-center gap-5">
@@ -262,25 +345,41 @@ function Game({ kind }: { kind: "quiz" | "puzzle" }) {
         </>
       ) : (
         <p className="text-[20.3px] text-ink3">
-          {hint || (kind === "quiz" ? "点「开始 / 下一题」抽一句歌词。" : "点「来一题」抽一个缺了一块的歌名。")}
+          {hint ||
+            (kind === "quiz"
+              ? `按 Enter 或点「开始一轮」：${ROUND_SIZE} 句歌词连猜，最后看错题。`
+              : `按 Enter 或点「开始一轮」：${ROUND_SIZE} 个歌名连拼，最后看错题。`)}
         </p>
       )}
       <div className="flex gap-2">
-        <button className={chip(true)} onClick={() => void draw()}>
-          {kind === "quiz" ? "开始 / 下一题" : "来一题"}
-        </button>
-        <button className={chip(false)} onClick={submit}>
-          {kind === "quiz" ? "提交答案" : "拼好了"}
-        </button>
+        {phase === "playing" && q ? (
+          verdict ? (
+            <button className={chip(true)} onClick={advance}>
+              {results.length >= ROUND_SIZE ? "看本轮回顾" : "下一题"}
+            </button>
+          ) : (
+            <button className={chip(true)} onClick={submit}>
+              {kind === "quiz" ? "提交答案" : "拼好了"}
+            </button>
+          )
+        ) : (
+          <button className={chip(true)} onClick={startRound}>
+            开始一轮
+          </button>
+        )}
       </div>
       {hint && q && <p className="text-[18.8px] text-ink3">{hint}</p>}
-      {verdict && (
-        <p className="text-center text-[21px] leading-7">
-          {verdict}　当前战绩 <b>{score.ok} / {score.total}</b>
+      {q && (
+        <p className="text-[18.8px] text-ink3">
+          第 <b className="text-ink2">{Math.min(results.length + (verdict ? 0 : 1), ROUND_SIZE)}</b> / {ROUND_SIZE} 题
+          {results.length > 0 && ` · 已对 ${results.filter((r) => r.ok).length}`}
         </p>
       )}
+      {verdict && (
+        <p className="text-center text-[21px] leading-7">{verdict}</p>
+      )}
       <p className="text-[16.5px] text-ink3">
-        按 1-4 选选项、Enter 提交，看完答案再按一次 Enter 下一题
+        按 1-4 选选项、Enter 提交，看完答案再按一次 Enter 继续
       </p>
     </div>
   );
