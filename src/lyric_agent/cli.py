@@ -7,6 +7,19 @@ import logging
 import click
 
 
+def _mute_proactor_noise() -> None:
+    """Windows：浏览器掐断连接（刷新/关标签/音频 Range 请求拉够即断）时，
+    asyncio proactor 会打 ConnectionResetError 堆栈——无害但刷屏误导排障，
+    定向静音。"""
+    class _MuteProactorNoise(logging.Filter):
+        def filter(self, record):
+            msg = str(record.getMessage()) + str(record.exc_info)
+            return not ("ConnectionResetError" in msg
+                        or "_call_connection_lost" in msg)
+
+    logging.getLogger("asyncio").addFilter(_MuteProactorNoise())
+
+
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
 def cli(verbose: bool) -> None:
@@ -47,6 +60,7 @@ def serve_web(port: int, no_browser: bool) -> None:
 
     from .api import create_app
 
+    _mute_proactor_noise()
     url = f"http://127.0.0.1:{port}"
     if not no_browser:
         # uvicorn.run 阻塞到退出,延时开页避免抢在服务就绪之前
@@ -60,17 +74,7 @@ def serve_web(port: int, no_browser: bool) -> None:
               help="don't auto-open the page in the default browser")
 def serve(port: int | None, no_browser: bool) -> None:
     """Launch the lyrics annotation player UI."""
-    import logging as _logging
-
-    class _MuteProactorNoise(_logging.Filter):
-        """Windows：浏览器刷新/关标签时 SSE 断开，asyncio proactor 会打
-        ConnectionResetError 堆栈——无害但刷屏误导排障，定向静音。"""
-        def filter(self, record):
-            msg = str(record.getMessage()) + str(record.exc_info)
-            return not ("ConnectionResetError" in msg
-                        or "_call_connection_lost" in msg)
-
-    _logging.getLogger("asyncio").addFilter(_MuteProactorNoise())
+    _mute_proactor_noise()
     from .review import TTS_CACHE_DIR as _TTS_CACHE_DIR
     from pathlib import Path
 
