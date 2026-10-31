@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { MvCandidate, Song, useActions } from "../api";
 import { usePlayer } from "../store";
+import Scrollable from "./Scrollable";
 
 const chip =
   "rounded-full bg-panel px-3 py-1 text-xs text-ink2 transition-colors hover:text-ink";
@@ -53,7 +54,8 @@ export default function MvPanel({ song }: { song: Song }) {
   };
 
   const candList = cands && cands.length > 0 && (
-    <ul className="mb-1.5 max-h-48 overflow-y-auto rounded-card border border-edge2 bg-panel2">
+    <Scrollable className="mb-1.5 rounded-card border border-edge2 bg-panel2" contentClassName="max-h-48">
+    <ul>
       {cands.map((c) => (
         <li key={c.bvid}>
           <button
@@ -68,6 +70,7 @@ export default function MvPanel({ song }: { song: Song }) {
         </li>
       ))}
     </ul>
+    </Scrollable>
   );
 
   const bindForm = editing && (
