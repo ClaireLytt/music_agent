@@ -136,3 +136,19 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 犯错：
 当我跟你强调修改或者添加某个功能，你已经修改了代码之后还是没有达到我要的效果，应该先仔细思考找出没有起效的原因和真正的解决方法写入到claude.md中，避免下次再次犯错
+
+已归档的踩坑原因（改了没生效类）：
+- Tailwind 只静态扫描源码里的字面类名：运行时拼接的类
+  （`cls.replace("border-edge2","border-accent")`）不会被生成，样式
+  静默失效。条件样式必须把每个状态写成完整字面量字符串。
+
+## 规则 ↔ 强制手段对照表
+
+| 规则 | 强制手段 | 层级 |
+|---|---|---|
+| 测试不得动真实 data/songs/ | tests/conftest.py 会话级守卫：套件结束对比快照，动了即整体失败并列出文件 | 测试 |
+| 不许提交占位 LLM 输出 | tests/test_data_hygiene.py 扫 git 跟踪的 annotations.json | 测试 |
+| heredoc 禁非 ASCII（Git Bash 吞字节） | ~/.claude/hooks/block_heredoc.py 直接拦截 Bash 调用 | 架构 |
+| 长 LLM 调用必须后台线程+落盘+轮询 | 仅文档（样板 ui.py on_gen_lore；无自动检查） | 文档 |
+| 提交前核查暂存区（外部 git add 污染） | 仅文档（流程规则，无法在仓库内强制） | 文档 |
+| 条件 Tailwind 类写完整字面量 | 仅文档（见上方踩坑归档） | 文档 |
