@@ -23,6 +23,8 @@ export interface TimedLine {
   line_index: number;
   timestamp_ms: number;
   text: string;
+  /** 词级时间轴（Enhanced LRC）：[词起始ms, 词文本][]；行级为 null */
+  words: [number, string][] | null;
 }
 
 export interface Annotation {

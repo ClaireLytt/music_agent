@@ -291,7 +291,9 @@ def create_app() -> FastAPI:
         return {
             "timed_lines": [
                 {"line_index": tl.line_index, "timestamp_ms": tl.timestamp_ms,
-                 "text": tl.text}
+                 "text": tl.text,
+                 # 词级时间轴（Enhanced LRC）；行级歌词为 null
+                 "words": tl.words}
                 for tl in data["timed_lines"]
             ],
             "annotations": {

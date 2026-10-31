@@ -3,13 +3,57 @@ import { Lyrics } from "../api";
 import { usePlayer } from "../store";
 import Scrollable from "./Scrollable";
 
-/** 卡拉OK进度：当前行已唱比例（按行时间戳线性估算） */
+/** 英文按元音簇、CJK 按字估算音节数（快歌慢歌的行内配速依据） */
+function syllables(token: string) {
+  if (/[぀-ヿ一-鿿]/.test(token)) return token.length;
+  return (token.toLowerCase().match(/[aeiouy]+/g) ?? [""]).length || 1;
+}
+
+/** 卡拉OK进度（0-100，按文本字符位置计）。
+ *  词级时间轴（Enhanced LRC）→ 逐字精确；
+ *  行级 → 行内按音节加权插值（替代旧的匀速线性，快词慢词不再一个速度）。 */
 function karaokeP(timeMs: number, lines: Lyrics["timed_lines"], i: number) {
   if (i < 0 || i >= lines.length) return 0;
-  const start = lines[i].timestamp_ms;
+  const line = lines[i];
+  const start = line.timestamp_ms;
   const end = i + 1 < lines.length ? lines[i + 1].timestamp_ms : start + 5000;
   if (end <= start) return 0;
-  return Math.min(100, Math.max(0, ((timeMs - start) / (end - start)) * 100));
+
+  // 真词级：当前词之前的字符全亮，当前词内部按词时长线性推进
+  if (line.words && line.words.length > 1) {
+    const total = line.words.reduce((n, [, w]) => n + w.length, 0);
+    let chars = 0;
+    for (let k = 0; k < line.words.length; k++) {
+      const [ws, w] = line.words[k];
+      const we = k + 1 < line.words.length ? line.words[k + 1][0] : end;
+      if (timeMs < ws) break;
+      if (timeMs < we) {
+        const inWord = (timeMs - ws) / Math.max(1, we - ws);
+        return Math.min(100, ((chars + w.length * inWord) / total) * 100);
+      }
+      chars += w.length;
+    }
+    return timeMs >= line.words[line.words.length - 1][0] ? 100 : 0;
+  }
+
+  // 行级：音节加权——把"行内已过时间比例"映射到字符位置
+  const f = Math.min(1, Math.max(0, (timeMs - start) / (end - start)));
+  const tokens = line.text.split(/(\s+)/).filter((t) => t.length);
+  const weights = tokens.map((t) => (/^\s+$/.test(t) ? 0.3 : syllables(t)));
+  const totalW = weights.reduce((a, b) => a + b, 0);
+  const totalChars = line.text.length;
+  let acc = 0;
+  let chars = 0;
+  for (let k = 0; k < tokens.length; k++) {
+    const next = acc + weights[k];
+    if (f * totalW <= next) {
+      const inTok = (f * totalW - acc) / Math.max(1e-6, weights[k]);
+      return Math.min(100, ((chars + tokens[k].length * inTok) / totalChars) * 100);
+    }
+    acc = next;
+    chars += tokens[k].length;
+  }
+  return 100;
 }
 
 export default function LyricsView({

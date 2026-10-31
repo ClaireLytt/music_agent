@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 _TIMESTAMP_RE = re.compile(r"\[(\d{2}):(\d{2})(?:\.(\d{2,3}))?\]")
 _WORD_TS_RE = re.compile(r"<\d{2}:\d{2}(?:\.\d{2,3})?>")
+_WORD_SPLIT_RE = re.compile(r"<(\d{2}):(\d{2})(?:\.(\d{2,3}))?>")
 _META_RE = re.compile(r"\[(ti|ar|al|by|offset|length):([^\]]*)\]", re.IGNORECASE)
 
 
@@ -23,6 +24,9 @@ class TimedLine:
     timestamp_str: str
     text: str
     line_index: int = 0
+    # 词级时间轴（Enhanced LRC 行内 <mm:ss.xx> 标签）：
+    # [(词起始 ms, 词文本含尾随空格), ...]；行级歌词为 None
+    words: list[tuple[int, str]] | None = None
 
 
 @dataclass
@@ -30,6 +34,25 @@ class LrcMetadata:
     title: str = ""
     artist: str = ""
     album: str = ""
+
+
+def _parse_word_timeline(body: str) -> list[tuple[int, str]] | None:
+    """行内 <mm:ss.xx> 词级标签 → [(ms, 词文本), ...]；
+    少于 2 个标签没有词级意义，返回 None（行级）。"""
+    parts = _WORD_SPLIT_RE.split(body)
+    # split 产出 [前缀, mm, ss, cs, 词文本, mm, ss, cs, 词文本, ...]
+    if len(parts) < 9:   # 至少 2 个标签
+        return None
+    words: list[tuple[int, str]] = []
+    for i in range(1, len(parts) - 3, 4):
+        mm, ss, cs = parts[i], parts[i + 1], parts[i + 2]
+        ms = int(mm) * 60_000 + int(ss) * 1000
+        if cs:
+            ms += int(cs) * 10 if len(cs) == 2 else int(cs)
+        word = parts[i + 3]
+        if word.strip():
+            words.append((ms, word))
+    return words if len(words) >= 2 else None
 
 
 def parse_lrc(content: str) -> tuple[LrcMetadata, list[TimedLine]]:
@@ -69,8 +92,9 @@ def parse_lrc(content: str) -> tuple[LrcMetadata, list[TimedLine]]:
                 ms = 0
             timestamps.append(minutes * 60_000 + seconds * 1000 + ms)
 
-        text = _TIMESTAMP_RE.sub("", raw_line)
-        text = _WORD_TS_RE.sub("", text)
+        body = _TIMESTAMP_RE.sub("", raw_line)
+        words = _parse_word_timeline(body)
+        text = _WORD_TS_RE.sub("", body)
         text = re.sub(r"\s{2,}", " ", text).strip()
         if not text or not timestamps:
             continue
@@ -83,6 +107,7 @@ def parse_lrc(content: str) -> tuple[LrcMetadata, list[TimedLine]]:
                 timestamp_ms=ts_ms,
                 timestamp_str=f"[{mm:02d}:{ss:02d}.{cs:02d}]",
                 text=text,
+                words=words,
             ))
 
     lines.sort(key=lambda ln: ln.timestamp_ms)
