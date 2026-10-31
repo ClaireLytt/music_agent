@@ -21,8 +21,8 @@ export default function PlayerBar({
 }) {
   const { songId, setSong, playing, timeMs, durationMs } = usePlayer();
   const [volume, setVolume] = useState(1);
-  // 封面：首次 404 时后端正在后台抓取 → 每 3s 重试（最多 6 次），
-  // 成功淡入；期间/彻底失败都显示占位渐变（打底常驻）
+  // 封面：首次 404 时后端正在后台抓取 → 每 5s 重试（最多 12 次 ≈ 60s，
+  // 覆盖抓取链最坏耗时），成功淡入；期间/失败都显示占位渐变（打底常驻）
   const [coverTry, setCoverTry] = useState(0);
   const [coverLoaded, setCoverLoaded] = useState(false);
   const coverTimer = useRef<number>();
@@ -88,7 +88,7 @@ export default function PlayerBar({
         {/* 专辑封面：后端自动抓取缓存；渐变打底，图到了淡入 */}
         <div className="relative h-[52px] w-[52px] flex-none">
           <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-[#4a6b58] to-[#22332a] shadow-art" />
-          {song && coverTry <= 6 && (
+          {song && coverTry <= 12 && (
             <img
               key={`${song.id}#${coverTry}`}
               src={`/api/songs/${song.id}/cover?r=${coverTry}`}
@@ -97,7 +97,7 @@ export default function PlayerBar({
               onError={() => {
                 window.clearTimeout(coverTimer.current);
                 coverTimer.current = window.setTimeout(
-                  () => setCoverTry((t) => t + 1), 3000);
+                  () => setCoverTry((t) => t + 1), 5000);
               }}
               className={`absolute inset-0 h-full w-full rounded-lg object-cover shadow-art transition-opacity duration-500 ${
                 coverLoaded ? "opacity-100" : "opacity-0"

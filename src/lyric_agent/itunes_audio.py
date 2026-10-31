@@ -31,11 +31,24 @@ _lock = threading.Lock()
 _fill_started = False
 
 
+_cache_memo: tuple[int, dict] | None = None
+
+
 def _load_cache() -> dict:
+    """mtime 记忆化：/api/songs 对每首歌都查缓存，不能每次读盘。"""
+    global _cache_memo
     try:
-        return json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+        mtime = _CACHE_PATH.stat().st_mtime_ns
+    except OSError:
+        return {}
+    if _cache_memo and _cache_memo[0] == mtime:
+        return _cache_memo[1]
+    try:
+        data = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
     except Exception:
         return {}
+    _cache_memo = (mtime, data)
+    return data
 
 
 def _save_cache(cache: dict) -> None:

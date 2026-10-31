@@ -194,7 +194,9 @@ function AskAiCard({
         </Scrollable>
       )}
       {err && (
-        <p className="mb-2 text-center text-[21.6px] text-ink3">⚠️ {err}</p>
+        <p className="mb-2 text-center text-[21.6px] text-ink3">
+          提问失败：{err}
+        </p>
       )}
       <div className="flex gap-2">
         <input

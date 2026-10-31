@@ -51,13 +51,17 @@ def _find_song(song_id: str) -> dict:
     raise HTTPException(status_code=404, detail=f"song not found: {song_id}")
 
 
-def _song_payload(s: dict) -> dict:
+def _song_payload(s: dict, settings=None) -> dict:
     audio_type = s["audio_type"]
     # ── B站音轨代理（实验性，可整体移除；见 bilibili_audio.py）──
     # 无本地/URL 音频但绑了 MV：报 "bilibili"，前端照常渲染播放器，
     # 音频仍走统一的 /api/songs/{id}/audio
+    # settings 每次 load_dotenv+读盘，列表循环里只算一次（性能：
+    # /api/songs 曾经每首歌读两次盘）
+    if settings is None:
+        settings = load_settings()
     if audio_type == "none" and s["bvid"] and \
-            bilibili_audio.enabled(load_settings()):
+            bilibili_audio.enabled(settings):
         audio_type = "bilibili"
     # ── end B站音轨代理 ──
     # ── iTunes 试听（实验性，可整体移除；见 itunes_audio.py）──
@@ -272,13 +276,16 @@ def create_app() -> FastAPI:
     @app.get("/api/songs")
     def list_songs(q: str = "") -> list[dict]:
         songs = _songs()
+        settings = load_settings()
         # ── iTunes 试听（实验性，可整体移除；见 itunes_audio.py）──
-        # 后台补缓存：候选 = 没音频且（没 MV 或 B 站代理不可用）的歌
-        itunes_audio.fill_missing_async([
-            s for s in songs
-            if s["audio_type"] == "none"
-            and not (s["bvid"] and bilibili_audio.enabled(load_settings()))
-        ])
+        # 后台补缓存：候选 = 没音频且（没 MV 或 B 站代理不可用）的歌。
+        # public 不写服务器盘（与 cover_art/bilibili 同一铁律）→ 不触发
+        if not settings.public_mode:
+            itunes_audio.fill_missing_async([
+                s for s in songs
+                if s["audio_type"] == "none"
+                and not (s["bvid"] and bilibili_audio.enabled(settings))
+            ])
         # ── end iTunes 试听 ──
         q = (q or "").strip().lower()
         if q:
@@ -292,7 +299,7 @@ def create_app() -> FastAPI:
                 except Exception:
                     return False
             songs = [s for s in songs if hit(s)]
-        return [_song_payload(s) for s in songs]
+        return [_song_payload(s, settings) for s in songs]
 
     @app.get("/api/songs/{song_id}")
     def get_song(song_id: str) -> dict:
