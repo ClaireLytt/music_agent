@@ -44,5 +44,46 @@ def http_get_json(url: str, headers: dict | None = None,
     import urllib.request
 
     req = urllib.request.Request(url, headers=headers or {}, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    opener = urllib.request.build_opener(V4FirstHTTPSHandler())
+    with opener.open(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))
+
+
+def create_connection_v4first(address, timeout=None, source_address=None):
+    import socket
+
+    host, port = address
+    infos = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)
+    infos.sort(key=lambda ai: ai[0] != socket.AF_INET)
+    err = None
+    for fam, typ, proto, _, addr in infos:
+        sock = None
+        try:
+            sock = socket.socket(fam, typ, proto)
+            if timeout is not None:
+                sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(addr)
+            return sock
+        except OSError as exc:
+            err = exc
+            if sock is not None:
+                sock.close()
+    raise err if err else OSError(f"getaddrinfo returned nothing for {host}")
+
+
+import http.client
+import urllib.request as _urlreq
+
+
+class _V4FirstHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = create_connection_v4first
+
+
+class V4FirstHTTPSHandler(_urlreq.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_V4FirstHTTPSConnection, req,
+                            context=self._context)
