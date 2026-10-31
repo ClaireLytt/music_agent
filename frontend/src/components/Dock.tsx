@@ -22,7 +22,7 @@ function Chip({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[15px] font-medium transition-colors ${
+      className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-[22.5px] font-medium transition-colors ${
         primary
           ? "bg-accent font-semibold text-[#0e1016] hover:brightness-110"
           : "border border-[#33333c] text-ink2 hover:border-accent hover:text-accent"
@@ -36,7 +36,7 @@ function Chip({
 function Card({ k, children }: { k: string; children: React.ReactNode }) {
   return (
     <div className="rounded-card border border-edge bg-panel p-4">
-      <div className="mb-2.5 flex items-center gap-2 text-[14.4px] font-semibold text-ink2">
+      <div className="mb-2.5 flex items-center gap-2 text-[21.6px] font-semibold text-ink2">
         {k}
       </div>
       {children}
@@ -49,7 +49,7 @@ function Fold({
 }: { k: string; id?: string; children: React.ReactNode }) {
   return (
     <details id={id} className="group rounded-card border border-edge bg-panel">
-      <summary className="cursor-pointer select-none list-none p-4 text-[14.4px] font-semibold text-ink2 transition-colors hover:text-ink">
+      <summary className="cursor-pointer select-none list-none p-4 text-[21.6px] font-semibold text-ink2 transition-colors hover:text-ink">
         <span className="mr-1 inline-block transition-transform group-open:rotate-90">
           ▸
         </span>
@@ -66,7 +66,7 @@ function fmt(ms: number) {
 }
 
 const inputCls =
-  "min-w-0 flex-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-[9px] text-[15.6px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none";
+  "min-w-0 flex-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-[9px] text-[23.4px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none";
 
 function AskAiCard({
   songId, line, lineText,
@@ -103,12 +103,12 @@ function AskAiCard({
   return (
     <Card k={picked ? `💬 AI 助手 · 第 ${(line ?? 0) + 1} 句` : "💬 AI 助手"}>
       {picked ? (
-        <p className="mb-2 truncate text-center text-[14.4px] italic text-ink3"
+        <p className="mb-2 truncate text-center text-[21.6px] italic text-ink3"
            title={lineText}>
           「{lineText}」
         </p>
       ) : (
-        <p className="mb-2 text-center text-[15.6px] text-ink3">
+        <p className="mb-2 text-center text-[23.4px] text-ink3">
           点一句歌词，针对这句提问
         </p>
       )}
@@ -117,7 +117,7 @@ function AskAiCard({
           {turns.map((t, i) => (
             <div
               key={i}
-              className={`max-w-[85%] whitespace-pre-line rounded-lg px-3 py-2 text-[15px] leading-relaxed ${
+              className={`max-w-[85%] whitespace-pre-line rounded-lg px-3 py-2 text-[22.5px] leading-relaxed ${
                 t.speaker === "user"
                   ? "self-end bg-accent-soft text-ink"
                   : "self-start bg-panel2 text-ink2"
@@ -127,14 +127,14 @@ function AskAiCard({
             </div>
           ))}
           {busy && (
-            <div className="self-start rounded-lg bg-panel2 px-3 py-2 text-[15px] text-ink3">
+            <div className="self-start rounded-lg bg-panel2 px-3 py-2 text-[22.5px] text-ink3">
               思考中…
             </div>
           )}
         </Scrollable>
       )}
       {err && (
-        <p className="mb-2 text-center text-[14.4px] text-ink3">⚠️ {err}</p>
+        <p className="mb-2 text-center text-[21.6px] text-ink3">⚠️ {err}</p>
       )}
       <div className="flex gap-2">
         <input
@@ -229,7 +229,7 @@ export default function Dock({
       className="h-full min-h-0 border-l border-line bg-bg2"
       contentClassName="flex flex-col gap-3.5 px-[18px] py-5"
     >
-      <h2 className="flex items-center text-[14.4px] font-semibold tracking-[0.1em] text-ink3">
+      <h2 className="flex items-center text-[21.6px] font-semibold tracking-[0.1em] text-ink3">
         本句解读
         {toast && (
           <span className="ml-auto font-normal normal-case tracking-normal text-ink3">
@@ -240,20 +240,20 @@ export default function Dock({
 
       <Card k={ann ? `✏️ AI 批注 · 第 ${line + 1} 句` : "✏️ AI 批注"}>
         {ann ? (
-          <div className="mx-auto text-center text-[16.2px] leading-[1.8] text-ink2">
+          <div className="mx-auto text-center text-[24.3px] leading-[1.8] text-ink2">
             <p>{ann.summary}</p>
             {ann.metaphor_analysis && (
               <p className="mt-1 text-ink">{ann.metaphor_analysis}</p>
             )}
             {ann.wordplay && <p className="mt-1">{ann.wordplay}</p>}
             {ann.emotional_tone && (
-              <p className="mt-1.5 text-[14.4px] text-ink3">
+              <p className="mt-1.5 text-[21.6px] text-ink3">
                 情绪基调 · {ann.emotional_tone}
               </p>
             )}
           </div>
         ) : (
-          <p className="mx-auto text-center text-[16.2px] leading-[1.8] text-ink3">
+          <p className="mx-auto text-center text-[24.3px] leading-[1.8] text-ink3">
             点一句歌词，看这句的 AI 批注
           </p>
         )}
@@ -267,17 +267,17 @@ export default function Dock({
 
       <Card k="📖 歌曲导读">
         {intro.data?.status === "done" ? (
-          <p className="mx-auto whitespace-pre-line text-center text-[16.2px] leading-[1.8] text-ink2">
+          <p className="mx-auto whitespace-pre-line text-center text-[24.3px] leading-[1.8] text-ink2">
             {intro.data.text}
           </p>
         ) : intro.data?.status === "running" ? (
-          <p className="text-center text-[15.6px] text-ink3">
+          <p className="text-center text-[23.4px] text-ink3">
             AI 正在通读整首歌词，生成导读…（可随意切歌，回来还在）
           </p>
         ) : (
           <>
             {intro.data?.status === "error" && (
-              <p className="mb-2 text-center text-[15px] text-ink3">
+              <p className="mb-2 text-center text-[22.5px] text-ink3">
                 生成失败：{intro.data.text}
               </p>
             )}
@@ -366,8 +366,8 @@ export default function Dock({
                     pickLine(f.line_index);
                   }}
                 >
-                  <span className="text-[16.2px] font-medium text-ink2">{f.line}</span>
-                  <span className="mt-0.5 block text-[13.8px] text-ink3">
+                  <span className="text-[24.3px] font-medium text-ink2">{f.line}</span>
+                  <span className="mt-0.5 block text-[20.7px] text-ink3">
                     {f.title}{f.artist ? ` · ${f.artist}` : ""}
                   </span>
                 </button>
@@ -382,7 +382,7 @@ export default function Dock({
             ))}
           </ul>
         ) : (
-          <p className="text-[15px] text-ink3">这首歌还没有收藏的歌词。</p>
+          <p className="text-[22.5px] text-ink3">这首歌还没有收藏的歌词。</p>
         )}
       </Fold>
 
@@ -393,17 +393,17 @@ export default function Dock({
         ].map(([label, list]) =>
           list.length ? (
             <div key={label} className="mb-2">
-              <div className="mb-1 text-[12.6px] text-ink3">{label}</div>
+              <div className="mb-1 text-[18.9px] text-ink3">{label}</div>
               <ul className="flex flex-col gap-1.5">
                 {list.map((e) => (
                   <li
                     key={e.word}
-                    className="group rounded-lg bg-panel2 px-3 py-2 text-[15px]"
+                    className="group rounded-lg bg-panel2 px-3 py-2 text-[22.5px]"
                   >
                     <div className="flex items-center gap-2">
                       <b className="text-ink">{e.word}</b>
                       {e.phonetic && (
-                        <span className="text-[15.4px] text-ink3">
+                        <span className="text-[23.1px] text-ink3">
                           /{e.phonetic}/
                         </span>
                       )}
@@ -429,17 +429,17 @@ export default function Dock({
                       </button>
                     </div>
                     {e.translation && (
-                      <p className="mt-0.5 whitespace-pre-line text-[15.4px] text-ink2">
+                      <p className="mt-0.5 whitespace-pre-line text-[23.1px] text-ink2">
                         {e.translation.replace(/\\n/g, "\n")}
                       </p>
                     )}
                     {e.line && (
-                      <p className="mt-0.5 truncate text-[15.4px] text-ink3">
+                      <p className="mt-0.5 truncate text-[23.1px] text-ink3">
                         「{e.line}」
                       </p>
                     )}
                     {e.note && (
-                      <p className="mt-0.5 whitespace-pre-line text-[15.4px] text-accent">
+                      <p className="mt-0.5 whitespace-pre-line text-[23.1px] text-accent">
                         📝 {e.note}
                       </p>
                     )}
@@ -450,7 +450,7 @@ export default function Dock({
           ) : null,
         )}
         {!words.length && !phrases.length && (
-          <p className="text-[14.4px] text-ink3">
+          <p className="text-[21.6px] text-ink3">
             双击歌词里的单词 → 生词卡 → 收藏，单词会跟随这首歌
           </p>
         )}
@@ -459,7 +459,7 @@ export default function Dock({
       <Fold k="⚙️ 歌曲工具" id="song-tools">
         <div className="flex flex-col gap-3">
           <div>
-            <div className="mb-1 text-[12.6px] text-ink3">
+            <div className="mb-1 text-[18.9px] text-ink3">
               歌词时间校准（毫秒，正=歌词提前）
             </div>
             <form
@@ -476,7 +476,7 @@ export default function Dock({
                 value={offset}
                 onChange={(e) => setOffset(e.target.value)}
                 placeholder={String(song?.audio_offset_ms ?? 0)}
-                className={`min-w-0 flex-1 rounded-full border bg-panel2 px-3.5 py-[9px] text-[15.6px] text-ink placeholder:text-ink3 transition-[border-color,box-shadow] duration-300 focus:border-accent focus:outline-none ${
+                className={`min-w-0 flex-1 rounded-full border bg-panel2 px-3.5 py-[9px] text-[23.4px] text-ink placeholder:text-ink3 transition-[border-color,box-shadow] duration-300 focus:border-accent focus:outline-none ${
                   offsetPhase === "saved"
                     ? "border-accent shadow-[0_2px_18px_-6px_rgba(124,158,255,.5)]"
                     : "border-edge2"
@@ -509,7 +509,7 @@ export default function Dock({
             </form>
           </div>
           <div>
-            <div className="mb-1 text-[12.6px] text-ink3">
+            <div className="mb-1 text-[18.9px] text-ink3">
               为当前歌曲上传音频（mp3/wav/flac/ogg/m4a）
             </div>
             <input
