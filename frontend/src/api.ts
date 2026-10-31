@@ -11,6 +11,14 @@ export interface Song {
   bvid: string;
 }
 
+export interface MvCandidate {
+  bvid: string;
+  title: string;
+  author: string;
+  duration: string;
+  play: number;
+}
+
 export interface TimedLine {
   line_index: number;
   timestamp_ms: number;
@@ -443,6 +451,11 @@ export function useActions(songId: string | null, songTitle: string) {
       send(`/api/favorites/${encodeURIComponent(fid)}`, "DELETE").then(() =>
         refetch(["favorites"]),
       ),
+    searchMv: (): Promise<MvCandidate[]> =>
+      fetch(`/api/songs/${songId}/mv-candidates`).then((r) => {
+        if (!r.ok) throw new Error(`${r.status}`);
+        return r.json();
+      }),
     saveBvid: (value: string) =>
       send(`/api/songs/${songId}/bvid`, "PUT", { value }).then(() =>
         refetch(["songs"]),

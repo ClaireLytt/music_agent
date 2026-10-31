@@ -312,6 +312,14 @@ def create_app() -> FastAPI:
 
     # ── 歌曲工具（旧 tab_play_tools 的 REST 化） ──────────────
 
+    @app.get("/api/songs/{song_id}/mv-candidates")
+    def mv_candidates(song_id: str) -> list[dict]:
+        """B 站搜 MV 候选（旧 UI 的「搜索」搬运：关键词=歌名+歌手+MV）。
+        搜索不可用时返回 []，前端提示手填。"""
+        from .bilibili import search_mv
+        s = _find_song(song_id)
+        return search_mv(s["title"], s["artist"], limit=8)
+
     @app.put("/api/songs/{song_id}/bvid", **WRITE_GATE)
     def put_bvid(song_id: str, value: str = Body("", embed=True)) -> dict:
         from .bilibili import extract_bvid
