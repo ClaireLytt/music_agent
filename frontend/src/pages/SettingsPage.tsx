@@ -38,6 +38,8 @@ export default function SettingsPage() {
     if (!s) return;
     setProvider(s.llm_provider);
     setEmbModel(s.embedding_model);
+    setBase(s.llm_base_url);
+    setModel(s.model_name);
   }, [settings.data]);
 
   return (
@@ -48,7 +50,19 @@ export default function SettingsPage() {
       </header>
 
       <section className="rounded-card border border-edge bg-panel p-5">
-        <h2 className="mb-3 text-[19.5px] font-semibold">API 设置</h2>
+        <h2 className="mb-3 text-[19.5px] font-semibold">
+          API 设置
+          <span
+            data-key-state={settings.data?.has_key ? "saved" : "missing"}
+            className="ml-3 text-[17px] font-normal text-ink3"
+          >
+            {settings.data == null
+              ? ""
+              : settings.data.has_key
+                ? "Key 已保存在本机，可直接使用"
+                : "尚未配置 Key"}
+          </span>
+        </h2>
         <form
           className="flex flex-col gap-2.5"
           onSubmit={(e) => {
@@ -65,7 +79,10 @@ export default function SettingsPage() {
           <div className="flex flex-wrap gap-2.5">
             <input name="api-key" type="password" autoComplete="off" required value={key}
               onChange={(e) => setKey(e.target.value)}
-              placeholder="API Key（必填）" className={`${inputCls} w-72`} />
+              placeholder={settings.data?.has_key
+                ? "已保存，输入新 Key 可替换"
+                : "API Key（必填）"}
+              className={`${inputCls} w-72`} />
             <input name="base-url" value={base} onChange={(e) => setBase(e.target.value)}
               placeholder="接口地址（选填，如 https://api.deepseek.com）"
               className={`${inputCls} w-80`} />

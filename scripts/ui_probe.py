@@ -1146,6 +1146,39 @@ def run_react_probe(base: str, server_log: Path | None) -> list[dict]:
                     "single-occurrence word renders no fold",
                     c_fold_absent)
 
+        def c_settings_key_state():
+            req = urllib.request.Request(
+                base + "/api/settings", method="PUT",
+                headers={"Content-Type": "application/json"},
+                data=json.dumps({"provider": "openai", "key": "sk-probe-fake",
+                                 "base": "https://example.invalid/v1",
+                                 "model": "probe-model"}).encode("utf-8"))
+            with urllib.request.urlopen(req, timeout=10) as r:
+                must(r.status == 200, "settings PUT failed")
+            pg.goto(base + "/settings", wait_until="load")
+            probe.wait_until(
+                lambda: pg.evaluate(
+                    "(document.querySelector('[data-key-state]')"
+                    " || {getAttribute: () => null})"
+                    ".getAttribute('data-key-state')") == "saved",
+                msg="saved key state indicator did not render")
+            probe.wait_until(
+                lambda: pg.evaluate(
+                    "(document.querySelector('input[name=\"base-url\"]')"
+                    " || {value: ''}).value") == "https://example.invalid/v1",
+                msg="base url field not repopulated from saved settings")
+            must(pg.evaluate(
+                "(document.querySelector('input[name=\"model-name\"]')"
+                " || {value: ''}).value") == "probe-model",
+                "model field not repopulated from saved settings")
+            must(pg.evaluate(
+                "(document.querySelector('input[name=\"api-key\"]')"
+                " || {value: 'x'}).value") == "",
+                "key field must stay empty (write-only)")
+        probe.check("settings_key_state",
+                    "saved key shows indicator and repopulated fields",
+                    c_settings_key_state)
+
         if probe.console_errors:
             probe.check("react_console", "no unexpected console errors",
                         lambda: (_ for _ in ()).throw(
