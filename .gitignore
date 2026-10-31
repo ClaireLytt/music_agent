@@ -49,3 +49,4 @@ frontend/dist/
 frontend/tsconfig.tsbuildinfo
 data.bak_*/
 .scratch/
+tmp/

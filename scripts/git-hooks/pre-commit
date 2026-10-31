@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# 亚秒级提交守门：只跑数据卫生测试（占位 LLM 输出不许进 git）。
+# 全量 pytest/ui_probe 仍是人工验证门禁，不在这里拖慢提交。
+# 安装：cp scripts/git-hooks/pre-commit .git/hooks/pre-commit
+set -e
+cd "$(git rev-parse --show-toplevel)"
+if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi
+$PY -m pytest tests/test_data_hygiene.py -q -p no:cacheprovider

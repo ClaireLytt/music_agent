@@ -141,13 +141,19 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Tailwind 只静态扫描源码里的字面类名：运行时拼接的类
   （`cls.replace("border-edge2","border-accent")`）不会被生成，样式
   静默失效。条件样式必须把每个状态写成完整字面量字符串。
+- 浏览器断言要轮询等状态翻转（waitFor 式），不要固定 sleep 后采样：
+  固定延时和真实 API 延迟赛跑，会产生"样式没生效"的假阴性。
+  状态验证用 evaluate_script 断言；截图只留给视觉检查。
+
+一次性脚本/日志放 tmp/（已 gitignore），不要写进 data/cache。
 
 ## 规则 ↔ 强制手段对照表
 
 | 规则 | 强制手段 | 层级 |
 |---|---|---|
 | 测试不得动真实 data/songs/ | tests/conftest.py 会话级守卫：套件结束对比快照，动了即整体失败并列出文件 | 测试 |
-| 不许提交占位 LLM 输出 | tests/test_data_hygiene.py 扫 git 跟踪的 annotations.json | 测试 |
+| 浏览器实测/起服务验证必须隔离真实 data/ | `lyric-agent serve-web --sandbox`（临时副本数据树，与 ui_probe 同款） | 架构 |
+| 不许提交占位 LLM 输出 | tests/test_data_hygiene.py 扫 git 跟踪的 annotations.json；pre-commit 钩子亚秒级兜底（装法见 scripts/git-hooks/pre-commit 头注释） | 测试 |
 | heredoc 禁非 ASCII（Git Bash 吞字节） | ~/.claude/hooks/block_heredoc.py 直接拦截 Bash 调用 | 架构 |
 | 长 LLM 调用必须后台线程+落盘+轮询 | 仅文档（样板 ui.py on_gen_lore；无自动检查） | 文档 |
 | 提交前核查暂存区（外部 git add 污染） | 仅文档（流程规则，无法在仓库内强制） | 文档 |

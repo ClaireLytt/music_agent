@@ -51,7 +51,10 @@ def generate(song_dir: str, chunk_size: int, fresh: bool) -> None:
 @click.option("--port", default=8765, type=int, help="API/SPA port")
 @click.option("--no-browser", is_flag=True,
               help="don't auto-open the page in the default browser")
-def serve_web(port: int, no_browser: bool) -> None:
+@click.option("--sandbox", is_flag=True,
+              help="run against a throwaway copy of data/ — agent/browser "
+                   "testing must use this so real data never gets written")
+def serve_web(port: int, no_browser: bool, sandbox: bool) -> None:
     """Launch the new React SPA + FastAPI layer (play page vertical slice)."""
     import threading
     import webbrowser
@@ -61,6 +64,21 @@ def serve_web(port: int, no_browser: bool) -> None:
     from .api import create_app
 
     _mute_proactor_noise()
+    if sandbox:
+        # 与 scripts/ui_probe.py 同款数据沙箱：所有相对路径 data/ 的
+        # 读写都落在临时副本里，真实曲库绝不被测试点击污染
+        import os
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        box = Path(tempfile.mkdtemp(prefix="ll_sandbox_"))
+        shutil.copytree(
+            Path("data"), box / "data",
+            ignore=shutil.ignore_patterns("ui_probe", "design_loop",
+                                          "reports"))
+        os.chdir(box)
+        click.echo(f"data sandbox: {box}")
     url = f"http://127.0.0.1:{port}"
     if not no_browser:
         # uvicorn.run 阻塞到退出,延时开页避免抢在服务就绪之前
