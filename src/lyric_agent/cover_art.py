@@ -43,9 +43,11 @@ def find_local(song_dir: str | Path) -> Path | None:
 
 
 def _get(url: str, timeout: int = 12, headers: dict | None = None) -> bytes:
+    from .jsonio import V4FirstHTTPSHandler
     req = urllib.request.Request(url, headers={"User-Agent": _UA,
                                                **(headers or {})})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    opener = urllib.request.build_opener(V4FirstHTTPSHandler())
+    with opener.open(req, timeout=timeout) as resp:
         return resp.read()
 
 

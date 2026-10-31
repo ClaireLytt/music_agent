@@ -74,11 +74,13 @@ def _open_stream(bvid: str, range_header: str | None):
                       "Referer": "https://www.bilibili.com/"}
     if range_header:
         stream_headers["Range"] = range_header
+    from .jsonio import V4FirstHTTPSHandler
+    opener = urllib.request.build_opener(V4FirstHTTPSHandler())
     for fresh in (False, True):
         url, mime = _stream_url(bvid, fresh=fresh)
         req = urllib.request.Request(url, headers=stream_headers)
         try:
-            return urllib.request.urlopen(req, timeout=15), mime
+            return opener.open(req, timeout=15), mime
         except urllib.error.HTTPError as e:
             if e.code in (403, 404) and not fresh:
                 logger.info("bilibili stream URL stale for %s, refreshing",
