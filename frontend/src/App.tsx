@@ -209,7 +209,7 @@ export default function App() {
                 <div className="flex h-full flex-col items-center gap-5 px-12 pb-3 pt-7">
                   {song && <MvPanel song={song} />}
                   {lyrics ? (
-                    <div className="relative flex min-h-0 w-full max-w-[680px] flex-1 justify-center">
+                    <div className="relative flex min-h-0 w-full max-w-[880px] flex-1 justify-center">
                       <LyricsView
                         lyrics={lyrics}
                         hasAudio={!!song && song.audio_type !== "none"}

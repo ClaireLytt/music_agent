@@ -39,14 +39,16 @@ export default function LyricsView({
   return (
     <Scrollable
       ariaLabel="同步歌词"
-      className="lyrics-mask min-h-0 w-full max-w-[680px] flex-1"
+      className="lyrics-mask min-h-0 w-full max-w-[880px] flex-1"
       contentClassName="scroll-smooth"
     >
-      <ol className="flex flex-col gap-1.5 px-2 pb-28 pt-7 text-center">
+      <ol className="flex flex-col gap-1 px-4 pb-28 pt-7 text-left">
         {lyrics.timed_lines.map((l, i) => {
           const cur = i === currentLine;
           const near = Math.abs(i - currentLine) === 1;
           const picked = i === pickedLine;
+          // 方案 B：当前句右侧的留白摆这句的 AI 批注摘要
+          const gloss = cur ? lyrics.annotations[String(i)]?.summary : undefined;
           return (
             <li
               key={i}
@@ -54,20 +56,36 @@ export default function LyricsView({
               data-line={i}
               onClick={() => {
                 pickLine(picked ? null : i);
-                // 点句即跳播；MV 跟随中 = 重对齐本地时钟
+                // 点句即跳播
                 if (hasAudio) requestSeek(l.timestamp_ms);
               }}
-              className={`lyric-line cursor-pointer rounded-[10px] px-3 py-[7px] leading-[1.55] transition-colors ${
+              className={`lyric-line cursor-pointer rounded-[10px] px-3 py-[7px] leading-[1.45] transition-colors ${
                 cur
-                  ? "text-[26px] font-bold text-[#f7f2e8]"
+                  ? "my-1.5 text-[34px] font-extrabold tracking-[-.01em] text-[#f7f2e8]"
                   : near
-                    ? "text-[19px] font-medium text-[#beb8a8] hover:bg-white/5"
-                    : "text-[19px] font-medium text-[#8f8a7c] hover:bg-white/5 hover:text-[#beb8a8]"
+                    ? "text-[23px] font-medium text-[#d8d2c2] hover:bg-white/5"
+                    : "text-[23px] font-medium text-[#a39d8e] hover:bg-white/5 hover:text-[#d8d2c2]"
               } ${picked && !cur ? "bg-[#f0c36a]/15" : ""}`}
             >
               {cur ? (
-                <span className="karaoke" style={{ "--p": `${p}%` } as React.CSSProperties}>
-                  {l.text}
+                <span className="flex items-center gap-6">
+                  <span
+                    className="karaoke max-w-[56%] flex-none"
+                    style={{ "--p": `${p}%` } as React.CSSProperties}
+                  >
+                    {l.text}
+                  </span>
+                  {gloss && (
+                    <span
+                      key={i} /* 换句重放进场动画 */
+                      className="min-w-0 flex-1 animate-dropin border-l-2 border-accent pl-4 text-[14.5px] font-normal leading-[1.7] tracking-normal text-ink2"
+                    >
+                      <span className="mb-0.5 block text-[12px] font-semibold tracking-[.08em] text-accent">
+                        AI 批注
+                      </span>
+                      {gloss}
+                    </span>
+                  )}
                 </span>
               ) : (
                 l.text
