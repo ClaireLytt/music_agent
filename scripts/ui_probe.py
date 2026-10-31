@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import re
 import shutil
 import socket
@@ -1090,9 +1091,10 @@ def run_react_probe(base: str, server_log: Path | None) -> list[dict]:
             pg.locator(f"[data-occ-item][data-occ-song=\"{it['song']}\"]"
                        f"[data-occ-line=\"{it['line_index']}\"]").first.click()
             probe.wait_until(
-                lambda: "bg-[#f0c36a]/15" in (pg.evaluate(
+                lambda: pg.evaluate(
                     f"(document.querySelector('[data-line=\"{it['line_index']}\"]')"
-                    " || {className: ''}).className")),
+                    " || {getAttribute: () => null})"
+                    ".getAttribute('data-occ-hl')") == "1",
                 msg="same-song hit click did not highlight the line")
         probe.check("occ_jump_current",
                     "same-song hit click jumps to the line",
@@ -1112,13 +1114,14 @@ def run_react_probe(base: str, server_log: Path | None) -> list[dict]:
                        f"[data-occ-line=\"{it['line_index']}\"]").first.click()
 
             def landed():
-                el_class = pg.evaluate(
+                el_hl = pg.evaluate(
                     f"(document.querySelector('[data-line=\"{it['line_index']}\"]')"
-                    " || {className: ''}).className")
+                    " || {getAttribute: () => null})"
+                    ".getAttribute('data-occ-hl')")
                 el_text = pg.evaluate(
                     f"((document.querySelector('[data-line=\"{it['line_index']}\"]')"
                     " || {textContent: ''}).textContent || '').trim()")
-                return ("bg-[#f0c36a]/15" in el_class
+                return (el_hl == "1"
                         and el_text.startswith(it["line"][:20]))
             probe.wait_until(
                 landed, msg="cross-song hit did not switch song + highlight")
@@ -1168,7 +1171,7 @@ def main() -> int:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         server_log = OUT_DIR / "server.log"
         # BILI_AUTO_BIND=0: no grey-API搜索 traffic from probe runs
-        env = {**__import__("os").environ, "UI_PORT": str(port),
+        env = {**os.environ, "UI_PORT": str(port),
                "BILI_AUTO_BIND": "0",
                "LL_CORPUS_REBUILD": "0",
                "LL_WORD_EXAMPLES": "0",
@@ -1216,7 +1219,7 @@ def main() -> int:
                 [sys.executable, "-m", "lyric_agent.cli", "serve-web",
                  "--sandbox", "--no-browser", "--port", str(port2)],
                 cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT,
-                env={**__import__("os").environ, "LL_CORPUS_REBUILD": "0",
+                env={**os.environ, "LL_CORPUS_REBUILD": "0",
                      "LL_COVER_FETCH": "0",
                      "PYTHONPATH": str(ROOT / "src")})
         print(f"spawned serve-web on {base2} (pid {proc2.pid})")

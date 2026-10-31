@@ -1,5 +1,3 @@
-"""dict-ai 曲库例句注入 + v4 缓存 key（隔离 tmp 数据树，LLM 一律 mock）。"""
-
 import hashlib
 import json
 

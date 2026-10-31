@@ -12,12 +12,6 @@ from .intertextuality.search import is_cjk_text
 _WORD_RE = re.compile(r"[A-Za-z']+")
 
 
-def _lemma_of(word: str) -> str:
-    dictionary._load()
-    w = word.lower().strip("'-")
-    return (dictionary._lemma or {}).get(w, w)
-
-
 @lru_cache(maxsize=4)
 def _index(corpus_dir: str, mtime: float) -> dict[str, list[tuple[str, int, str]]]:
     idx: dict[str, list[tuple[str, int, str]]] = {}
@@ -26,7 +20,7 @@ def _index(corpus_dir: str, mtime: float) -> dict[str, list[tuple[str, int, str]
             continue
         keys: set[str] = set()
         for token in _WORD_RE.findall(cl.text):
-            keys.update(dictionary._candidates(token))
+            keys.update(dictionary.candidates(token))
         for key in keys:
             idx.setdefault(key, []).append((cl.song, cl.line_index, cl.text))
     return idx
@@ -59,13 +53,12 @@ def _annotated(songs_dir: str) -> dict[str, set[int]]:
 def find_occurrences(word: str, corpus_dir: str, songs_dir: str,
                      song: str = "", line: str = "",
                      limit: int = 20) -> dict:
-    dictionary._load()
     path = Path(corpus_dir) / "discography.jsonl"
     mtime = path.stat().st_mtime if path.exists() else 0.0
     idx = _index(corpus_dir, mtime)
     hits: list[tuple[str, int, str]] = []
     seen_ids: set[tuple[str, int]] = set()
-    for cand in dictionary._candidates(word):
+    for cand in dictionary.candidates(word):
         for hit in idx.get(cand, []):
             if (hit[0], hit[1]) not in seen_ids:
                 seen_ids.add((hit[0], hit[1]))
@@ -83,7 +76,7 @@ def find_occurrences(word: str, corpus_dir: str, songs_dir: str,
     ))
     return {
         "word": word,
-        "lemma": _lemma_of(word),
+        "lemma": dictionary.lemma_of(word),
         "total": len(ordered),
         "items": [{"song": s, "line_index": i, "line": t}
                   for s, i, t in ordered[:max(limit, 0)]],

@@ -98,6 +98,7 @@ export default function LyricsView({
               key={i}
               ref={cur ? curRef : picked ? pickedRef : undefined}
               data-line={i}
+              data-occ-hl={picked && !cur ? "1" : undefined}
               onClick={() => {
                 pickLine(picked ? null : i);
                 // 点句即跳播

@@ -228,9 +228,22 @@ export default function DictPops({ song }: { song: Song | undefined }) {
                   className="w-full text-left text-[12px] text-ink3 transition-colors hover:text-accent"
                   onClick={() => patchPop(p.id, { occOpen: !p.occOpen })}
                 >
-                  {p.occOpen
-                    ? `曲库里还有 ${p.occ.total} 处 ▴`
-                    : `曲库里还有 ${p.occ.total} 处 ▾`}
+                  <span className="inline-flex items-center gap-1">
+                    曲库里还有 {p.occ.total} 处
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={p.occOpen ? "rotate-180" : ""}
+                    >
+                      <path d="M4 6l4 4 4-4" />
+                    </svg>
+                  </span>
                 </button>
                 {p.occOpen && (
                   <Scrollable className="mt-1.5 max-h-44">

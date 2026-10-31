@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from . import (background_task, bilibili_audio, cover_art, dictionary,
                itunes_audio, songdata)
 from .config import load_settings
+from .occurrences import find_occurrences
 from .songdata import (
     _INTRO_FILENAME,
     _discover_songs,
@@ -458,7 +460,6 @@ def create_app() -> FastAPI:
         if not (word or "").strip():
             raise HTTPException(422, "word 不能为空")
         # 弹卡里生成过的 AI 语境解释随词条入本（与旧 on_wb_act 一致）
-        import hashlib
         key = hashlib.md5(f"v3:{word.strip()}\x00{line}".encode()).hexdigest()
         try:
             ai = json.loads(
@@ -1009,7 +1010,6 @@ def create_app() -> FastAPI:
     @app.get("/api/dict/{word}/occurrences")
     def dict_occurrences(word: str, song: str = "", line: str = "",
                          limit: int = 20) -> dict:
-        from .occurrences import find_occurrences
         s = load_settings()
         return find_occurrences(word.strip(), s.corpus_dir, s.songs_dir,
                                 song=song, line=line, limit=limit)
@@ -1026,7 +1026,6 @@ def create_app() -> FastAPI:
             return {}
 
     def _ai_examples(word: str, line: str, song: str) -> list[dict]:
-        from .occurrences import find_occurrences
         s = load_settings()
         res = find_occurrences(word, s.corpus_dir, s.songs_dir,
                                song=song, line=line, limit=20)
@@ -1042,7 +1041,6 @@ def create_app() -> FastAPI:
         return picked
 
     def _ctx_digest(examples: list[dict]) -> str:
-        import hashlib
         if not examples:
             return ""
         joined = "\n".join(
@@ -1051,7 +1049,6 @@ def create_app() -> FastAPI:
         return hashlib.md5(joined.encode()).hexdigest()[:8]
 
     def _ai_key(word: str, line: str, ctx_digest: str) -> str:
-        import hashlib
         return hashlib.md5(
             f"v4:{word}\x00{line}\x00{ctx_digest}".encode()).hexdigest()
 
