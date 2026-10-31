@@ -1,160 +1,57 @@
 # CLAUDE.md
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
-
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
-
-## 1. Think Before Coding
-
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
-
-Before implementing:
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
-
-## 2. Simplicity First
-
-**Minimum code that solves the problem. Nothing speculative.**
-
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
-
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
-## 3. Surgical Changes
-
-**Touch only what you must. Clean up only your own mess.**
-
-When editing existing code:
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
-
-When your changes create orphans:
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
-
-The test: Every changed line should trace directly to the user's request.
-
-## 4. Goal-Driven Execution
-
-**Define success criteria. Loop until verified.**
-
-Transform tasks into verifiable goals:
-- "Add validation" → "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" → "Write a test that reproduces it, then make it pass"
-- "Refactor X" → "Ensure tests pass before and after"
-
-For multi-step tasks, state a brief plan:
-```
-1. [Step] → verify: [check]
-2. [Step] → verify: [check]
-3. [Step] → verify: [check]
-```
-
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
-
----
-
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
-
-## Project-specific notes (lyric_agent)
-
-- **Staging area is not yours.** `git add .` may happen outside the session
-  between turns. Before EVERY commit: check `git status --short` for staged
-  (first-column) entries and `git diff --cached --stat`; re-add the files you
-  mean to commit and verify the commit's file list afterwards. Stale staged
-  snapshots have smuggled wrong content into commits twice.
-- **Never commit placeholder output.** Failed LLM runs still write files
-  (e.g. annotations.json full of "[Annotation generation failed]"). Grep for
-  that marker before committing anything under data/songs/.
-- **测试必须隔离真实 data/**（2026-10-30 已删过一次库）：API 写端点直接
-  操作相对路径 `data/` 且真实生效（`DELETE /api/songs/{id}` 就是 rmtree）。
-  任何涉及写端点的测试——尤其 TDD 红灯阶段"预期被拒"的请求——必须用
-  tmp 数据树 + `monkeypatch.chdir` 隔离（样板：tests/test_public_gate.py
-  的 isolated_data fixture）。untracked 的 mp3/笔记/LLM 缓存删了就是没了。
-- **Verification gates:** `python -m pytest tests/ -q` (unit) and
-  `python scripts/ui_probe.py` (real-browser, all tabs) must both be green
-  before claiming UI work done. Probe failures: read the screenshot in
-  data/ui_probe/ before theorizing.
-- **Adding one song:** never `lyric-agent pipeline` (re-annotates the whole
-  library at full LLM cost); use the per-song commands in the add-song skill.
-- **UI styling** is token-centric: edit `:root` variables and component rules
-  in src/lyric_agent/ui_assets.py; SVG palettes live as Python constants in
-  echo_map.py / universe.py and must match the theme's light/dark basis.
-- **生成文字内容一律居中**（用户的全局审美偏好，2026-10-05 定）：凡 AI
-  生成的文字类内容页/卡片（歌迷考据、故事、总结等），容器 `margin: 0 auto`
-  水平居中且 `text-align: center`。新功能渲染 HTML 时直接照此写；样板见
-  ui_assets.py 的 `.lore-page`。
-- **长耗时 LLM 调用的交付铁律**（同一坑已踩四次：查词弹卡、整歌翻译、
-  彩蛋故事、歌迷考据）。症状：点了生成按钮，token 花了/调用挂着，页面却
-  永远停在"生成中"；用户等不及刷新或重启 serve，同步阻塞的调用随之被杀，
-  整次调用作废。根因：在 Gradio handler 里同步阻塞调 LLM，结果交付依赖
-  长连接上的最后一个 yield——超过约 1 分钟 SSE 常已断。规范（新的
-  LLM 生成功能一律照此，样板见 ui.py 的 on_gen_lore/_lore_generate_bg/
-  on_lore_tick）：① 调用放后台 daemon 线程，先 save 落盘缓存；② ctx 记
-  per-目标 in-flight 状态（running/done/error）；③ gr.Timer 轮询，状态
-  翻转时刷一次 UI；④ 切歌/重进页面时读缓存 + in-flight 状态恢复 ⏳，
-  绝不把"能否看到结果"押在那条长连接上。
-
-
-  Git 提交规范
-- 每次代码修改完成后，都必须立即提交 Git Commit(写英文)，不允许泄露带有电子邮件和api key的文件。
-- 提交信息清晰，例如 feat: ...、fix: ...。
-- 不允许留下未提交的修改。
-- 不添加 AI 的署名或 Co-authored-by 信息。
-- 不允许泄露带有电子邮件和 api key 的文件。
-- 可以改代码 但不允许删除现有的代码文件
-- 不允许运行任何rm -f的命令
-- 不允许自动merge pr
-- 不允许在运行chrome playwright的时候打开chrome界面 只允许使用mcp
-
- UI 设计规范
-- 禁止使用紫色、蓝紫色及相关渐变。
-- 保持整体视觉风格一致。
-- 不允许使用emoji
-- 禁止纯平背景色(必须有噪点或渐变)
-- 禁止Hero+三卡片布局
-- 禁止高深的专业名词和无意义的空话
-- 禁止线性动画 ease-in-out
-- 在可以用图形和按钮说明操作的情况下，不要添加多余的解释性文字——界面自解释优先于说明文案。
-
 编码规范：
-- 先思考，再编码：不要擅自假设需求；遇到歧义先说明假设、分析方案，必要时向用户确认。
-- 保持简单：只实现用户要求的功能，不添加多余功能、抽象或复杂设计。
-- 精准修改：只修改与需求直接相关的代码，不顺手重构其他模块；只清理自己此次修改产生的无用代码。
-- 以结果为导向：先明确成功标准和执行计划，再通过测试、构建等方式验证结果，发现问题就继续修复。
-- 优先复用现有代码；对于确实需要重复使用的逻辑，抽象为可复用函数，避免重复造轮子。
-- 禁止直接在main分支修改代码 必须先判断main分支为最新代码后checkout到新分支再开始改代码
-- 如果现在的分支不是main分支的话就直接开发 不允许切换到其他分支
+- 先思考，再编码：不擅自假设需求；有歧义先说明假设与方案，必要时向用户确认。
+- 保持简单：只实现用户要求的功能，不加多余功能、抽象或"预留灵活性"。
+- 精准修改：只动与需求直接相关的代码，不顺手重构别的模块；只清理本次修改产生的无用代码（import/变量/函数），既有死代码提一句但不删。
+- 以结果为导向：先定成功标准（能测试/构建验证的那种），做完验证，发现问题继续修。
+- 优先复用现有代码；确实重复的逻辑才抽成可复用函数。
+- 禁止直接在 main 分支改代码：先确认 main 最新再 checkout 新分支；当前已在非 main 分支时直接开发，不许切换分支。
+- 不要写任何注释。
+
+Git 提交规范：
+- 每次代码修改完成后立即提交（英文 commit，feat:/fix: 等清晰前缀），不留未提交的修改。
+- 不添加 AI 署名或 Co-authored-by。
+- 不允许泄露含电子邮件、API key 的文件。
+- 可以改代码，但不允许删除现有代码文件；不允许运行任何 rm -f。
+- 不允许自动 merge PR。
+- 跑 Chrome/Playwright 只允许无头 MCP，不许弹出浏览器界面。
+- 不允许使用用户在项目中配置的 LLM API key；只有用户亲自操作才可触发 LLM 调用。
+
+UI 设计规范：
+- 禁止紫色、蓝紫色及相关渐变；整体视觉风格保持一致。
+- 不允许使用 emoji。
+- 禁止纯平背景色（必须有噪点或渐变）；禁止 Hero+三卡片布局。
+- 禁止高深专业名词和无意义空话；图形和按钮能说明的操作不加解释性文字。
+- 禁止线性动画 ease-in-out。
+- AI 生成的文字内容页/卡片一律水平居中 + text-align: center（全局审美偏好，样板 ui_assets.py 的 .lore-page）。
+
+## 项目须知（lyric_agent）
+
+- **暂存区不属于你**：会话间可能有外部 `git add .`。每次提交前查 `git status --short` 和 `git diff --cached --stat`，重新 add 目标文件，提交后核对文件清单（脏快照混入过两次）。
+- **测试/起服务必须隔离真实 data/**（2026-10-30 删过一次库）：写端点对相对路径 `data/` 真实生效。测试用 tmp 数据树 + `monkeypatch.chdir`（样板 tests/test_public_gate.py 的 isolated_data）；浏览器实测用 `serve-web --sandbox`。
+- **不许提交占位 LLM 输出**：失败的生成也会落盘（"[Annotation generation failed]"），提交 data/songs/ 前先 grep。
+- **验证门禁**：`python -m pytest tests/ -q` 和 `python scripts/ui_probe.py` 都绿才算 UI 工作完成；探针失败先看 data/ui_probe/ 截图再推理。
+- **加一首歌**：禁用 `lyric-agent pipeline`（全库重批注烧钱），用 add-song 技能的逐歌命令。
+- **长耗时 LLM 调用铁律**（踩过四次）：禁止在请求 handler 里同步阻塞调 LLM——结果绝不押在长连接上。统一走 `src/lyric_agent/background_task.py`（kick 幂等起跳 / status 轮询 / update 进度；done 的真相在磁盘缓存文件），前端 2s 轮询恢复。
+- **UI 样式**走 token：新前端在 tailwind.config/DESIGN.md；旧 Gradio UI 在 ui_assets.py 的 `:root` 变量；SVG 配色常量在 echo_map.py / universe.py，须匹配主题明暗基调。
+- **一次性脚本/日志放 tmp/**（已 gitignore），不要写进 data/cache。
 
 犯错：
-当我跟你强调修改或者添加某个功能，你已经修改了代码之后还是没有达到我要的效果，应该先仔细思考找出没有起效的原因和真正的解决方法写入到claude.md中，避免下次再次犯错
+当用户强调修改某功能、你改了代码却没达到效果时，先找出没生效的真正原因，写入本文件归档，避免重犯。
 
 已归档的踩坑原因（改了没生效类）：
-- Tailwind 只静态扫描源码里的字面类名：运行时拼接的类
-  （`cls.replace("border-edge2","border-accent")`）不会被生成，样式
-  静默失效。条件样式必须把每个状态写成完整字面量字符串。
-- 浏览器断言要轮询等状态翻转（waitFor 式），不要固定 sleep 后采样：
-  固定延时和真实 API 延迟赛跑，会产生"样式没生效"的假阴性。
-  状态验证用 evaluate_script 断言；截图只留给视觉检查。
-
-一次性脚本/日志放 tmp/（已 gitignore），不要写进 data/cache。
+- Tailwind 只静态扫描字面类名：运行时拼接的类（`cls.replace(...)`）不会被生成，样式静默失效。条件样式每个状态写完整字面量。
+- 浏览器断言要轮询等状态翻转（waitFor 式），不要固定 sleep 后采样——和真实延迟赛跑会产生假阴性。状态验证用 evaluate_script 断言，截图只留给视觉检查。
 
 ## 规则 ↔ 强制手段对照表
 
 | 规则 | 强制手段 | 层级 |
 |---|---|---|
-| 测试不得动真实 data/songs/ | tests/conftest.py 会话级守卫：套件结束对比快照，动了即整体失败并列出文件 | 测试 |
-| 浏览器实测/起服务验证必须隔离真实 data/ | `lyric-agent serve-web --sandbox`（临时副本数据树，与 ui_probe 同款） | 架构 |
-| 不许提交占位 LLM 输出 | tests/test_data_hygiene.py 扫 git 跟踪的 annotations.json；pre-commit 钩子亚秒级兜底（装法见 scripts/git-hooks/pre-commit 头注释） | 测试 |
-| heredoc 禁非 ASCII（Git Bash 吞字节） | ~/.claude/hooks/block_heredoc.py 直接拦截 Bash 调用 | 架构 |
-| 长 LLM 调用必须后台线程+落盘+轮询 | 仅文档（样板 ui.py on_gen_lore；无自动检查） | 文档 |
-| 提交前核查暂存区（外部 git add 污染） | 仅文档（流程规则，无法在仓库内强制） | 文档 |
-| 条件 Tailwind 类写完整字面量 | 仅文档（见上方踩坑归档） | 文档 |
+| 测试不得动真实 data/songs/ | tests/conftest.py 会话级快照守卫（并设 LL_CORPUS_REBUILD=0、LL_COVER_FETCH=0 关掉副作用线程） | 测试 |
+| 浏览器实测/起服务验证隔离真实 data/ | `lyric-agent serve-web --sandbox` | 架构 |
+| 不许提交占位 LLM 输出 | tests/test_data_hygiene.py；pre-commit 钩子兜底（装法见 scripts/git-hooks/pre-commit） | 测试 |
+| heredoc 禁非 ASCII/反斜杠 | ~/.claude/hooks/block_heredoc.py 拦截 | 架构 |
+| 长 LLM 调用后台化 | src/lyric_agent/background_task.py 深模块（新功能一律坐进该接缝） | 架构 |
+| 提交前核查暂存区 | 仅文档（流程规则） | 文档 |
+| 条件 Tailwind 类写完整字面量 | 仅文档（见踩坑归档） | 文档 |
