@@ -8,9 +8,14 @@ ui_probe 污染统计、浏览器实测把 offset 写进真实 metadata）：
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+
+# 测试期间禁用一切会写真实盘/打外网的后台副作用线程
+os.environ.setdefault("LL_CORPUS_REBUILD", "0")
+os.environ.setdefault("LL_COVER_FETCH", "0")
 
 _SONGS = (Path(__file__).resolve().parents[1] / "data" / "songs").resolve()
 

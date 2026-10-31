@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 import urllib.parse
@@ -140,6 +141,8 @@ def prewarm_async(songs: list[dict]) -> None:
     """列表加载时批量预热缺失封面：单线程串行 + 3s 节流（iTunes
     ~20 req/min），进程内只跑一次。命中过负缓存/已有本地图的跳过。
     调用方负责 public 门禁（public 不写服务器盘）。"""
+    if _disabled():
+        return
     global _prewarm_started
     with _lock:
         if _prewarm_started:
@@ -165,8 +168,16 @@ def prewarm_async(songs: list[dict]) -> None:
                      name="cover-prewarm").start()
 
 
+def _disabled() -> bool:
+    # probe/tests：LL_COVER_FETCH=0 关掉一切封面网络抓取与落盘
+    # （约定同 api._kick_corpus_rebuild 的 LL_CORPUS_REBUILD）
+    return os.getenv("LL_COVER_FETCH", "1") == "0"
+
+
 def fetch_async(song: dict) -> None:
     """后台补抓一首歌的封面；进程内去重 + 24h 负缓存。"""
+    if _disabled():
+        return
     name = song["name"]
     with _lock:
         if name in _inflight:
