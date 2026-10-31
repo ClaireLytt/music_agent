@@ -64,7 +64,8 @@ def song_is_cjk(song_dir: str | Path) -> bool:
     try:
         _, timed = parse_lrc((Path(song_dir) / "lyrics.lrc")
                              .read_text(encoding="utf-8"))
-        lines = [ln.text for ln in timed[:30] if ln.text.strip()]
+        lines = [ln.text for ln in timed[:30]
+                 if ln.text.strip() and "暂无歌词" not in ln.text]
         result = bool(lines) and (
             sum(is_cjk_text(ln) for ln in lines) / len(lines) > 0.5)
     except Exception:
