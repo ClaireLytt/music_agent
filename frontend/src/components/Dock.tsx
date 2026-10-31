@@ -34,9 +34,77 @@ function Chip({
   );
 }
 
+/* 解读坞卡片图标（方案 B · 双色 duotone）：手绘 viewBox 16 线性 SVG，
+   accent 描边 + accent-soft 底块；非图标库，原创于本产品。 */
+const DUO_FILL = "rgba(124,158,255,.16)";
+function DuoSvg({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 16 16" fill="none"
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round"
+         className="mr-1.5 inline -translate-y-[2px] text-accent">
+      {children}
+    </svg>
+  );
+}
+const IconAnn = () => (
+  <DuoSvg>
+    <path fill={DUO_FILL} stroke="none"
+          d="M3 13l.8-2.8 7.4-7.4a1.3 1.3 0 0 1 1.9 0l.1.1a1.3 1.3 0 0 1 0 1.9L5.8 12.2 3 13z" />
+    <path d="M3 13l.8-2.8 7.4-7.4a1.3 1.3 0 0 1 1.9 0l.1.1a1.3 1.3 0 0 1 0 1.9L5.8 12.2 3 13z" />
+  </DuoSvg>
+);
+const IconChat = () => (
+  <DuoSvg>
+    <path fill={DUO_FILL} stroke="none"
+          d="M13.5 8a5.5 5.5 0 0 1-8 4.9L2.5 13.5l.7-2.9A5.5 5.5 0 1 1 13.5 8z" />
+    <path d="M13.5 8a5.5 5.5 0 0 1-8 4.9L2.5 13.5l.7-2.9A5.5 5.5 0 1 1 13.5 8z" />
+    <path d="M5.5 7h5M5.5 9.3h3" />
+  </DuoSvg>
+);
+const IconIntro = () => (
+  <DuoSvg>
+    <path fill={DUO_FILL} stroke="none"
+          d="M8 3.6C6.9 2.7 5.2 2.3 2.8 2.5v10c2.4-.2 4.1.2 5.2 1.1V3.6z" />
+    <path d="M8 3.6C6.9 2.7 5.2 2.3 2.8 2.5v10c2.4-.2 4.1.2 5.2 1.1 1.1-.9 2.8-1.3 5.2-1.1v-10C10.8 2.3 9.1 2.7 8 3.6z" />
+    <path d="M8 3.6v10" />
+  </DuoSvg>
+);
+const IconNotes = () => (
+  <DuoSvg>
+    <path fill={DUO_FILL} stroke="none"
+          d="M12.5 9.5v-6a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h4z" />
+    <path d="M12.5 9.5v-6a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h4zM12.5 9.5L8.5 13.5V9.5h4z" />
+  </DuoSvg>
+);
+const IconFav = () => (
+  <DuoSvg>
+    <path fill={DUO_FILL} stroke="none"
+          d="M8 2.3l1.7 3.4 3.8.6-2.7 2.7.6 3.8L8 11l-3.4 1.8.6-3.8-2.7-2.7 3.8-.6L8 2.3z" />
+    <path d="M8 2.3l1.7 3.4 3.8.6-2.7 2.7.6 3.8L8 11l-3.4 1.8.6-3.8-2.7-2.7 3.8-.6L8 2.3z" />
+  </DuoSvg>
+);
+const IconWords = () => (
+  <DuoSvg>
+    <rect fill={DUO_FILL} stroke="none" x="2.5" y="4" width="8.5" height="9.5" rx="1" />
+    <rect x="2.5" y="4" width="8.5" height="9.5" rx="1" />
+    <path d="M5 2.5h7.5a1 1 0 0 1 1 1V12" />
+    <path d="M5 8l1.6-3 1.6 3M5.6 7h2" />
+  </DuoSvg>
+);
+const IconTools = () => (
+  <DuoSvg>
+    <circle fill={DUO_FILL} stroke="none" cx="10.5" cy="5" r="1.6" />
+    <circle fill={DUO_FILL} stroke="none" cx="5.5" cy="11" r="1.6" />
+    <path d="M2.5 5h7M12.5 5h1M2.5 11h2M7.5 11h6" />
+    <circle cx="10.5" cy="5" r="1.6" />
+    <circle cx="5.5" cy="11" r="1.6" />
+  </DuoSvg>
+);
+
 function Fold({
   k, id, open, children,
-}: { k: string; id?: string; open?: boolean; children: React.ReactNode }) {
+}: { k: React.ReactNode; id?: string; open?: boolean; children: React.ReactNode }) {
   return (
     <details id={id} open={open}
              className="group rounded-card border border-edge bg-panel">
@@ -92,7 +160,8 @@ function AskAiCard({
 
   const picked = line !== null && line >= 0;
   return (
-    <Fold open k={picked ? `💬 AI 助手 · 第 ${(line ?? 0) + 1} 句` : "💬 AI 助手"}>
+    <Fold open
+          k={<><IconChat />AI 助手{picked ? ` · 第 ${(line ?? 0) + 1} 句` : ""}</>}>
       {picked ? (
         <p className="mb-2 truncate text-center text-[21.6px] italic text-ink3"
            title={lineText}>
@@ -239,7 +308,8 @@ export default function Dock({
         )}
       </h2>
 
-      <Fold open k={ann ? `✏️ AI 批注 · 第 ${line + 1} 句` : "✏️ AI 批注"}>
+      <Fold open
+            k={<><IconAnn />AI 批注{ann ? ` · 第 ${line + 1} 句` : ""}</>}>
         {ann ? (
           <div className="mx-auto text-center text-[24.3px] leading-[1.8] text-ink2">
             <p>{ann.summary}</p>
@@ -287,7 +357,7 @@ export default function Dock({
         lineText={lyrics?.timed_lines?.find((l) => l.line_index === line)?.text ?? ""}
       />
 
-      <Fold open k="📖 歌曲导读">
+      <Fold open k={<><IconIntro />歌曲导读</>}>
         {intro.data?.status === "done" ? (
           <p className="mx-auto whitespace-pre-line text-center text-[24.3px] leading-[1.8] text-ink2">
             {intro.data.text}
@@ -312,7 +382,7 @@ export default function Dock({
         )}
       </Fold>
 
-      <Fold k={`📝 听歌笔记（${notes.data?.length ?? 0}）`}>
+      <Fold k={<><IconNotes />听歌笔记（{notes.data?.length ?? 0}）</>}>
         <form
           className="flex gap-2"
           onSubmit={(e) => {
@@ -359,7 +429,7 @@ export default function Dock({
         </ul>
       </Fold>
 
-      <Fold k={`⭐ 歌词收藏夹 ${songFavs.length}`}>
+      <Fold k={<><IconFav />歌词收藏夹 {songFavs.length}</>}>
         <div className="mb-2">
           <Chip
             disabled={line < 0 || !songId}
@@ -408,7 +478,7 @@ export default function Dock({
         )}
       </Fold>
 
-      <Fold k={`📒 单词本 ${words.length} · 词组本 ${phrases.length}`}>
+      <Fold k={<><IconWords />单词本 {words.length} · 词组本 {phrases.length}</>}>
         {[
           ["单词", words] as const,
           ["词组", phrases] as const,
@@ -478,7 +548,7 @@ export default function Dock({
         )}
       </Fold>
 
-      <Fold k="⚙️ 歌曲工具" id="song-tools">
+      <Fold k={<><IconTools />歌曲工具</>} id="song-tools">
         <div className="flex flex-col gap-3">
           <div>
             <div className="mb-1 text-[18.9px] text-ink3">
