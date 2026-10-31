@@ -67,6 +67,24 @@ export const useLyrics = (songId: string | null) =>
     enabled: !!songId,
   });
 
+export interface OccurrenceItem {
+  song: string;
+  line_index: number;
+  line: string;
+}
+
+export interface Occurrences {
+  word: string;
+  lemma: string;
+  total: number;
+  items: OccurrenceItem[];
+}
+
+export const fetchOccurrences = (word: string, song: string, line: string) =>
+  get<Occurrences>(
+    `/api/dict/${encodeURIComponent(word)}/occurrences?song=${encodeURIComponent(song)}&line=${encodeURIComponent(line)}`,
+  );
+
 export const useDict = (word: string | null) =>
   useQuery({
     queryKey: ["dict", word],

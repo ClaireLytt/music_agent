@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DictHit, useActions } from "../api";
+import { DictHit, Occurrences, OccurrenceItem, fetchOccurrences, useActions, useSongs } from "../api";
 import { usePlayer } from "../store";
 import { Song } from "../api";
+import Scrollable from "./Scrollable";
 
 /** 旧版 ll-dict-pop 的 React 移植：
  *  - 双击查单词、拖选 2-16 词查词组（正则与旧 JS 一致）
@@ -21,6 +22,9 @@ interface Pop {
   aiLoading: boolean;
   faved: boolean;
   lineIndex: number;
+  occ: Occurrences | null;
+  occDone: boolean;
+  occOpen: boolean;
 }
 
 const WORD_RE =
@@ -35,8 +39,21 @@ const say = (w: string) => {
 export default function DictPops({ song }: { song: Song | undefined }) {
   const [pops, setPops] = useState<Pop[]>([]);
   const nextId = useRef(1);
-  const { pickLine } = usePlayer();
+  const { pickLine, setSong } = usePlayer();
   const acts = useActions(song?.id ?? null, song?.title ?? "");
+  const { data: allSongs = [] } = useSongs("");
+  const songTitle = song?.title ?? "";
+
+  const jumpOcc = (it: OccurrenceItem) => {
+    if (it.song === songTitle) {
+      pickLine(it.line_index);
+      return;
+    }
+    const hit = allSongs.find((sg) => sg.title === it.song);
+    if (!hit) return;
+    setSong(hit.id);
+    pickLine(it.line_index);
+  };
 
   const open = useCallback(
     async (word: string, line: string, lineIndex: number, x: number, y: number) => {
@@ -49,10 +66,14 @@ export default function DictPops({ song }: { song: Song | undefined }) {
           x: Math.min(x, window.innerWidth - 300),
           y: Math.min(y + 6, window.innerHeight - 300),
           hit: null, loading: true, ai: "", aiLoading: false, faved: false,
+          occ: null, occDone: false, occOpen: false,
         }];
       });
       const patch = (p: Partial<Pop>) =>
         setPops((ps) => ps.map((q) => (q.id === id ? { ...q, ...p } : q)));
+      void fetchOccurrences(word, songTitle, line)
+        .then((d) => patch({ occ: d.total > 0 ? d : null, occDone: true }))
+        .catch(() => patch({ occDone: true }));
       try {
         const res = await fetch(`/api/dict/${encodeURIComponent(word)}`);
         patch({ hit: res.ok ? await res.json() : null, loading: false });
@@ -67,7 +88,7 @@ export default function DictPops({ song }: { song: Song | undefined }) {
         if (d.ai) patch({ ai: d.ai }); // 生成过的解释直接带出
       } catch { /* 缓存未命中即忽略 */ }
     },
-    [],
+    [songTitle],
   );
 
   // 事件委托：歌词行上的 dblclick（单词）与 mouseup（含空格的拖选=词组）
@@ -167,6 +188,7 @@ export default function DictPops({ song }: { song: Song | undefined }) {
             style={{ left: p.x, top: p.y }}
             role="dialog"
             aria-label={`词典卡 ${p.word}`}
+            data-occ-state={p.occDone ? (p.occ ? "some" : "none") : "loading"}
           >
             <div className="flex items-center gap-2">
               <b className="text-[15px]">{p.hit?.word ?? p.word}</b>
@@ -198,6 +220,38 @@ export default function DictPops({ song }: { song: Song | undefined }) {
             {p.ai && (
               <div className="mt-2 whitespace-pre-line rounded-lg bg-accent-soft px-2.5 py-2 text-[12.5px] leading-6 text-ink">
                 ✨ {p.ai}
+              </div>
+            )}
+            {p.occDone && p.occ && (
+              <div className="mt-2" data-occ-fold>
+                <button
+                  className="w-full text-left text-[12px] text-ink3 transition-colors hover:text-accent"
+                  onClick={() => patchPop(p.id, { occOpen: !p.occOpen })}
+                >
+                  {p.occOpen
+                    ? `曲库里还有 ${p.occ.total} 处 ▴`
+                    : `曲库里还有 ${p.occ.total} 处 ▾`}
+                </button>
+                {p.occOpen && (
+                  <Scrollable className="mt-1.5 max-h-44">
+                    <ul className="flex flex-col gap-0.5" data-occ-list>
+                      {p.occ.items.map((it) => (
+                        <li key={`${it.song}:${it.line_index}`}>
+                          <button
+                            className="w-full rounded-md px-2 py-1 text-left text-[12px] leading-5 text-ink2 transition-colors hover:bg-white/5 hover:text-ink"
+                            data-occ-item
+                            data-occ-song={it.song}
+                            data-occ-line={it.line_index}
+                            onClick={() => jumpOcc(it)}
+                          >
+                            {it.line}
+                            <span className="ml-1 text-ink3">《{it.song}》</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </Scrollable>
+                )}
               </div>
             )}
             <div className="mt-2.5 flex gap-2">
