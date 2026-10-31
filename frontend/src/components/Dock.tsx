@@ -194,6 +194,25 @@ export default function Dock({
     setOffset(song ? String(song.audio_offset_ms ?? 0) : "");
   }, [songId, song?.audio_offset_ms]);
   const [toast, setToast] = useState("");
+  // 偏移保存反馈（方案 C：字段确认）——反馈就在按钮/输入框上，
+  // 不再依赖面板顶部那条看不见的 toast
+  const [offsetPhase, setOffsetPhase] =
+    useState<"idle" | "saving" | "saved">("idle");
+  const offsetTimer = useRef<number>();
+  useEffect(() => () => window.clearTimeout(offsetTimer.current), []);
+  const saveOffsetNow = async () => {
+    if (offsetPhase !== "idle") return;
+    setOffsetPhase("saving");
+    try {
+      await acts.saveOffset(parseInt(offset || "0", 10) || 0);
+      setOffsetPhase("saved");
+      offsetTimer.current = window.setTimeout(
+        () => setOffsetPhase("idle"), 1500);
+    } catch (e) {
+      setOffsetPhase("idle");
+      setToast(e instanceof Error ? e.message : "保存失败");
+    }
+  };
   const fileRef = useRef<HTMLInputElement>(null);
 
   const run = (p: Promise<unknown>, ok: string) =>
@@ -447,10 +466,7 @@ export default function Dock({
               className="flex gap-2"
               onSubmit={(e) => {
                 e.preventDefault();
-                run(
-                  acts.saveOffset(parseInt(offset || "0", 10) || 0),
-                  "偏移已保存",
-                );
+                void saveOffsetNow();
               }}
             >
               <input
@@ -459,10 +475,35 @@ export default function Dock({
                 value={offset}
                 onChange={(e) => setOffset(e.target.value)}
                 placeholder={String(song?.audio_offset_ms ?? 0)}
-                className={inputCls}
+                className={`min-w-0 flex-1 rounded-full border bg-panel2 px-3.5 py-[9px] text-[15.6px] text-ink placeholder:text-ink3 transition-[border-color,box-shadow] duration-300 focus:border-accent focus:outline-none ${
+                  offsetPhase === "saved"
+                    ? "border-accent shadow-[0_2px_18px_-6px_rgba(124,158,255,.5)]"
+                    : "border-edge2"
+                }`}
               />
-              <Chip primary type="submit">
-                保存
+              <Chip primary type="submit" disabled={offsetPhase === "saving"}>
+                <span className="grid min-w-[30px] place-items-center">
+                {offsetPhase === "idle" && "保存"}
+                {offsetPhase === "saving" && (
+                  <svg
+                    className="animate-spin"
+                    width="14" height="14" viewBox="0 0 16 16" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                  >
+                    <path d="M8 1.5a6.5 6.5 0 1 1-6.5 6.5" />
+                  </svg>
+                )}
+                {offsetPhase === "saved" && (
+                  <svg
+                    className="animate-popin"
+                    width="14" height="14" viewBox="0 0 16 16" fill="none"
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M2.5 8.5l3.5 3.5 7-8" />
+                  </svg>
+                )}
+                </span>
               </Chip>
             </form>
           </div>
