@@ -88,7 +88,7 @@ export default function PlayerBar({
 
       <div className="flex flex-col items-center gap-[7px] py-3">
         {/* prev/play/next 对称排列 → 播放键正对进度条中点 */}
-        <div className="flex items-center gap-5">
+        <div className="relative flex items-center gap-5">
           <button className="text-ink2 transition-colors hover:text-ink" aria-label="上一首" onClick={() => step(-1)}>
             <IconPrev />
           </button>
@@ -127,6 +127,14 @@ export default function PlayerBar({
           <button className="text-ink2 transition-colors hover:text-ink" aria-label="下一首" onClick={() => step(1)}>
             <IconNext />
           </button>
+          {song?.audio_type === "preview" && (
+            <span
+              title="来自 iTunes 的 30 秒试听片段，非完整歌曲"
+              className="absolute left-full top-1/2 ml-4 -translate-y-1/2 whitespace-nowrap rounded-full border border-edge2 px-2 py-0.5 text-[11px] leading-none text-ink3"
+            >
+              试听 30s
+            </span>
+          )}
           <div className="ml-3 flex items-center gap-2">
           <button
             className={`transition-colors hover:text-ink ${muted ? "text-ink3" : "text-ink2"}`}

@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 
-from . import bilibili_audio, dictionary, songdata
+from . import bilibili_audio, dictionary, itunes_audio, songdata
 from .config import load_settings
 from .songdata import (
     _INTRO_FILENAME,
@@ -60,6 +60,12 @@ def _song_payload(s: dict) -> dict:
             bilibili_audio.enabled(load_settings()):
         audio_type = "bilibili"
     # ── end B站音轨代理 ──
+    # ── iTunes 试听（实验性，可整体移除；见 itunes_audio.py）──
+    # 连 MV 都没有的歌：有已缓存的 30s 试听就报 "preview"，
+    # 前端照常渲染播放器并在播放条上标注"试听"
+    if audio_type == "none" and itunes_audio.preview_url(s["name"]):
+        audio_type = "preview"
+    # ── end iTunes 试听 ──
     return {
         "id": s["name"], "title": s["title"], "artist": s["artist"],
         "album": s["album"], "year": s["year"],
@@ -239,6 +245,14 @@ def create_app() -> FastAPI:
     @app.get("/api/songs")
     def list_songs(q: str = "") -> list[dict]:
         songs = _songs()
+        # ── iTunes 试听（实验性，可整体移除；见 itunes_audio.py）──
+        # 后台补缓存：候选 = 没音频且（没 MV 或 B 站代理不可用）的歌
+        itunes_audio.fill_missing_async([
+            s for s in songs
+            if s["audio_type"] == "none"
+            and not (s["bvid"] and bilibili_audio.enabled(load_settings()))
+        ])
+        # ── end iTunes 试听 ──
         q = (q or "").strip().lower()
         if q:
             def hit(s: dict) -> bool:
@@ -289,6 +303,11 @@ def create_app() -> FastAPI:
                 logger.exception("bilibili audio proxy failed for %s",
                                  song_id)
         # ── end B站音轨代理 ──
+        # ── iTunes 试听（实验性，可整体移除；见 itunes_audio.py）──
+        preview = itunes_audio.preview_url(song_id)
+        if preview:
+            return RedirectResponse(preview)
+        # ── end iTunes 试听 ──
         raise HTTPException(status_code=404, detail="no audio for this song")
 
     # ── 歌曲工具（旧 tab_play_tools 的 REST 化） ──────────────
