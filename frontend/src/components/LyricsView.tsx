@@ -82,7 +82,7 @@ export default function LyricsView({
                   {gloss && (
                     <span
                       key={i} /* 换句重放进场动画 */
-                      className="min-w-[240px] max-w-[460px] flex-1 animate-dropin border-l-2 border-accent pl-4 text-[14.5px] font-normal leading-[1.7] tracking-normal text-ink2"
+                      className="min-w-[240px] flex-1 animate-dropin border-l-2 border-accent pl-4 text-[14.5px] font-normal leading-[1.7] tracking-normal text-ink2"
                     >
                       <span className="mb-0.5 block text-[12px] font-semibold tracking-[.08em] text-accent">
                         AI 批注
