@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ChatTurn, Lyrics, Song, askLine, useActions, useAnnotateStatus,
-  useFavorites, useIntro, useLineChat, useNotes, useWordbook,
+  useFavorites, useIntro, useLineChat, useNotes, useSongs, useWordbook,
 } from "../api";
 import { usePlayer } from "../store";
 import Scrollable from "./Scrollable";
@@ -224,6 +224,14 @@ export default function Dock({
 }) {
   const { pickedLine, timeMs, requestSeek, setSong, pickLine } =
     usePlayer();
+  const { data: allSongs = [] } = useSongs("");
+  const jumpToWordLine = (title?: string, lineIndex?: number) => {
+    if (!title || lineIndex === undefined || lineIndex < 0) return;
+    const hit = allSongs.find((sg) => sg.title === title);
+    if (!hit) return;
+    if (hit.id !== song?.id) setSong(hit.id);
+    pickLine(lineIndex);
+  };
   // 批注/AI 助手只跟手动点选的句子，不随播放自动切换（2026-10-30 用户定）
   const line = pickedLine ?? -1;
   const ann = lyrics?.annotations[String(line)];
@@ -528,9 +536,13 @@ export default function Dock({
                       </p>
                     )}
                     {e.line && (
-                      <p className="mt-0.5 truncate text-[23.1px] text-ink3">
+                      <button
+                        data-word-line={e.word}
+                        className="mt-0.5 block w-full truncate text-left text-[23.1px] text-ink3 transition-colors hover:text-accent"
+                        onClick={() => jumpToWordLine(e.song, e.line_index)}
+                      >
                         「{e.line}」
-                      </p>
+                      </button>
                     )}
                     {e.note && (
                       <p className="mt-0.5 whitespace-pre-line text-[23.1px] text-accent">

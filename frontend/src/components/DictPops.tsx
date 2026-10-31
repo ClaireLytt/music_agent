@@ -246,7 +246,7 @@ export default function DictPops({ song }: { song: Song | undefined }) {
                   </span>
                 </button>
                 {p.occOpen && (
-                  <Scrollable className="mt-1.5 max-h-44">
+                  <Scrollable className="mt-1.5" contentClassName="max-h-44">
                     <ul className="flex flex-col gap-0.5" data-occ-list>
                       {p.occ.items.map((it) => (
                         <li key={`${it.song}:${it.line_index}`}>

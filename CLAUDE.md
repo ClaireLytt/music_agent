@@ -25,6 +25,7 @@ UI 设计规范：
 - 禁止高深专业名词和无意义空话；图形和按钮能说明的操作不加解释性文字。
 - 禁止线性动画 ease-in-out。
 - AI 生成的文字内容页/卡片一律水平居中 + text-align: center（全局审美偏好，样板 ui_assets.py 的 .lore-page）。
+- 任何高度不定的列表/内容区必须预设滚动：折叠区展开后的列表、内容可能超出卡片或屏幕的区域，一律上 Scrollable + 高度上限，不许裸溢出或被 overflow:hidden 静默裁掉。新前端用 Scrollable 组件（自绘滚动条），高度上限必须加在滚动器上（contentClassName），加在外框上会因 h-full 解析为 auto 而失效（踩过：弹卡曲库折叠区）。
 
 ## 项目须知（lyric_agent）
 
@@ -55,3 +56,4 @@ UI 设计规范：
 | 长 LLM 调用后台化 | src/lyric_agent/background_task.py 深模块（新功能一律坐进该接缝） | 架构 |
 | 提交前核查暂存区 | 仅文档（流程规则） | 文档 |
 | 条件 Tailwind 类写完整字面量 | 仅文档（见踩坑归档） | 文档 |
+| 高度不定内容区必须 Scrollable+滚动上限 | scripts/ui_probe.py 的 lint_scrollbars 拦裸 overflow；上限写错位置只有文档（见 UI 规范末条） | 测试+文档 |
