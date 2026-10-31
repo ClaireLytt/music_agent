@@ -26,3 +26,12 @@
 写入包内 key 的双向规则。保证密钥永不离开本机。
 - **public 写闸门 (Public write gate)**：public 演示模式下，API 层对一切写操作（含导入/导出）统一拒绝（403）的
 服务端强制约束。前端隐藏只是体验，闸门以服务端为准。
+
+LLM 任务域：
+
+- **后台任务 (Background task)**：一切长耗时 LLM 调用的统一骨架
+  （src/lyric_agent/background_task.py）。接口三个动作：kick（幂等起跳，
+  守护线程执行，正常返回=done、抛异常=error）/ status（轮询，
+  none|running|done|error + msg + 进度字段）/ update（运行中上报进度）。
+  「完成」的真相永远在磁盘缓存文件，本模块只管中间态。intro/annotate/
+  fanlore/rebuild 四组端点都坐在这个接缝后面；新的 LLM 功能一律照此。
