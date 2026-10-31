@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>曲库搜索框 · 原型</title>
+<style>
+  :root {
+    --bg:#121212; --panel:#1e1e22; --panel2:#24242a;
+    --ink:#f5f5f4; --ink2:#a8a8b3; --ink3:#6e6e78;
+    --accent:#7c9eff; --accent-soft:rgba(124,158,255,.16);
+    --edge:#2a2a31; --edge2:#33333c;
+    --ease:cubic-bezier(.22,1,.36,1);
+  }
+  * { box-sizing:border-box; margin:0; }
+  body {
+    min-height:100vh; padding:48px 16px 120px;
+    background:
+      radial-gradient(900px 500px at 70% -10%, #1a2420 0%, transparent 60%),
+      radial-gradient(700px 420px at 10% 110%, #16181d 0%, transparent 55%),
+      var(--bg);
+    color:var(--ink);
+    font:15px/1.6 Inter, "Noto Sans SC", system-ui, sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:26px;
+  }
+  h1 { font-size:18px; font-weight:700; }
+  .sub { color:var(--ink3); font-size:13px; margin-top:-18px; }
+  ::selection { background:rgba(124,158,255,.3); }
+
+  .proto {
+    width:min(460px,100%); background:var(--panel);
+    border:1px solid var(--edge); border-radius:12px; padding:18px 16px 90px;
+    box-shadow:0 18px 40px -18px rgba(0,0,0,.65); position:relative;
+  }
+  .tag { display:flex; align-items:baseline; gap:8px; margin-bottom:12px; }
+  .tag b { font-size:14px; }
+  .tag span { color:var(--ink3); font-size:12.5px; }
+
+  .box { position:relative; }
+  .field {
+    display:flex; align-items:center; gap:9px;
+    border:1px solid var(--edge2); border-radius:999px;
+    background:var(--panel2); padding:0 13px;
+    transition:border-color .25s var(--ease), box-shadow .3s var(--ease),
+               background-color .25s var(--ease);
+  }
+  .field svg.lead { flex:none; color:var(--ink3);
+    transition:color .25s var(--ease), transform .35s var(--ease); }
+  .field:focus-within { border-color:var(--accent);
+    box-shadow:0 0 0 3px var(--accent-soft), 0 8px 24px -12px rgba(0,0,0,.6); }
+  .field:focus-within svg.lead { color:var(--accent); transform:scale(1.12); }
+  .field input {
+    flex:1; min-width:0; border:0; outline:0; background:transparent;
+    padding:10px 0; font:inherit; font-size:15px; color:var(--ink);
+    caret-color:var(--accent);
+  }
+  .field input::placeholder { color:var(--ink3); }
+  /* 驯服 Chrome autofill 白蓝底 */
+  .field input:-webkit-autofill {
+    -webkit-box-shadow:0 0 0 1000px var(--panel2) inset;
+    -webkit-text-fill-color:var(--ink);
+  }
+  .clear {
+    flex:none; display:grid; place-items:center; width:22px; height:22px;
+    border:0; border-radius:50%; background:transparent; color:var(--ink3);
+    cursor:pointer; opacity:0; transform:scale(.6); pointer-events:none;
+    transition:opacity .2s var(--ease), transform .25s var(--ease),
+               color .2s, background-color .2s;
+  }
+  .box.hasval .clear { opacity:1; transform:scale(1); pointer-events:auto; }
+  .clear:hover { color:var(--ink); background:var(--edge2); }
+
+  .pop {
+    position:absolute; inset-inline:0; top:calc(100% + 8px); z-index:10;
+    background:var(--panel); border:1px solid var(--edge); border-radius:12px;
+    box-shadow:0 18px 40px -16px rgba(0,0,0,.8); overflow:hidden;
+    opacity:0; transform:translateY(-6px) scale(.98); pointer-events:none;
+    transform-origin:top center;
+    transition:opacity .22s var(--ease), transform .28s var(--ease);
+  }
+  .box.open .pop { opacity:1; transform:none; pointer-events:auto; }
+  .sect {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:9px 14px 3px; font-size:11px; font-weight:600;
+    letter-spacing:.1em; color:var(--ink3);
+  }
+  .sect button { border:0; background:none; color:var(--ink3); font-size:11px;
+    cursor:pointer; letter-spacing:0; }
+  .sect button:hover { color:var(--accent); }
+  .row {
+    display:flex; align-items:center; gap:10px; width:100%;
+    padding:8px 14px; border:0; background:none; text-align:left;
+    font:inherit; font-size:14.5px; color:var(--ink); cursor:pointer;
+    transition:background-color .15s var(--ease), padding-left .2s var(--ease);
+  }
+  .row:hover, .row.active { background:var(--panel2); padding-left:18px; }
+  .row svg { flex:none; color:var(--ink3); }
+  .row .sub2 { margin-left:auto; flex:none; font-size:12.5px; color:var(--ink3); }
+  .row mark { background:none; color:var(--accent); font-weight:700; }
+  .row .del {
+    display:grid; place-items:center; width:20px; height:20px; flex:none;
+    margin-left:auto; border:0; border-radius:50%; background:none;
+    color:var(--ink3); cursor:pointer; opacity:0; transition:opacity .15s;
+  }
+  .row:hover .del { opacity:1; }
+  .del:hover { color:var(--ink); background:var(--edge2); }
+
+  /* 下拉行进场交错 */
+  .box.open .pop .row, .box.open .pop .sect {
+    animation:rise .3s var(--ease) both;
+  }
+  .box.open .pop > *:nth-child(2) { animation-delay:.02s; }
+  .box.open .pop > *:nth-child(3) { animation-delay:.04s; }
+  .box.open .pop > *:nth-child(4) { animation-delay:.06s; }
+  .box.open .pop > *:nth-child(5) { animation-delay:.08s; }
+  .box.open .pop > *:nth-child(6) { animation-delay:.10s; }
+  @keyframes rise { from { opacity:0; transform:translateY(4px); } }
+
+  /* B：焦点时输入框伸展 */
+  .grow .field { width:75%; margin-left:auto; }
+  .grow .field:focus-within { width:100%; }
+  .grow .field { transition:width .35s var(--ease), border-color .25s var(--ease),
+                 box-shadow .3s var(--ease); }
+  .kbd { margin-left:auto; display:flex; gap:4px; }
+  .kbd span {
+    font-size:10.5px; color:var(--ink3); border:1px solid var(--edge2);
+    border-radius:4px; padding:1px 5px; line-height:1.4;
+  }
+
+  /* C：历史 chips */
+  .chips { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+  .chipbtn {
+    display:inline-flex; align-items:center; gap:6px;
+    border:1px solid var(--edge2); border-radius:999px; background:none;
+    color:var(--ink2); font:inherit; font-size:13px; padding:4px 12px;
+    cursor:pointer;
+    transition:color .2s, border-color .2s, transform .2s var(--ease);
+  }
+  .chipbtn:hover { color:var(--accent); border-color:var(--accent);
+    transform:translateY(-1px); }
+  .chipbtn svg { color:var(--ink3); }
+  .note { width:min(460px,100%); color:var(--ink3); font-size:12.5px;
+          text-align:center; }
+</style>
+</head>
+<body>
+
+<h1>曲库搜索 · 历史提示与过滤 · 3 个方案</h1>
+<p class="sub">都能打字试：历史会记住你选过的，× 可清除</p>
+
+<div class="proto" id="pA">
+  <div class="tag"><b>方案 A · 历史 + 实时过滤一体下拉</b><span>聚焦出历史，输入变过滤，命中高亮</span></div>
+</div>
+
+<div class="proto" id="pB">
+  <div class="tag"><b>方案 B · 伸展搜索条</b><span>聚焦时从 75% 伸展满宽，分组下拉带快捷键提示</span></div>
+</div>
+
+<div class="proto" id="pC">
+  <div class="tag"><b>方案 C · 历史做成 chips</b><span>历史平铺在框下随点随搜，下拉只管过滤</span></div>
+</div>
+
+<p class="note">三案共通：聚焦光环 + 放大镜点亮、× 弹入、下拉交错浮现、匹配字 accent 高亮、autofill 白底已驯服。</p>
+
+<script>
+const SONGS = [
+  { t:"cardigan", s:"Taylor Swift · folklore" },
+  { t:"all too well (10 min)", s:"Taylor Swift · Red" },
+  { t:"anti-hero", s:"Taylor Swift · Midnights" },
+  { t:"august", s:"Taylor Swift · folklore" },
+  { t:"vampire", s:"Olivia Rodrigo · GUTS" },
+  { t:"gold rush", s:"Taylor Swift · evermore" },
+];
+const I = {
+  search:'<svg class="lead" width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>',
+  clock:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.3 1.6"/></svg>',
+  note:'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5.5 13V3.8l7-1.3v8.9"/><circle cx="3.9" cy="13" r="1.7"/><circle cx="10.9" cy="11.4" r="1.7"/></svg>',
+  x:'<svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 2l8 8M10 2l-8 8"/></svg>',
+};
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;" }[c]));
+const hi = (t, q) => {
+  const i = t.toLowerCase().indexOf(q.toLowerCase());
+  return i < 0 || !q ? esc(t)
+    : esc(t.slice(0, i)) + "<mark>" + esc(t.slice(i, i + q.length)) + "</mark>" + esc(t.slice(i + q.length));
+};
+
+function makeSearch(host, { grow = false, chips = false } = {}) {
+  let history = ["cardigan", "august"];
+  const wrap = document.createElement("div");
+  wrap.className = "box" + (grow ? " grow" : "");
+  wrap.innerHTML = `
+    <div class="field">${I.search}
+      <input placeholder="搜索曲库（歌名 / 歌手 / 专辑）" autocomplete="off">
+      <button class="clear" aria-label="清空">${I.x}</button>
+    </div>
+    <div class="pop"></div>
+    ${chips ? '<div class="chips"></div>' : ""}`;
+  host.appendChild(wrap);
+  const input = wrap.querySelector("input");
+  const pop = wrap.querySelector(".pop");
+  const clear = wrap.querySelector(".clear");
+  const chipbar = wrap.querySelector(".chips");
+
+  const render = () => {
+    const q = input.value.trim();
+    wrap.classList.toggle("hasval", !!q);
+    let html = "";
+    if (!q && !chips && history.length) {
+      html += `<div class="sect"><span>最近搜索</span><button data-clear>清空</button></div>`;
+      html += history.map((h) =>
+        `<button class="row" data-pick="${esc(h)}">${I.clock}<span>${esc(h)}</span>
+         <span class="del" data-del="${esc(h)}">${I.x}</span></button>`).join("");
+    }
+    if (q) {
+      const hits = SONGS.filter((s) =>
+        (s.t + s.s).toLowerCase().includes(q.toLowerCase())).slice(0, 5);
+      if (grow && hits.length) html += `<div class="sect"><span>匹配歌曲</span><span class="kbd"><span>↑↓</span><span>⏎</span></span></div>`;
+      html += hits.map((s) =>
+        `<button class="row" data-pick="${esc(s.t)}">${I.note}
+          <span>${hi(s.t, q)}</span><span class="sub2">${esc(s.s)}</span></button>`).join("");
+      if (!hits.length) html += `<div class="row" style="cursor:default;color:var(--ink3)">没有匹配——回车直接按关键词过滤</div>`;
+    }
+    pop.innerHTML = html;
+    wrap.classList.toggle("open", !!html && document.activeElement === input);
+    if (chipbar) {
+      chipbar.innerHTML = history.map((h) =>
+        `<button class="chipbtn" data-pick="${esc(h)}">${I.clock}${esc(h)}</button>`).join("");
+    }
+  };
+  const commit = (v) => {
+    input.value = v;
+    history = [v, ...history.filter((x) => x !== v)].slice(0, 5);
+    render();
+    wrap.classList.remove("open");
+  };
+  input.addEventListener("input", render);
+  input.addEventListener("focus", render);
+  input.addEventListener("blur", () => setTimeout(() => wrap.classList.remove("open"), 150));
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && input.value.trim()) commit(input.value.trim()); });
+  clear.addEventListener("click", () => { input.value = ""; input.focus(); render(); });
+  wrap.addEventListener("mousedown", (e) => {
+    const del = e.target.closest("[data-del]");
+    if (del) { e.preventDefault(); history = history.filter((h) => h !== del.dataset.del); render(); return; }
+    if (e.target.closest("[data-clear]")) { e.preventDefault(); history = []; render(); return; }
+    const pick = e.target.closest("[data-pick]");
+    if (pick) { e.preventDefault(); commit(pick.dataset.pick); }
+  });
+  render();
+}
+
+makeSearch(document.getElementById("pA"));
+makeSearch(document.getElementById("pB"), { grow: true });
+makeSearch(document.getElementById("pC"), { chips: true });
+</script>
+</body>
+</html>
