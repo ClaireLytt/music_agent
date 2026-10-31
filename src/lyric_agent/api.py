@@ -1014,7 +1014,7 @@ def create_app() -> FastAPI:
         return find_occurrences(word.strip(), s.corpus_dir, s.songs_dir,
                                 song=song, line=line, limit=limit)
 
-    # ── 弹卡 ✨AI 语境解释（v3 三行模板，落盘缓存命中零调用） ──
+    # ── 弹卡 ✨AI 语境解释（v4 条件四行模板 + 曲库例句注入，落盘缓存命中零调用） ──
 
     _AI_CACHE_PATH = Path(load_settings().songs_dir).parent \
         / "dict" / "ai_cache.json"
@@ -1025,14 +1025,41 @@ def create_app() -> FastAPI:
         except (OSError, ValueError):
             return {}
 
-    def _ai_key(word: str, line: str) -> str:
+    def _ai_examples(word: str, line: str, song: str) -> list[dict]:
+        from .occurrences import find_occurrences
+        s = load_settings()
+        res = find_occurrences(word, s.corpus_dir, s.songs_dir,
+                               song=song, line=line, limit=20)
+        picked: list[dict] = []
+        per_song: dict[str, int] = {}
+        for it in res["items"]:
+            if per_song.get(it["song"], 0) >= 2:
+                continue
+            per_song[it["song"]] = per_song.get(it["song"], 0) + 1
+            picked.append(it)
+            if len(picked) >= 5:
+                break
+        return picked
+
+    def _ctx_digest(examples: list[dict]) -> str:
         import hashlib
-        # v3: strict three-line template with a few-shot example
-        return hashlib.md5(f"v3:{word}\x00{line}".encode()).hexdigest()
+        if not examples:
+            return ""
+        joined = "\n".join(
+            f"{it['song']}\x00{it['line_index']}\x00{it['line']}"
+            for it in examples)
+        return hashlib.md5(joined.encode()).hexdigest()[:8]
+
+    def _ai_key(word: str, line: str, ctx_digest: str) -> str:
+        import hashlib
+        return hashlib.md5(
+            f"v4:{word}\x00{line}\x00{ctx_digest}".encode()).hexdigest()
 
     @app.get("/api/dict-ai")
-    def dict_ai_cached(word: str, line: str = "") -> dict:
-        return {"ai": _ai_cache().get(_ai_key(word.strip(), line), "")}
+    def dict_ai_cached(word: str, line: str = "", song: str = "") -> dict:
+        word = word.strip()
+        digest = _ctx_digest(_ai_examples(word, line, song))
+        return {"ai": _ai_cache().get(_ai_key(word, line, digest), "")}
 
     @app.post("/api/dict-ai")
     def dict_ai(word: str = Body(...), line: str = Body(""),
@@ -1040,7 +1067,8 @@ def create_app() -> FastAPI:
         word = (word or "").strip()
         if not word:
             raise HTTPException(422, "word 不能为空")
-        key = _ai_key(word, line)
+        examples = _ai_examples(word, line, song)
+        key = _ai_key(word, line, _ctx_digest(examples))
         cache = _ai_cache()
         if key in cache:
             return {"ai": cache[key]}
@@ -1051,13 +1079,18 @@ def create_app() -> FastAPI:
         resp = LLMClient(settings).generate(
             system_prompt=(
                 "你是英语歌词阅读助手。用户双击了歌词里的一个单词。"
-                "用简体中文回答，不超过 120 字。严格按下面模板输出"
-                "三行，不得增删行、加标题、加 markdown 或任何"
+                "用简体中文回答，不超过 160 字。严格按下面模板输出，"
+                "不得增删行、加标题、加 markdown 或任何"
                 "模板外内容：\n"
                 "①语境义：<这个词在这句歌词里的含义>\n"
                 "②整句：<这句歌词的通顺翻译>\n"
                 "③用法：<常见用法/搭配>。例：<简短英文例句> "
                 "<例句中文翻译>\n"
+                "④曲库：<从「曲库例句」中挑 1-2 句，指出该词在那里的"
+                "用法是否相同；格式：在《歌名》里 \"<原句>\" 也是/却是 "
+                "<义>>\n"
+                "仅当用户消息含「曲库例句」时输出第④行，且只许引用"
+                "给出的句子，不得自造歌词；无该段时输出三行。\n"
                 "示例（单词 resist，歌词句 'Cause I can't "
                 "resist it no more）：\n"
                 "①语境义：再也忍不住、无法克制（想挣脱的冲动）\n"
@@ -1066,7 +1099,13 @@ def create_app() -> FastAPI:
                 "例：I can't resist checking my phone. "
                 "我忍不住看手机。"),
             user_message=(f"单词：{word}\n"
-                          f"歌词句：{line}\n出自：《{song}》"),
+                          f"歌词句：{line}\n出自：《{song}》"
+                          + (("\n曲库例句（该词在用户听过的其他歌里的"
+                              "出现）：\n"
+                              + "\n".join(
+                                  f"{i}. {it['line']} ——《{it['song']}》"
+                                  for i, it in enumerate(examples, 1)))
+                             if examples else "")),
         )
         text = (resp.reply_text or "").strip()
         cache[key] = text
