@@ -79,6 +79,7 @@ def _song_payload(s: dict, settings=None) -> dict:
         "audio_type": audio_type,
         "audio_offset_ms": s["audio_offset_ms"],
         "bvid": s["bvid"],
+        "added_ts": s["added_ts"],
     }
 
 

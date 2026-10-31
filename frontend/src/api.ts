@@ -9,6 +9,7 @@ export interface Song {
   audio_type: "local" | "url" | "bilibili" | "preview" | "none";
   audio_offset_ms: number;
   bvid: string;
+  added_ts: number;
 }
 
 export interface MvCandidate {
