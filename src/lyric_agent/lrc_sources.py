@@ -20,8 +20,10 @@ def fetch_synced_lyrics(title: str, artist: str = "",
     req = urllib.request.Request(
         f"https://lrclib.net/api/search?q={query}",
         headers={"User-Agent": _USER_AGENT})
+    from .jsonio import V4FirstHTTPSHandler
+    opener = urllib.request.build_opener(V4FirstHTTPSHandler())
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with opener.open(req, timeout=timeout) as resp:
             results = json.loads(resp.read().decode("utf-8"))
     except Exception:
         logger.warning("LRCLIB lookup failed for %r / %r",
