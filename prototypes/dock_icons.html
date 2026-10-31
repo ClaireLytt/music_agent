@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>解读坞图标 · 原型</title>
+<style>
+  :root {
+    --bg:#121212; --panel:#1e1e22; --panel2:#24242a;
+    --ink:#f5f5f4; --ink2:#a8a8b3; --ink3:#6e6e78;
+    --accent:#7c9eff; --accent-soft:rgba(124,158,255,.16);
+    --edge:#2a2a31;
+  }
+  * { box-sizing:border-box; margin:0; }
+  body {
+    min-height:100vh; padding:44px 16px 80px;
+    background:
+      radial-gradient(900px 500px at 70% -10%, #1a2420 0%, transparent 60%),
+      var(--bg);
+    color:var(--ink);
+    font:15px/1.6 Inter, "Noto Sans SC", system-ui, sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+  }
+  h1 { font-size:18px; font-weight:700; }
+  .sub { color:var(--ink3); font-size:13px; margin-bottom:14px; }
+  .row { display:flex; flex-wrap:wrap; gap:18px; justify-content:center; }
+  .col {
+    width:300px; background:var(--bg); border:1px solid var(--edge);
+    border-radius:14px; padding:16px 14px;
+    box-shadow:0 18px 40px -18px rgba(0,0,0,.65);
+  }
+  .col h2 { font-size:13.5px; margin-bottom:4px; }
+  .col p.desc { color:var(--ink3); font-size:12px; margin-bottom:12px; }
+  .card {
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel); border:1px solid var(--edge);
+    border-radius:12px; padding:12px 14px; margin-bottom:9px;
+    font-size:15px; font-weight:600; color:var(--ink2);
+  }
+  .card .arr { color:var(--ink3); font-size:11px; }
+  svg { flex:none; }
+  .lin svg { color:var(--ink3); }
+  .duo svg .fill { fill:var(--accent-soft); }
+  .duo svg { color:var(--accent); }
+  .mus svg { color:var(--ink3); }
+  .mus svg .hot { color:var(--accent); stroke:var(--accent); }
+  .note { color:var(--ink3); font-size:12.5px; text-align:center;
+          max-width:640px; margin-top:16px; }
+</style>
+</head>
+<body>
+
+<h1>解读坞图标 · 3 套原创手绘 SVG</h1>
+<p class="sub">同一组七个卡片，三种笔法——线性 / 双色 / 音乐记号系</p>
+
+<div class="row">
+
+  <!-- A 细线性 -->
+  <div class="col lin" id="A">
+    <h2>方案 A · 细线性</h2>
+    <p class="desc">stroke 1.7，圆角端点，中性克制（工具感）</p>
+  </div>
+
+  <!-- B 双色 -->
+  <div class="col duo" id="B">
+    <h2>方案 B · 双色 duotone</h2>
+    <p class="desc">同形 + accent 柔和底块，图标自己会发光</p>
+  </div>
+
+  <!-- C 音乐记号系 -->
+  <div class="col mus" id="C">
+    <h2>方案 C · 音乐记号系</h2>
+    <p class="desc">每个图标都长在五线/音符语境里——最原创</p>
+  </div>
+</div>
+
+<p class="note">三套都是手绘 viewBox 16 线性 SVG（非图标库），描边 1.7、圆角端点，继承文字颜色——
+换主题/hover 自动跟随。选定后替换 Dock 七张卡标题里的 emoji。</p>
+
+<script>
+const S = (inner) =>
+  `<svg width="17" height="17" viewBox="0 0 16 16" fill="none"
+     stroke="currentColor" stroke-width="1.7" stroke-linecap="round"
+     stroke-linejoin="round">${inner}</svg>`;
+
+// —— A 细线性 ——
+const A = {
+  ann: S('<path d="M3 13l.8-2.8 7.4-7.4a1.3 1.3 0 0 1 1.9 0l.1.1a1.3 1.3 0 0 1 0 1.9L5.8 12.2 3 13z"/><path d="M9.5 4.5l2 2"/>'),
+  chat: S('<path d="M13.5 8a5.5 5.5 0 0 1-8 4.9L2.5 13.5l.7-2.9A5.5 5.5 0 1 1 13.5 8z"/><path d="M5.5 7h5M5.5 9.3h3"/>'),
+  intro: S('<path d="M8 3.6C6.9 2.7 5.2 2.3 2.8 2.5v10c2.4-.2 4.1.2 5.2 1.1 1.1-.9 2.8-1.3 5.2-1.1v-10C10.8 2.3 9.1 2.7 8 3.6z"/><path d="M8 3.6v10"/>'),
+  notes: S('<path d="M12.5 9.5v-6a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h4z"/><path d="M12.5 9.5L8.5 13.5V9.5h4zM6 5.5h4M6 8h2.5"/>'),
+  fav: S('<path d="M8 2.3l1.7 3.4 3.8.6-2.7 2.7.6 3.8L8 11l-3.4 1.8.6-3.8-2.7-2.7 3.8-.6L8 2.3z"/>'),
+  words: S('<rect x="2.5" y="4" width="8.5" height="9.5" rx="1"/><path d="M5 2.5h7.5a1 1 0 0 1 1 1V12"/><path d="M5 8l1.6-3 1.6 3M5.6 7h2"/>'),
+  tools: S('<path d="M2.5 5h7M12.5 5h1M2.5 11h2M7.5 11h6"/><circle cx="10.5" cy="5" r="1.6"/><circle cx="5.5" cy="11" r="1.6"/>'),
+};
+
+// —— B 双色 duotone（同形 + 柔底） ——
+const D = (inner) =>
+  `<svg width="17" height="17" viewBox="0 0 16 16" fill="none"
+     stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+     stroke-linejoin="round">${inner}</svg>`;
+const B = {
+  ann: D('<path class="fill" d="M3 13l.8-2.8 7.4-7.4a1.3 1.3 0 0 1 1.9 0l.1.1a1.3 1.3 0 0 1 0 1.9L5.8 12.2 3 13z"/><path d="M3 13l.8-2.8 7.4-7.4a1.3 1.3 0 0 1 1.9 0l.1.1a1.3 1.3 0 0 1 0 1.9L5.8 12.2 3 13z"/>'),
+  chat: D('<path class="fill" d="M13.5 8a5.5 5.5 0 0 1-8 4.9L2.5 13.5l.7-2.9A5.5 5.5 0 1 1 13.5 8z"/><path d="M13.5 8a5.5 5.5 0 0 1-8 4.9L2.5 13.5l.7-2.9A5.5 5.5 0 1 1 13.5 8z"/><path d="M5.5 7h5M5.5 9.3h3"/>'),
+  intro: D('<path class="fill" d="M8 3.6C6.9 2.7 5.2 2.3 2.8 2.5v10c2.4-.2 4.1.2 5.2 1.1V3.6z"/><path d="M8 3.6C6.9 2.7 5.2 2.3 2.8 2.5v10c2.4-.2 4.1.2 5.2 1.1 1.1-.9 2.8-1.3 5.2-1.1v-10C10.8 2.3 9.1 2.7 8 3.6z"/><path d="M8 3.6v10"/>'),
+  notes: D('<path class="fill" d="M12.5 9.5v-6a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h4z"/><path d="M12.5 9.5v-6a1 1 0 0 0-1-1h-7a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h4zM12.5 9.5L8.5 13.5V9.5h4z"/>'),
+  fav: D('<path class="fill" d="M8 2.3l1.7 3.4 3.8.6-2.7 2.7.6 3.8L8 11l-3.4 1.8.6-3.8-2.7-2.7 3.8-.6L8 2.3z"/><path d="M8 2.3l1.7 3.4 3.8.6-2.7 2.7.6 3.8L8 11l-3.4 1.8.6-3.8-2.7-2.7 3.8-.6L8 2.3z"/>'),
+  words: D('<rect class="fill" x="2.5" y="4" width="8.5" height="9.5" rx="1"/><rect x="2.5" y="4" width="8.5" height="9.5" rx="1"/><path d="M5 2.5h7.5a1 1 0 0 1 1 1V12"/><path d="M5 8l1.6-3 1.6 3M5.6 7h2"/>'),
+  tools: D('<circle class="fill" cx="10.5" cy="5" r="1.6"/><circle class="fill" cx="5.5" cy="11" r="1.6"/><path d="M2.5 5h7M12.5 5h1M2.5 11h2M7.5 11h6"/><circle cx="10.5" cy="5" r="1.6"/><circle cx="5.5" cy="11" r="1.6"/>'),
+};
+
+// —— C 音乐记号系（原创：每个图标都带音乐语素） ——
+const C = {
+  // 批注 = 笔尖落在一小段波形上
+  ann: S('<path d="M2.5 12.5c1-1 1.6-2.2 2.6-2.2s1.4 1.1 2.4 1.1"/><path d="M6.5 9.9l5-5a1.2 1.2 0 0 1 1.8 1.8l-5 5-2.4.6.6-2.4z"/>'),
+  // 助手 = 气泡里一个八分音符
+  chat: S('<path d="M13.5 7.8a5.5 5.5 0 0 1-8 4.9l-3 .8.7-2.9a5.5 5.5 0 1 1 10.3-2.8z"/><path class="hot" d="M9.3 9.3V5.6l1.7.5"/><circle class="hot" cx="8.2" cy="9.5" r="1.1"/>'),
+  // 导读 = 打开的书页上浮起一个音符
+  intro: S('<path d="M2.8 4.2c1.9-.3 3.4 0 5.2 1v8.3c-1.8-1-3.3-1.3-5.2-1v-8.3zM13.2 4.2c-1.9-.3-3.4 0-5.2 1"/><path class="hot" d="M11.2 8.9V4.2l1.6.5"/><circle class="hot" cx="10.1" cy="9.1" r="1"/>'),
+  // 笔记 = 便签一角折起 + 两行五线谱
+  notes: S('<path d="M3 2.8h10v7.4L9.6 13.8H3V2.8z"/><path d="M13 10.2H9.6v3.6"/><path class="hot" d="M5 6h6M5 8.4h3.4"/>'),
+  // 收藏 = 心形里嵌一颗小音符头
+  fav: S('<path d="M8 13.2S2.6 9.8 2.6 6.1C2.6 4.3 4 3 5.6 3c1 0 1.9.5 2.4 1.3C8.5 3.5 9.4 3 10.4 3 12 3 13.4 4.3 13.4 6.1c0 3.7-5.4 7.1-5.4 7.1z"/><circle class="hot" cx="8" cy="7.3" r="1.2" fill="currentColor" stroke="none"/>'),
+  // 单词本 = 字卡 A + 下划的连音线
+  words: S('<rect x="2.8" y="2.8" width="10.4" height="8.4" rx="1.2"/><path d="M6 9.2l2-4.4 2 4.4M6.7 7.7h2.6"/><path class="hot" d="M4.5 13.4c2.3 1.2 4.7 1.2 7 0"/>'),
+  // 工具 = 调音旋钮（电位器）
+  tools: S('<circle cx="8" cy="8" r="5.2"/><path class="hot" d="M8 8l2.4-2.4"/><path d="M8 2v.9M14 8h-.9M8 14v-.9M2 8h.9"/>'),
+};
+
+const LABELS = [
+  ["ann", "AI 批注"], ["chat", "AI 助手 · 第 5 句"], ["intro", "歌曲导读"],
+  ["notes", "听歌笔记（0）"], ["fav", "歌词收藏夹 4"],
+  ["words", "单词本 8 · 词组本 2"], ["tools", "歌曲工具"],
+];
+for (const [id, set] of [["A", A], ["B", B], ["C", C]]) {
+  const col = document.getElementById(id);
+  for (const [key, label] of LABELS) {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.innerHTML = `<span class="arr">▸</span>${set[key]}<span>${label}</span>`;
+    col.appendChild(div);
+  }
+}
+</script>
+</body>
+</html>
