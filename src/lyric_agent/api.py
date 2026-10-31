@@ -18,7 +18,8 @@ from fastapi.responses import FileResponse, RedirectResponse
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 
-from . import bilibili_audio, cover_art, dictionary, itunes_audio, songdata
+from . import (background_task, bilibili_audio, cover_art, dictionary,
+               itunes_audio, songdata)
 from .config import load_settings
 from .songdata import (
     _INTRO_FILENAME,
@@ -90,10 +91,8 @@ def _write_meta(song_dir: str, mutate) -> None:
 
 
 # 导读后台生成状态（长耗时 LLM 铁律：后台线程 + 落盘 + 轮询）
-_INTRO_TASKS: dict[str, str] = {}   # song_id -> "running" | "error: ..."
-_ANNOTATE_TASKS: dict[str, str] = {}   # "song:line" -> "running" | "error: ..."
-_FANLORE_TASKS: dict[str, dict] = {}   # song_id -> {status, progress?, msg?}
-_REBUILD_STATE: dict = {"status": "none", "msg": ""}
+# 长耗时 LLM 任务（intro/annotate/fanlore/rebuild）统一走 background_task
+# 深模块：kick 幂等起跳 / status 轮询 / update 进度，done 的真相在磁盘
 _CORPUS_REBUILDING = threading.Lock()
 
 
@@ -143,122 +142,100 @@ def _fanlore_echo_pairs(info: dict, data: dict) -> list[tuple]:
 
 
 def _gen_fanlore_bg(song_id: str, info: dict) -> None:
-    try:
-        from .fanlore import fanlore_messages, progress_stage, save_fanlore
-        from .intertextuality.search import artist_matches
-        from .llm import LLMClient
-        data = _load_song_data(info["dir"])
-        pairs = _fanlore_echo_pairs(info, data)
-        titles = [s["title"] for s in _songs()
-                  if artist_matches(info.get("artist", ""),
-                                    s.get("artist", ""))]
-        system, user_msg = fanlore_messages(
-            info.get("title", ""), info.get("artist", ""),
-            info.get("album", ""), info.get("year"),
-            echo_pairs=pairs, library_titles=titles)
-        settings = load_settings()
-        buf: list[str] = []
+    from .fanlore import fanlore_messages, progress_stage, save_fanlore
+    from .intertextuality.search import artist_matches
+    from .llm import LLMClient
+    data = _load_song_data(info["dir"])
+    pairs = _fanlore_echo_pairs(info, data)
+    titles = [s["title"] for s in _songs()
+              if artist_matches(info.get("artist", ""),
+                                s.get("artist", ""))]
+    system, user_msg = fanlore_messages(
+        info.get("title", ""), info.get("artist", ""),
+        info.get("album", ""), info.get("year"),
+        echo_pairs=pairs, library_titles=titles)
+    settings = load_settings()
+    buf: list[str] = []
 
-        def _on_delta(piece: str) -> None:
-            buf.append(piece)
-            s = "".join(buf)
-            _FANLORE_TASKS[song_id] = {"status": "running",
-                                       "progress": progress_stage(s),
-                                       "chars": len(s)}
+    def _on_delta(piece: str) -> None:
+        buf.append(piece)
+        s = "".join(buf)
+        background_task.update(f"fanlore:{song_id}",
+                               progress=progress_stage(s), chars=len(s))
 
-        verdict = LLMClient(settings).generate_json(
-            system, user_msg, on_text_delta=_on_delta)
-        save_fanlore(info["dir"], verdict, settings.model_name)
-        _FANLORE_TASKS[song_id] = {"status": "done"}
-    except Exception as exc:
-        logger.exception("fanlore generation failed for %s", song_id)
-        _FANLORE_TASKS[song_id] = {"status": "error", "msg": str(exc)[:150]}
+    verdict = LLMClient(settings).generate_json(
+        system, user_msg, on_text_delta=_on_delta)
+    save_fanlore(info["dir"], verdict, settings.model_name)
 
 
 def _rebuild_index_bg(model: str) -> None:
-    try:
-        from .config import save_user_settings, user_settings_path
-        from .intertextuality.corpus import build_corpus
-        from .intertextuality.embeddings import generate_embeddings
-        from .jsonio import read_json
-        s = load_settings()
-        catalog = Path("data/catalog/catalog.json")
-        n_songs, n_lines = build_corpus(
-            s.songs_dir, s.corpus_dir,
-            catalog_path=catalog if catalog.exists() else None)
-        _REBUILD_STATE.update(
-            status="running",
-            msg=f"2/2 语料库完成（{n_songs} 首 / {n_lines} 行），"
-                f"正在用 {model} 生成 embeddings（首次需下载，1-3 分钟）…")
-        generate_embeddings(s.corpus_dir, model_name=model)
-        # 持久化模型选择（合并，不覆盖其他键）
-        cur = read_json(user_settings_path(), default={})
-        cur = cur if isinstance(cur, dict) else {}
-        cur["embedding_model"] = model
-        save_user_settings(cur)
-        _REBUILD_STATE.update(
-            status="done", msg=f"重建完成：{n_songs} 首 / {n_lines} 行，"
-                               f"模型 {model} 已生效并保存")
-    except Exception as exc:
-        logger.exception("rebuild index failed")
-        _REBUILD_STATE.update(status="error", msg=str(exc)[:200])
+    from .config import save_user_settings, user_settings_path
+    from .intertextuality.corpus import build_corpus
+    from .intertextuality.embeddings import generate_embeddings
+    from .jsonio import read_json
+    s = load_settings()
+    catalog = Path("data/catalog/catalog.json")
+    n_songs, n_lines = build_corpus(
+        s.songs_dir, s.corpus_dir,
+        catalog_path=catalog if catalog.exists() else None)
+    background_task.update(
+        "rebuild",
+        msg=f"2/2 语料库完成（{n_songs} 首 / {n_lines} 行），"
+            f"正在用 {model} 生成 embeddings（首次需下载，1-3 分钟）…")
+    generate_embeddings(s.corpus_dir, model_name=model)
+    # 持久化模型选择（合并，不覆盖其他键）
+    cur = read_json(user_settings_path(), default={})
+    cur = cur if isinstance(cur, dict) else {}
+    cur["embedding_model"] = model
+    save_user_settings(cur)
+    background_task.update(
+        "rebuild", msg=f"重建完成：{n_songs} 首 / {n_lines} 行，"
+                       f"模型 {model} 已生效并保存")
 
 
-def _gen_line_annotation_bg(key: str, info: dict, line_index: int,
+def _gen_line_annotation_bg(info: dict, line_index: int,
                             lyric_text: str) -> None:
-    """单句批注后台任务：生成 → 合并进 annotations.json → 清任务态。"""
-    try:
-        from .annotator.engine import regenerate_annotation
-        from .annotator.models import Song, SongMetadata
-        ann_path = Path(info["dir"]) / "annotations.json"
-        song = (Song.load(ann_path) if ann_path.exists()
-                else Song(metadata=SongMetadata(
-                    title=info.get("title", ""),
-                    artist=info.get("artist", ""),
-                    album=info.get("album", ""),
-                    year=int(info.get("year") or 0),
-                    era=info.get("era", ""))))
-        ann = regenerate_annotation(load_settings(), song.metadata,
-                                    line_index, lyric_text)
-        song.annotations = [a for a in song.annotations
-                            if a.line_index != line_index] + [ann]
-        song.annotations.sort(key=lambda a: a.line_index)
-        song.save(ann_path)
-        _ANNOTATE_TASKS.pop(key, None)
-    except Exception as exc:
-        logger.exception("single-line annotation failed")
-        _ANNOTATE_TASKS[key] = f"error: {str(exc)[:160]}"
+    """单句批注：生成 → 合并进 annotations.json（失败抛异常即 error 态）。"""
+    from .annotator.engine import regenerate_annotation
+    from .annotator.models import Song, SongMetadata
+    ann_path = Path(info["dir"]) / "annotations.json"
+    song = (Song.load(ann_path) if ann_path.exists()
+            else Song(metadata=SongMetadata(
+                title=info.get("title", ""),
+                artist=info.get("artist", ""),
+                album=info.get("album", ""),
+                year=int(info.get("year") or 0),
+                era=info.get("era", ""))))
+    ann = regenerate_annotation(load_settings(), song.metadata,
+                                line_index, lyric_text)
+    song.annotations = [a for a in song.annotations
+                        if a.line_index != line_index] + [ann]
+    song.annotations.sort(key=lambda a: a.line_index)
+    song.save(ann_path)
 
 
-def _gen_intro_bg(song_id: str, info: dict) -> None:
-    try:
-        data = _load_song_data(info["dir"])
-        lyrics_text = "\n".join(ln.text for ln in data["timed_lines"])
-        user_msg = (
-            f"歌名：《{info.get('title', '')}》\n"
-            f"歌手：{info.get('artist', '')}\n"
-            f"专辑：{info.get('album', '') or '未知'}\n\n"
-            f"完整歌词：\n{lyrics_text}\n\n"
-            "请写一段 120-180 字的「歌曲导读」：这首歌讲了什么故事/情绪，"
-            "创作背景（确定的才写），以及听的时候值得注意的 1-2 个歌词细节。"
-            "语气亲切自然，直接输出正文。"
-        )
-        from .llm import LLMClient
-        resp = LLMClient(load_settings()).generate(
-            system_prompt=("你是精通流行音乐与歌词分析的电台 DJ，"
-                           "用简体中文写作，克制而准确。"),
-            user_message=user_msg,
-        )
-        text = (resp.reply_text or "").strip()
-        if not text:
-            _INTRO_TASKS[song_id] = "error: AI 未返回内容，请重试"
-            return
-        (Path(info["dir"]) / _INTRO_FILENAME).write_text(
-            text, encoding="utf-8")
-        _INTRO_TASKS.pop(song_id, None)
-    except Exception as exc:
-        logger.exception("Intro generation failed for %s", song_id)
-        _INTRO_TASKS[song_id] = f"error: {str(exc)[:150]}"
+def _gen_intro_bg(info: dict) -> None:
+    data = _load_song_data(info["dir"])
+    lyrics_text = "\n".join(ln.text for ln in data["timed_lines"])
+    user_msg = (
+        f"歌名：《{info.get('title', '')}》\n"
+        f"歌手：{info.get('artist', '')}\n"
+        f"专辑：{info.get('album', '') or '未知'}\n\n"
+        f"完整歌词：\n{lyrics_text}\n\n"
+        "请写一段 120-180 字的「歌曲导读」：这首歌讲了什么故事/情绪，"
+        "创作背景（确定的才写），以及听的时候值得注意的 1-2 个歌词细节。"
+        "语气亲切自然，直接输出正文。"
+    )
+    from .llm import LLMClient
+    resp = LLMClient(load_settings()).generate(
+        system_prompt=("你是精通流行音乐与歌词分析的电台 DJ，"
+                       "用简体中文写作，克制而准确。"),
+        user_message=user_msg,
+    )
+    text = (resp.reply_text or "").strip()
+    if not text:
+        raise RuntimeError("AI 未返回内容，请重试")
+    (Path(info["dir"]) / _INTRO_FILENAME).write_text(text, encoding="utf-8")
 
 
 def create_app() -> FastAPI:
@@ -502,11 +479,9 @@ def create_app() -> FastAPI:
         text = _load_intro(s["dir"])
         if text:
             return {"status": "done", "text": text}
-        st = _INTRO_TASKS.get(song_id, "")
-        if st == "running":
-            return {"status": "running", "text": ""}
-        if st.startswith("error:"):
-            return {"status": "error", "text": st[6:].strip()}
+        st = background_task.status(f"intro:{song_id}")
+        if st["status"] in ("running", "error"):
+            return {"status": st["status"], "text": st["msg"]}
         return {"status": "none", "text": ""}
 
     @app.post("/api/songs/{song_id}/intro")
@@ -516,10 +491,7 @@ def create_app() -> FastAPI:
             return {"status": "done"}
         if not load_settings().api_key:
             raise HTTPException(400, "未配置 API Key：请在 .env 填写后重启")
-        if _INTRO_TASKS.get(song_id) != "running":
-            _INTRO_TASKS[song_id] = "running"
-            threading.Thread(target=_gen_intro_bg, args=(song_id, s),
-                             daemon=True).start()
+        background_task.kick(f"intro:{song_id}", lambda: _gen_intro_bg(s))
         return {"status": "running"}
 
     # ── 专辑封面（实验性，可整体移除；见 cover_art.py） ──────
@@ -542,11 +514,9 @@ def create_app() -> FastAPI:
     @app.get("/api/songs/{song_id}/annotate/{line_index}")
     def annotate_status(song_id: str, line_index: int) -> dict:
         s = _find_song(song_id)
-        st = _ANNOTATE_TASKS.get(f"{song_id}:{line_index}", "")
-        if st == "running":
-            return {"status": "running", "msg": ""}
-        if st.startswith("error:"):
-            return {"status": "error", "msg": st[6:].strip()}
+        st = background_task.status(f"annotate:{song_id}:{line_index}")
+        if st["status"] in ("running", "error"):
+            return {"status": st["status"], "msg": st["msg"]}
         ann = _load_song_data(s["dir"])["annotations"].get(line_index)
         if ann and ann.summary and "generation failed" not in ann.summary:
             return {"status": "done", "msg": ""}
@@ -562,12 +532,9 @@ def create_app() -> FastAPI:
                      if ln.line_index == line_index), None)
         if line is None:
             raise HTTPException(404, f"没有第 {line_index + 1} 句")
-        key = f"{song_id}:{line_index}"
-        if _ANNOTATE_TASKS.get(key) != "running":
-            _ANNOTATE_TASKS[key] = "running"
-            threading.Thread(
-                target=_gen_line_annotation_bg,
-                args=(key, s, line_index, line.text), daemon=True).start()
+        background_task.kick(
+            f"annotate:{song_id}:{line_index}",
+            lambda: _gen_line_annotation_bg(s, line_index, line.text))
         return {"status": "running"}
 
     # ── 歌曲寻词（打字练习；旧 tab_review 的 REST 化） ────────
@@ -702,13 +669,13 @@ def create_app() -> FastAPI:
         cached = load_fanlore(s["dir"])
         if cached is not None:
             return {"status": "done", "data": dc_asdict(parse_fanlore(cached))}
-        st = _FANLORE_TASKS.get(song_id) or {}
-        if st.get("status") == "running":
+        st = background_task.status(f"fanlore:{song_id}")
+        if st["status"] == "running":
             return {"status": "running",
                     "progress": st.get("progress", ""),
                     "chars": st.get("chars", 0)}
-        if st.get("status") == "error":
-            return {"status": "error", "msg": st.get("msg", "")}
+        if st["status"] == "error":
+            return {"status": "error", "msg": st["msg"]}
         return {"status": "none"}
 
     @app.post("/api/songs/{song_id}/fanlore")
@@ -719,10 +686,8 @@ def create_app() -> FastAPI:
             return {"status": "done"}
         if not load_settings().api_key:
             raise HTTPException(400, "未配置 API Key：请到「设置」页填写")
-        if (_FANLORE_TASKS.get(song_id) or {}).get("status") != "running":
-            _FANLORE_TASKS[song_id] = {"status": "running"}
-            threading.Thread(target=_gen_fanlore_bg, args=(song_id, s),
-                             daemon=True).start()
+        background_task.kick(f"fanlore:{song_id}",
+                             lambda: _gen_fanlore_bg(song_id, s))
         return {"status": "running"}
 
     # ── 行级 AI 助手（旧播放页「💬 AI 助手」迁移） ──────────────
@@ -1018,16 +983,14 @@ def create_app() -> FastAPI:
 
     @app.get("/api/rebuild-index")
     def rebuild_status() -> dict:
-        return dict(_REBUILD_STATE)
+        st = background_task.status("rebuild")
+        return {"status": st["status"], "msg": st.get("msg", "")}
 
     @app.post("/api/rebuild-index", **WRITE_GATE)
     def rebuild_index(model: str = Body("", embed=True)) -> dict:
         model = (model or "").strip() or load_settings().embedding_model
-        if _REBUILD_STATE.get("status") == "running":
-            return {"status": "running"}
-        _REBUILD_STATE.update(status="running", msg="1/2 正在重建语料库…")
-        threading.Thread(target=_rebuild_index_bg, args=(model,),
-                         daemon=True).start()
+        if background_task.kick("rebuild", lambda: _rebuild_index_bg(model)):
+            background_task.update("rebuild", msg="1/2 正在重建语料库…")
         return {"status": "running"}
 
     @app.get("/api/dict/{word}")
