@@ -81,6 +81,7 @@ export default function MvPanel({ song }: { song: Song }) {
       <input
         autoFocus
         name="bvid"
+        autoComplete="off"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder="粘贴 BV 号或 B 站链接，留空保存=解绑"

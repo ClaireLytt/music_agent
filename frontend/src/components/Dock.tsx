@@ -471,6 +471,7 @@ export default function Dock({
             >
               <input
                 name="offset-ms"
+                autoComplete="off"
                 inputMode="numeric"
                 value={offset}
                 onChange={(e) => setOffset(e.target.value)}

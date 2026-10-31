@@ -68,6 +68,7 @@ export default function Sidebar({
       <input
         type="search"
         name="library-search"
+        autoComplete="off"
         value={query}
         onChange={(e) => onQuery(e.target.value)}
         placeholder="搜歌名 / 歌手 / 歌词…"
