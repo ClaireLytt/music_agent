@@ -260,6 +260,7 @@ export default function LibraryPage() {
   // 手动添加
   const [title, setTitle] = useState("");
   const { phase: addPhase, wrap: wrapAddSave } = useSavePhase();
+  const [addMsg, setAddMsg] = useState("");
   const [artist, setArtist] = useState("");
   const [album, setAlbum] = useState("");
   const [lrc, setLrc] = useState("");
@@ -401,12 +402,12 @@ export default function LibraryPage() {
             void wrapAddSave(() =>
               acts.addSong(title, artist, album, lrc).then((r) => {
                 setSong(r.id);
-                setStatus(`已添加《${title}》（${r.note}）· `
+                setAddMsg(`已添加《${title}》（${r.note}）· `
                   + "音频可在播放页「歌曲工具」上传");
                 setTitle(""); setArtist(""); setAlbum(""); setLrc("");
               }),
             ).catch((err) =>
-              setStatus(err instanceof Error ? err.message : "添加失败"));
+              setAddMsg(err instanceof Error ? err.message : "添加失败"));
           }}
         >
           <div className="flex flex-wrap items-center gap-2.5">
@@ -459,11 +460,16 @@ export default function LibraryPage() {
               {lrc ? `已选歌词（${lrc.split("\n").length} 行，点击更换）` : "上传 .lrc 歌词（选填，留空自动获取）…"}
             </button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <button type="submit" className={chip(true)}
                     disabled={addPhase === "saving"}>
               <SaveLabel phase={addPhase}>保存歌曲</SaveLabel>
             </button>
+            {addMsg && (
+              <span className="text-[18.8px] text-ink3" aria-live="polite">
+                {addMsg}
+              </span>
+            )}
           </div>
         </form>
       </section>

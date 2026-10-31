@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const [embModel, setEmbModel] = useState("");
   const [status, setStatus] = useState("");
   const { phase: settingsPhase, wrap: wrapSettingsSave } = useSavePhase();
+  const [apiMsg, setApiMsg] = useState("");
 
   useEffect(() => {
     const s = settings.data;
@@ -71,11 +72,11 @@ export default function SettingsPage() {
             e.preventDefault();
             void wrapSettingsSave(() =>
               acts.saveSettings(provider, key, base, model).then((r) => {
-                setStatus(`已保存并生效（模型:${r.model_name}）`);
+                setApiMsg(`已保存并生效（模型:${r.model_name}）`);
                 setKey("");
               }),
             ).catch((err) =>
-              setStatus(err instanceof Error ? err.message : "保存失败"));
+              setApiMsg(err instanceof Error ? err.message : "保存失败"));
           }}
         >
           <div className="flex flex-wrap gap-2.5">
@@ -91,11 +92,16 @@ export default function SettingsPage() {
             <input name="model-name" value={model} onChange={(e) => setModel(e.target.value)}
               placeholder="模型名称（选填，留空用默认）" className={`${inputCls} w-64`} />
           </div>
-          <div>
+          <div className="flex flex-wrap items-center gap-3">
             <button type="submit" className={chip(true)}
                     disabled={settingsPhase === "saving"}>
               <SaveLabel phase={settingsPhase}>保存设置</SaveLabel>
             </button>
+            {apiMsg && (
+              <span className="text-[18.8px] text-ink3" aria-live="polite">
+                {apiMsg}
+              </span>
+            )}
           </div>
         </form>
       </section>
