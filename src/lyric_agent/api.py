@@ -87,6 +87,7 @@ def _write_meta(song_dir: str, mutate) -> None:
 
 # 导读后台生成状态（长耗时 LLM 铁律：后台线程 + 落盘 + 轮询）
 _INTRO_TASKS: dict[str, str] = {}   # song_id -> "running" | "error: ..."
+_ANNOTATE_TASKS: dict[str, str] = {}   # "song:line" -> "running" | "error: ..."
 _FANLORE_TASKS: dict[str, dict] = {}   # song_id -> {status, progress?, msg?}
 _REBUILD_STATE: dict = {"status": "none", "msg": ""}
 _CORPUS_REBUILDING = threading.Lock()
@@ -197,6 +198,32 @@ def _rebuild_index_bg(model: str) -> None:
     except Exception as exc:
         logger.exception("rebuild index failed")
         _REBUILD_STATE.update(status="error", msg=str(exc)[:200])
+
+
+def _gen_line_annotation_bg(key: str, info: dict, line_index: int,
+                            lyric_text: str) -> None:
+    """单句批注后台任务：生成 → 合并进 annotations.json → 清任务态。"""
+    try:
+        from .annotator.engine import regenerate_annotation
+        from .annotator.models import Song, SongMetadata
+        ann_path = Path(info["dir"]) / "annotations.json"
+        song = (Song.load(ann_path) if ann_path.exists()
+                else Song(metadata=SongMetadata(
+                    title=info.get("title", ""),
+                    artist=info.get("artist", ""),
+                    album=info.get("album", ""),
+                    year=int(info.get("year") or 0),
+                    era=info.get("era", ""))))
+        ann = regenerate_annotation(load_settings(), song.metadata,
+                                    line_index, lyric_text)
+        song.annotations = [a for a in song.annotations
+                            if a.line_index != line_index] + [ann]
+        song.annotations.sort(key=lambda a: a.line_index)
+        song.save(ann_path)
+        _ANNOTATE_TASKS.pop(key, None)
+    except Exception as exc:
+        logger.exception("single-line annotation failed")
+        _ANNOTATE_TASKS[key] = f"error: {str(exc)[:160]}"
 
 
 def _gen_intro_bg(song_id: str, info: dict) -> None:
@@ -486,6 +513,40 @@ def create_app() -> FastAPI:
             _INTRO_TASKS[song_id] = "running"
             threading.Thread(target=_gen_intro_bg, args=(song_id, s),
                              daemon=True).start()
+        return {"status": "running"}
+
+    # ── 单句批注（旧 tab_play on_gen_ann 的 REST 化；
+    #    长耗时 LLM 铁律：后台线程 + 落盘 + 轮询） ──────────────
+
+    @app.get("/api/songs/{song_id}/annotate/{line_index}")
+    def annotate_status(song_id: str, line_index: int) -> dict:
+        s = _find_song(song_id)
+        st = _ANNOTATE_TASKS.get(f"{song_id}:{line_index}", "")
+        if st == "running":
+            return {"status": "running", "msg": ""}
+        if st.startswith("error:"):
+            return {"status": "error", "msg": st[6:].strip()}
+        ann = _load_song_data(s["dir"])["annotations"].get(line_index)
+        if ann and ann.summary and "generation failed" not in ann.summary:
+            return {"status": "done", "msg": ""}
+        return {"status": "none", "msg": ""}
+
+    @app.post("/api/songs/{song_id}/annotate/{line_index}", **WRITE_GATE)
+    def annotate_line(song_id: str, line_index: int) -> dict:
+        s = _find_song(song_id)
+        if not load_settings().api_key:
+            raise HTTPException(400, "未配置 API Key：请在 .env 填写后重启")
+        data = _load_song_data(s["dir"])
+        line = next((ln for ln in data["timed_lines"]
+                     if ln.line_index == line_index), None)
+        if line is None:
+            raise HTTPException(404, f"没有第 {line_index + 1} 句")
+        key = f"{song_id}:{line_index}"
+        if _ANNOTATE_TASKS.get(key) != "running":
+            _ANNOTATE_TASKS[key] = "running"
+            threading.Thread(
+                target=_gen_line_annotation_bg,
+                args=(key, s, line_index, line.text), daemon=True).start()
         return {"status": "running"}
 
     # ── 歌曲寻词（打字练习；旧 tab_review 的 REST 化） ────────

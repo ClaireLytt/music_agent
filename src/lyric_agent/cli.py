@@ -72,6 +72,9 @@ def serve_web(port: int, no_browser: bool, sandbox: bool) -> None:
         import tempfile
         from pathlib import Path
 
+        # chdir 前把仓库根的 .env 吸进进程环境，否则沙箱里 LLM 全挂
+        from dotenv import load_dotenv
+        load_dotenv()
         box = Path(tempfile.mkdtemp(prefix="ll_sandbox_"))
         shutil.copytree(
             Path("data"), box / "data",

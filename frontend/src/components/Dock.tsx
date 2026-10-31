@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
-  ChatTurn, Lyrics, Song, askLine, useActions, useFavorites, useIntro,
-  useLineChat, useNotes, useWordbook,
+  ChatTurn, Lyrics, Song, askLine, useActions, useAnnotateStatus,
+  useFavorites, useIntro, useLineChat, useNotes, useWordbook,
 } from "../api";
 import { usePlayer } from "../store";
 import Scrollable from "./Scrollable";
@@ -33,22 +34,12 @@ function Chip({
   );
 }
 
-function Card({ k, children }: { k: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-card border border-edge bg-panel p-4">
-      <div className="mb-2.5 flex items-center gap-2 text-[21.6px] font-semibold text-ink2">
-        {k}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 function Fold({
-  k, id, children,
-}: { k: string; id?: string; children: React.ReactNode }) {
+  k, id, open, children,
+}: { k: string; id?: string; open?: boolean; children: React.ReactNode }) {
   return (
-    <details id={id} className="group rounded-card border border-edge bg-panel">
+    <details id={id} open={open}
+             className="group rounded-card border border-edge bg-panel">
       <summary className="cursor-pointer select-none list-none p-4 text-[21.6px] font-semibold text-ink2 transition-colors hover:text-ink">
         <span className="mr-1 inline-block transition-transform group-open:rotate-90">
           ▸
@@ -101,7 +92,7 @@ function AskAiCard({
 
   const picked = line !== null && line >= 0;
   return (
-    <Card k={picked ? `💬 AI 助手 · 第 ${(line ?? 0) + 1} 句` : "💬 AI 助手"}>
+    <Fold open k={picked ? `💬 AI 助手 · 第 ${(line ?? 0) + 1} 句` : "💬 AI 助手"}>
       {picked ? (
         <p className="mb-2 truncate text-center text-[21.6px] italic text-ink3"
            title={lineText}>
@@ -149,7 +140,7 @@ function AskAiCard({
           提问
         </Chip>
       </div>
-    </Card>
+    </Fold>
   );
 }
 
@@ -166,6 +157,16 @@ export default function Dock({
   const line = pickedLine ?? -1;
   const ann = lyrics?.annotations[String(line)];
   const songId = song?.id ?? null;
+  // 单句批注后台任务：只在「选了句且还没批注」时跟踪；
+  // 任务转 done 后刷新歌词数据让新批注落地显示
+  const annStatus = useAnnotateStatus(
+    songId, line >= 0 && !ann ? line : null);
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (annStatus.data?.status === "done" && !ann) {
+      void queryClient.invalidateQueries({ queryKey: ["lyrics", songId] });
+    }
+  }, [annStatus.data?.status, ann, songId, queryClient]);
 
   useEffect(() => {
     const open = () => {
@@ -238,7 +239,7 @@ export default function Dock({
         )}
       </h2>
 
-      <Card k={ann ? `✏️ AI 批注 · 第 ${line + 1} 句` : "✏️ AI 批注"}>
+      <Fold open k={ann ? `✏️ AI 批注 · 第 ${line + 1} 句` : "✏️ AI 批注"}>
         {ann ? (
           <div className="mx-auto text-center text-[24.3px] leading-[1.8] text-ink2">
             <p>{ann.summary}</p>
@@ -252,12 +253,33 @@ export default function Dock({
               </p>
             )}
           </div>
+        ) : line !== null && line >= 0 ? (
+          // 选中了句子但还没有批注：单句生成（后台任务 + 轮询）
+          annStatus.data?.status === "running" ? (
+            <p className="mx-auto text-center text-[23.4px] text-ink3">
+              AI 正在批注这一句…（可随意切换，回来还在）
+            </p>
+          ) : (
+            <>
+              {annStatus.data?.status === "error" && (
+                <p className="mb-2 text-center text-[22.5px] text-ink3">
+                  生成失败：{annStatus.data.msg}
+                </p>
+              )}
+              <div className="flex justify-center">
+                <Chip primary
+                      onClick={() => run(acts.annotateLine(line), "批注生成中…")}>
+                  为这句生成批注
+                </Chip>
+              </div>
+            </>
+          )
         ) : (
           <p className="mx-auto text-center text-[24.3px] leading-[1.8] text-ink3">
             点一句歌词，看这句的 AI 批注
           </p>
         )}
-      </Card>
+      </Fold>
 
       <AskAiCard
         songId={songId}
@@ -265,7 +287,7 @@ export default function Dock({
         lineText={lyrics?.timed_lines?.find((l) => l.line_index === line)?.text ?? ""}
       />
 
-      <Card k="📖 歌曲导读">
+      <Fold open k="📖 歌曲导读">
         {intro.data?.status === "done" ? (
           <p className="mx-auto whitespace-pre-line text-center text-[24.3px] leading-[1.8] text-ink2">
             {intro.data.text}
@@ -288,7 +310,7 @@ export default function Dock({
             </div>
           </>
         )}
-      </Card>
+      </Fold>
 
       <Fold k={`📝 听歌笔记（${notes.data?.length ?? 0}）`}>
         <form

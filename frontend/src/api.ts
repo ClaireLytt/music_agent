@@ -140,6 +140,18 @@ export const useWordbook = (songTitle: string | null) =>
     enabled: !!songTitle,
   });
 
+/** 单句批注生成状态（后台任务，running 时 2s 轮询） */
+export const useAnnotateStatus = (songId: string | null, line: number | null) =>
+  useQuery({
+    queryKey: ["annotate", songId, line],
+    queryFn: () =>
+      get<{ status: string; msg: string }>(
+        `/api/songs/${songId}/annotate/${line}`),
+    enabled: !!songId && line !== null,
+    refetchInterval: (query) =>
+      query.state.data?.status === "running" ? 2000 : false,
+  });
+
 export const useIntro = (songId: string | null) =>
   useQuery({
     queryKey: ["intro", songId],
@@ -463,6 +475,10 @@ export function useActions(songId: string | null, songTitle: string) {
     saveOffset: (offset_ms: number) =>
       send(`/api/songs/${songId}/offset`, "PUT", { offset_ms }).then(() =>
         refetch(["songs"]),
+      ),
+    annotateLine: (line: number) =>
+      send(`/api/songs/${songId}/annotate/${line}`, "POST").then(() =>
+        refetch(["annotate", songId, line]),
       ),
     genIntro: () =>
       send(`/api/songs/${songId}/intro`, "POST").then(() =>
