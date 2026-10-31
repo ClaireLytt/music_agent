@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   backupExportUrl, importBackup, useAdminActions, useRebuild, useSettings,
 } from "../api";
+import { SaveLabel, useSavePhase } from "../components/save";
 import Scrollable from "../components/Scrollable";
 
 const chip = (primary = false) =>
@@ -32,6 +33,7 @@ export default function SettingsPage() {
   const [model, setModel] = useState("");
   const [embModel, setEmbModel] = useState("");
   const [status, setStatus] = useState("");
+  const { phase: settingsPhase, wrap: wrapSettingsSave } = useSavePhase();
 
   useEffect(() => {
     const s = settings.data;
@@ -67,13 +69,13 @@ export default function SettingsPage() {
           className="flex flex-col gap-2.5"
           onSubmit={(e) => {
             e.preventDefault();
-            acts
-              .saveSettings(provider, key, base, model)
-              .then((r) => {
+            void wrapSettingsSave(() =>
+              acts.saveSettings(provider, key, base, model).then((r) => {
                 setStatus(`已保存并生效（模型:${r.model_name}）`);
                 setKey("");
-              })
-              .catch((err) => setStatus(err.message));
+              }),
+            ).catch((err) =>
+              setStatus(err instanceof Error ? err.message : "保存失败"));
           }}
         >
           <div className="flex flex-wrap gap-2.5">
@@ -90,7 +92,10 @@ export default function SettingsPage() {
               placeholder="模型名称（选填，留空用默认）" className={`${inputCls} w-64`} />
           </div>
           <div>
-            <button type="submit" className={chip(true)}>保存设置</button>
+            <button type="submit" className={chip(true)}
+                    disabled={settingsPhase === "saving"}>
+              <SaveLabel phase={settingsPhase}>保存设置</SaveLabel>
+            </button>
           </div>
         </form>
       </section>

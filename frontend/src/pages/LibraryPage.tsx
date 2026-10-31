@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { useAdminActions, useCatalog, useSongs } from "../api";
 import { usePlayer } from "../store";
+import { SaveLabel, useSavePhase } from "../components/save";
 import Scrollable from "../components/Scrollable";
 
 const chip = (primary = false) =>
@@ -258,8 +259,7 @@ export default function LibraryPage() {
   const [status, setStatus] = useState("");
   // 手动添加
   const [title, setTitle] = useState("");
-  const [mp3, setMp3] = useState<File | null>(null);
-  const mp3Ref = useRef<HTMLInputElement>(null);
+  const { phase: addPhase, wrap: wrapAddSave } = useSavePhase();
   const [artist, setArtist] = useState("");
   const [album, setAlbum] = useState("");
   const [lrc, setLrc] = useState("");
@@ -398,26 +398,15 @@ export default function LibraryPage() {
           className="flex flex-col gap-2.5"
           onSubmit={(e) => {
             e.preventDefault();
-            const file = mp3;
-            run(
-              acts.addSong(title, artist, album, lrc).then(async (r) => {
+            void wrapAddSave(() =>
+              acts.addSong(title, artist, album, lrc).then((r) => {
                 setSong(r.id);
-                let audioNote = "音频可在播放页「歌曲工具」上传";
-                if (file) {
-                  const fd = new FormData();
-                  fd.append("file", file);
-                  const res = await fetch(`/api/songs/${r.id}/audio`, {
-                    method: "POST", body: fd,
-                  });
-                  audioNote = res.ok ? "音频已上传" : "音频上传失败，可稍后在播放页「歌曲工具」重试";
-                }
-                return `已添加《${title}》（${r.note}）· ${audioNote}`;
-              }),
-              () => {
+                setStatus(`已添加《${title}》（${r.note}）· `
+                  + "音频可在播放页「歌曲工具」上传");
                 setTitle(""); setArtist(""); setAlbum(""); setLrc("");
-                setMp3(null);
-              },
-            );
+              }),
+            ).catch((err) =>
+              setStatus(err instanceof Error ? err.message : "添加失败"));
           }}
         >
           <div className="flex flex-wrap items-center gap-2.5">
@@ -471,21 +460,9 @@ export default function LibraryPage() {
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <input
-              ref={mp3Ref}
-              type="file"
-              accept=".mp3,.wav,.flac,.ogg,.m4a,audio/*"
-              className="hidden"
-              onChange={(e) => {
-                setMp3(e.target.files?.[0] ?? null);
-                e.target.value = "";
-              }}
-            />
-            <button type="button" className={chip()} onClick={() => mp3Ref.current?.click()}>
-              {mp3 ? `已选音频：${mp3.name}（点击更换）` : "上传歌曲音频（mp3/wav/flac/ogg/m4a）…"}
-            </button>
-            <button type="submit" className={chip(true)}>
-              保存歌曲
+            <button type="submit" className={chip(true)}
+                    disabled={addPhase === "saving"}>
+              <SaveLabel phase={addPhase}>保存歌曲</SaveLabel>
             </button>
           </div>
         </form>

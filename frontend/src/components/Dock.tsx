@@ -5,6 +5,7 @@ import {
   useFavorites, useIntro, useLineChat, useNotes, useSongs, useWordbook,
 } from "../api";
 import { usePlayer } from "../store";
+import { SaveLabel, useSavePhase } from "./save";
 import Scrollable from "./Scrollable";
 
 function Chip({
@@ -276,23 +277,12 @@ export default function Dock({
   const [toast, setToast] = useState("");
   // 偏移保存反馈（方案 C：字段确认）——反馈就在按钮/输入框上，
   // 不再依赖面板顶部那条看不见的 toast
-  const [offsetPhase, setOffsetPhase] =
-    useState<"idle" | "saving" | "saved">("idle");
-  const offsetTimer = useRef<number>();
-  useEffect(() => () => window.clearTimeout(offsetTimer.current), []);
-  const saveOffsetNow = async () => {
-    if (offsetPhase !== "idle") return;
-    setOffsetPhase("saving");
-    try {
-      await acts.saveOffset(parseInt(offset || "0", 10) || 0);
-      setOffsetPhase("saved");
-      offsetTimer.current = window.setTimeout(
-        () => setOffsetPhase("idle"), 1500);
-    } catch (e) {
-      setOffsetPhase("idle");
-      setToast(e instanceof Error ? e.message : "保存失败");
-    }
-  };
+  const { phase: offsetPhase, wrap: wrapOffsetSave } = useSavePhase();
+  const saveOffsetNow = () =>
+    wrapOffsetSave(() =>
+      acts.saveOffset(parseInt(offset || "0", 10) || 0),
+    ).catch((e) =>
+      setToast(e instanceof Error ? e.message : "保存失败"));
   const fileRef = useRef<HTMLInputElement>(null);
 
   const run = (p: Promise<unknown>, ok: string) =>
@@ -589,34 +579,21 @@ export default function Dock({
                 }`}
               />
               <Chip primary type="submit" disabled={offsetPhase === "saving"}>
-                <span className="grid min-w-[30px] place-items-center">
-                {offsetPhase === "idle" && "保存"}
-                {offsetPhase === "saving" && (
-                  <svg
-                    className="animate-spin"
-                    width="14" height="14" viewBox="0 0 16 16" fill="none"
-                    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                  >
-                    <path d="M8 1.5a6.5 6.5 0 1 1-6.5 6.5" />
-                  </svg>
-                )}
-                {offsetPhase === "saved" && (
-                  <svg
-                    className="animate-popscale"
-                    width="14" height="14" viewBox="0 0 16 16" fill="none"
-                    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M2.5 8.5l3.5 3.5 7-8" />
-                  </svg>
-                )}
-                </span>
+                <SaveLabel phase={offsetPhase}>保存</SaveLabel>
               </Chip>
             </form>
           </div>
           <div>
             <div className="mb-1 text-[18.9px] text-ink3">
-              为当前歌曲上传音频（mp3/wav/flac/ogg/m4a）
+              {song?.audio_type === "local"
+                ? "本地音频优先"
+                : song?.audio_type === "bilibili"
+                  ? "当前播放：B 站 MV 音轨——上传后将优先播放你的文件"
+                  : song?.audio_type === "preview"
+                    ? "当前播放：iTunes 30 秒试听——上传后将优先播放你的文件"
+                    : song?.audio_type === "url"
+                      ? "当前播放：外链音频——上传后将优先播放你的文件"
+                      : "当前无音频——上传后即可播放"}
             </div>
             <input
               ref={fileRef}
@@ -629,20 +606,7 @@ export default function Dock({
                 e.target.value = "";
               }}
             />
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <Chip onClick={() => fileRef.current?.click()}>选择音频文件…</Chip>
-              <span className="text-[18px] text-ink3">
-                {song?.audio_type === "local"
-                  ? "当前播放：你上传的本地音频（最高优先级）"
-                  : song?.audio_type === "bilibili"
-                    ? "当前播放：B 站 MV 音轨——上传后将优先播放你的文件"
-                    : song?.audio_type === "preview"
-                      ? "当前播放：iTunes 30 秒试听——上传后将优先播放你的文件"
-                      : song?.audio_type === "url"
-                        ? "当前播放：外链音频——上传后将优先播放你的文件"
-                        : "当前无音频——上传后即可播放"}
-              </span>
-            </div>
+            <Chip onClick={() => fileRef.current?.click()}>选择音频文件…</Chip>
           </div>
         </div>
       </Fold>
