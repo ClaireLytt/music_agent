@@ -13,12 +13,12 @@ import threading
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import Depends, Body, FastAPI, HTTPException, UploadFile
+from fastapi import Depends, Body, FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 
-from . import dictionary, songdata
+from . import bilibili_audio, dictionary, songdata
 from .config import load_settings
 from .songdata import (
     _INTRO_FILENAME,
@@ -52,10 +52,18 @@ def _find_song(song_id: str) -> dict:
 
 
 def _song_payload(s: dict) -> dict:
+    audio_type = s["audio_type"]
+    # ── B站音轨代理（实验性，可整体移除；见 bilibili_audio.py）──
+    # 无本地/URL 音频但绑了 MV：报 "bilibili"，前端照常渲染播放器，
+    # 音频仍走统一的 /api/songs/{id}/audio
+    if audio_type == "none" and s["bvid"] and \
+            bilibili_audio.enabled(load_settings()):
+        audio_type = "bilibili"
+    # ── end B站音轨代理 ──
     return {
         "id": s["name"], "title": s["title"], "artist": s["artist"],
         "album": s["album"], "year": s["year"],
-        "audio_type": s["audio_type"],
+        "audio_type": audio_type,
         "audio_offset_ms": s["audio_offset_ms"],
         "bvid": s["bvid"],
     }
@@ -266,12 +274,21 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/api/songs/{song_id}/audio")
-    def get_audio(song_id: str):
+    def get_audio(song_id: str, request: Request):
         s = _find_song(song_id)
         if s["audio_type"] == "url":
             return RedirectResponse(s["audio_src"])
         if s["audio_type"] == "local" and Path(s["audio_src"]).exists():
             return FileResponse(s["audio_src"])
+        # ── B站音轨代理（实验性，可整体移除；见 bilibili_audio.py）──
+        if s["bvid"] and bilibili_audio.enabled(load_settings()):
+            try:
+                return bilibili_audio.proxy_response(
+                    s["bvid"], request.headers.get("range"))
+            except Exception:
+                logger.exception("bilibili audio proxy failed for %s",
+                                 song_id)
+        # ── end B站音轨代理 ──
         raise HTTPException(status_code=404, detail="no audio for this song")
 
     # ── 歌曲工具（旧 tab_play_tools 的 REST 化） ──────────────

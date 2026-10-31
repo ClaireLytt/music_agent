@@ -6,7 +6,7 @@ export interface Song {
   artist: string;
   album: string;
   year: number;
-  audio_type: "local" | "url" | "none";
+  audio_type: "local" | "url" | "bilibili" | "none";
   audio_offset_ms: number;
   bvid: string;
 }
