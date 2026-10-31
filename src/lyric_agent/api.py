@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 
-from . import bilibili_audio, dictionary, itunes_audio, songdata
+from . import bilibili_audio, cover_art, dictionary, itunes_audio, songdata
 from .config import load_settings
 from .songdata import (
     _INTRO_FILENAME,
@@ -514,6 +514,20 @@ def create_app() -> FastAPI:
             threading.Thread(target=_gen_intro_bg, args=(song_id, s),
                              daemon=True).start()
         return {"status": "running"}
+
+    # ── 专辑封面（实验性，可整体移除；见 cover_art.py） ──────
+    @app.get("/api/songs/{song_id}/cover")
+    def get_cover(song_id: str):
+        s = _find_song(song_id)
+        p = cover_art.find_local(s["dir"])
+        if p:
+            return FileResponse(p)
+        # 未命中：后台补抓（public 不写服务器盘，不触发），本次 404 →
+        # 前端回落占位渐变，切歌回来即可见
+        if not load_settings().public_mode:
+            cover_art.fetch_async(s)
+        raise HTTPException(status_code=404, detail="no cover yet")
+    # ── end 专辑封面 ──
 
     # ── 单句批注（旧 tab_play on_gen_ann 的 REST 化；
     #    长耗时 LLM 铁律：后台线程 + 落盘 + 轮询） ──────────────

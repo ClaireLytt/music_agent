@@ -21,6 +21,9 @@ export default function PlayerBar({
 }) {
   const { songId, setSong, playing, timeMs, durationMs } = usePlayer();
   const [volume, setVolume] = useState(1);
+  // 封面加载失败 → 占位渐变；切歌时重试
+  const [coverOk, setCoverOk] = useState(true);
+  useEffect(() => setCoverOk(true), [song?.id]);
   const [muted, setMuted] = useState(false);
   // >0 时显示"无音频"气泡；自增让摇头动画每次点击都重放
   const [hintTick, setHintTick] = useState(0);
@@ -75,7 +78,18 @@ export default function PlayerBar({
   return (
     <footer className="grid grid-cols-[280px_1fr_280px] items-center gap-4 border-t border-line bg-deep px-5">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="h-[52px] w-[52px] flex-none rounded-lg bg-gradient-to-br from-[#4a6b58] to-[#22332a] shadow-art" />
+        {/* 专辑封面：后端自动抓取缓存；404/加载失败回落占位渐变 */}
+        {song && coverOk ? (
+          <img
+            key={song.id}
+            src={`/api/songs/${song.id}/cover`}
+            alt=""
+            onError={() => setCoverOk(false)}
+            className="h-[52px] w-[52px] flex-none rounded-lg object-cover shadow-art"
+          />
+        ) : (
+          <div className="h-[52px] w-[52px] flex-none rounded-lg bg-gradient-to-br from-[#4a6b58] to-[#22332a] shadow-art" />
+        )}
         <div className="min-w-0">
           <div className="truncate text-[20.3px] font-semibold">
             {song ? song.title : "—"}
