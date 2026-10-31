@@ -68,17 +68,21 @@ export default function LyricsView({
               } ${picked && !cur ? "bg-[#f0c36a]/15" : ""}`}
             >
               {cur ? (
-                <span className="flex items-center gap-6">
-                  <span
-                    className="karaoke max-w-[56%] flex-none"
-                    style={{ "--p": `${p}%` } as React.CSSProperties}
-                  >
-                    {l.text}
+                <span className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                  {/* karaoke 必须是 inline：块级盒的水平渐变会让折行的
+                      每一行同步点亮；inline 默认 slice，渐变跨行连续推进 */}
+                  <span className="max-w-full flex-none">
+                    <span
+                      className="karaoke"
+                      style={{ "--p": `${p}%` } as React.CSSProperties}
+                    >
+                      {l.text}
+                    </span>
                   </span>
                   {gloss && (
                     <span
                       key={i} /* 换句重放进场动画 */
-                      className="min-w-0 flex-1 animate-dropin border-l-2 border-accent pl-4 text-[14.5px] font-normal leading-[1.7] tracking-normal text-ink2"
+                      className="min-w-[240px] max-w-[460px] flex-1 animate-dropin border-l-2 border-accent pl-4 text-[14.5px] font-normal leading-[1.7] tracking-normal text-ink2"
                     >
                       <span className="mb-0.5 block text-[12px] font-semibold tracking-[.08em] text-accent">
                         AI 批注
