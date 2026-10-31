@@ -9,7 +9,7 @@ import Scrollable from "../components/Scrollable";
 // Recharts 很重：分析视图按需加载，不拖慢播放页
 const Analysis = lazy(() => import("../components/Analysis"));
 
-const PRESET_GROUPS = ["全部", "📖 歌词收藏", "🔤 单词", "🧩 词组"];
+const PRESET_GROUPS = ["全部", "歌词收藏", "单词", "词组"];
 
 const chip = (on: boolean) =>
   `whitespace-nowrap rounded-full px-4 py-2 text-[18.8px] font-medium transition-colors ${

@@ -493,11 +493,11 @@ def create_app() -> FastAPI:
     def _drill_book(group: str) -> list[dict]:
         from .dictionary import is_phrase
         book = dictionary.load_wordbook()
-        if group == "📖 歌词收藏":
+        if group == "歌词收藏":
             return [e for e in book if not e.get("group")]
-        if group == "🔤 单词":
+        if group == "单词":
             return [e for e in book if not is_phrase(e.get("word", ""))]
-        if group == "🧩 词组":
+        if group == "词组":
             return [e for e in book if is_phrase(e.get("word", ""))]
         if group and group != "全部":
             return [e for e in book if e.get("group") == group]
