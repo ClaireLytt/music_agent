@@ -629,7 +629,20 @@ export default function Dock({
                 e.target.value = "";
               }}
             />
-            <Chip onClick={() => fileRef.current?.click()}>选择音频文件…</Chip>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Chip onClick={() => fileRef.current?.click()}>选择音频文件…</Chip>
+              <span className="text-[18px] text-ink3">
+                {song?.audio_type === "local"
+                  ? "当前播放：你上传的本地音频（最高优先级）"
+                  : song?.audio_type === "bilibili"
+                    ? "当前播放：B 站 MV 音轨——上传后将优先播放你的文件"
+                    : song?.audio_type === "preview"
+                      ? "当前播放：iTunes 30 秒试听——上传后将优先播放你的文件"
+                      : song?.audio_type === "url"
+                        ? "当前播放：外链音频——上传后将优先播放你的文件"
+                        : "当前无音频——上传后即可播放"}
+              </span>
+            </div>
           </div>
         </div>
       </Fold>
