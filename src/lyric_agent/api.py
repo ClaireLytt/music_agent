@@ -333,7 +333,9 @@ def create_app() -> FastAPI:
         搜索不可用时返回 []，前端提示手填。"""
         from .bilibili import search_mv
         s = _find_song(song_id)
-        return search_mv(s["title"], s["artist"], limit=8)
+        cands = search_mv(s["title"], s["artist"])
+        return sorted(cands, key=lambda c: c.get("play", 0),
+                      reverse=True)[:8]
 
     @app.put("/api/songs/{song_id}/bvid", **WRITE_GATE)
     def put_bvid(song_id: str, value: str = Body("", embed=True)) -> dict:
