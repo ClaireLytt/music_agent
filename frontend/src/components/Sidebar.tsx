@@ -67,7 +67,7 @@ export default function Sidebar({
     }
   };
   return (
-    <aside className="bg-deep flex h-full min-h-0 flex-col gap-[18px] px-3 py-5">
+    <aside className="bg-deep flex h-full min-h-0 flex-col gap-3 px-3 py-4">
       <div className="flex items-center gap-2.5 px-2.5 font-bold tracking-wide">
         <span className="grid h-[26px] w-[26px] place-items-center rounded-lg bg-gradient-to-br from-accent to-[#4a6cf7]">
           <IconNote />
@@ -82,7 +82,7 @@ export default function Sidebar({
               to={n.to}
               end={n.to === "/"}
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-2.5 py-[9px] text-left text-[24.3px] font-medium transition-colors ${
+                `flex items-center gap-3 rounded-lg px-2.5 py-[6px] text-left text-[24.3px] font-medium transition-colors ${
                   isActive
                     ? "bg-[#202026] text-ink"
                     : "text-ink2 hover:bg-[#1b1b1f] hover:text-ink"
@@ -96,7 +96,7 @@ export default function Sidebar({
             <button
               key={n.label}
               title="迁移中 · 暂在旧版界面"
-              className="flex items-center gap-3 rounded-lg px-2.5 py-[9px] text-left text-[24.3px] font-medium text-ink2 transition-colors hover:bg-[#1b1b1f] hover:text-ink"
+              className="flex items-center gap-3 rounded-lg px-2.5 py-[6px] text-left text-[24.3px] font-medium text-ink2 transition-colors hover:bg-[#1b1b1f] hover:text-ink"
             >
               {n.icon}
               {n.label}
@@ -142,18 +142,20 @@ export default function Sidebar({
             key={s.id}
             aria-current={s.id === songId || undefined}
             onClick={() => setSong(s.id)}
-            className={`flex flex-col gap-0.5 rounded-lg px-2.5 py-2 text-left transition-colors ${
+            className={`flex min-w-0 items-baseline gap-2 rounded-lg px-2.5 py-[7px] text-left transition-colors ${
               s.id === songId ? "bg-accent-soft" : "hover:bg-[#1b1b1f]"
             }`}
           >
             <span
-              className={`text-[24.3px] font-medium ${
+              className={`truncate text-[22.5px] font-medium ${
                 s.id === songId ? "text-accent" : "text-ink2"
               }`}
             >
               {s.title}
             </span>
-            <span className="text-[20.7px] text-ink3">{s.artist}</span>
+            <span className="flex-none truncate text-[16.5px] text-ink3">
+              {s.artist}
+            </span>
           </button>
         ))}
       </Scrollable>
