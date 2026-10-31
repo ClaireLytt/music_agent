@@ -263,6 +263,8 @@ def create_app() -> FastAPI:
                 if s["audio_type"] == "none"
                 and not (s["bvid"] and bilibili_audio.enabled(settings))
             ])
+            # 封面预热：首次打开列表就后台补齐全库缺图（感知 0s）
+            cover_art.prewarm_async(songs)
         # ── end iTunes 试听 ──
         q = (q or "").strip().lower()
         if q:

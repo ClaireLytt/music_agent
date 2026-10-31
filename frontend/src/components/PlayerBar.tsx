@@ -21,8 +21,9 @@ export default function PlayerBar({
 }) {
   const { songId, setSong, playing, timeMs, durationMs } = usePlayer();
   const [volume, setVolume] = useState(1);
-  // 封面：首次 404 时后端正在后台抓取 → 每 5s 重试（最多 12 次 ≈ 60s，
-  // 覆盖抓取链最坏耗时），成功淡入；期间/失败都显示占位渐变（打底常驻）
+  // 封面：首次 404 时后端正在后台抓取（iTunes 路径实测 ~0.9s）→
+  // 指数退避重试 1/2/4/8/8…s（总窗 ~60s 覆盖 CAA 坏路径），成功淡入；
+  // 期间/失败都显示占位渐变（打底常驻）
   const [coverTry, setCoverTry] = useState(0);
   const [coverLoaded, setCoverLoaded] = useState(false);
   const coverTimer = useRef<number>();
@@ -97,7 +98,8 @@ export default function PlayerBar({
               onError={() => {
                 window.clearTimeout(coverTimer.current);
                 coverTimer.current = window.setTimeout(
-                  () => setCoverTry((t) => t + 1), 5000);
+                  () => setCoverTry((t) => t + 1),
+                  Math.min(8000, 1000 * 2 ** coverTry));
               }}
               className={`absolute inset-0 h-full w-full rounded-lg object-cover shadow-art transition-opacity duration-500 ${
                 coverLoaded ? "opacity-100" : "opacity-0"

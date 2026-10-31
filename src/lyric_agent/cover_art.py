@@ -133,6 +133,38 @@ def _fetch(song: dict) -> None:
         _inflight.discard(name)
 
 
+_prewarm_started = False
+
+
+def prewarm_async(songs: list[dict]) -> None:
+    """列表加载时批量预热缺失封面：单线程串行 + 3s 节流（iTunes
+    ~20 req/min），进程内只跑一次。命中过负缓存/已有本地图的跳过。
+    调用方负责 public 门禁（public 不写服务器盘）。"""
+    global _prewarm_started
+    with _lock:
+        if _prewarm_started:
+            return
+        _prewarm_started = True
+    todo = [s for s in songs
+            if not find_local(s["dir"])
+            and time.time() - _neg().get(s["name"], 0) >= _RETRY_AFTER_S]
+    if not todo:
+        return
+
+    def _run() -> None:
+        logger.info("cover prewarm: %d songs missing covers", len(todo))
+        for s in todo:
+            with _lock:
+                if s["name"] in _inflight:
+                    continue
+                _inflight.add(s["name"])
+            _fetch(s)   # 自带 finally 释放 _inflight
+            time.sleep(3)
+
+    threading.Thread(target=_run, daemon=True,
+                     name="cover-prewarm").start()
+
+
 def fetch_async(song: dict) -> None:
     """后台补抓一首歌的封面；进程内去重 + 24h 负缓存。"""
     name = song["name"]
