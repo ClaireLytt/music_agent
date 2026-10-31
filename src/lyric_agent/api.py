@@ -1006,6 +1006,14 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"not found: {word}")
         return hit
 
+    @app.get("/api/dict/{word}/occurrences")
+    def dict_occurrences(word: str, song: str = "", line: str = "",
+                         limit: int = 20) -> dict:
+        from .occurrences import find_occurrences
+        s = load_settings()
+        return find_occurrences(word.strip(), s.corpus_dir, s.songs_dir,
+                                song=song, line=line, limit=limit)
+
     # ── 弹卡 ✨AI 语境解释（v3 三行模板，落盘缓存命中零调用） ──
 
     _AI_CACHE_PATH = Path(load_settings().songs_dir).parent \
