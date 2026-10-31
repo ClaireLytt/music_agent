@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>保存按钮反馈 · 原型</title>
+<style>
+  /* tokens 与 DESIGN.md 一致 */
+  :root {
+    --bg:#121212; --panel:#1e1e22; --panel2:#24242a;
+    --ink:#f5f5f4; --ink2:#a8a8b3; --ink3:#6e6e78;
+    --accent:#7c9eff; --edge:#2a2a31; --edge2:#33333c;
+    --ok:#4fd190; --ok-soft:rgba(79,209,144,.14);
+  }
+  * { box-sizing:border-box; margin:0; }
+  body {
+    min-height:100vh; padding:48px 16px 72px;
+    background:
+      radial-gradient(900px 500px at 70% -10%, #1a2420 0%, transparent 60%),
+      radial-gradient(700px 420px at 10% 110%, #16181d 0%, transparent 55%),
+      var(--bg);
+    color:var(--ink);
+    font:15px/1.6 Inter, "Noto Sans SC", system-ui, sans-serif;
+    display:flex; flex-direction:column; align-items:center; gap:22px;
+  }
+  h1 { font-size:18px; font-weight:700; letter-spacing:.02em; }
+  .sub { color:var(--ink3); font-size:13px; margin-top:-14px; }
+
+  .proto {
+    width:min(420px, 100%);
+    background:var(--panel); border:1px solid var(--edge);
+    border-radius:12px; padding:16px;
+    box-shadow:0 18px 40px -18px rgba(0,0,0,.65);
+  }
+  .tag {
+    display:flex; align-items:baseline; gap:8px; margin-bottom:12px;
+  }
+  .tag b { font-size:14px; }
+  .tag span { color:var(--ink3); font-size:12.5px; }
+  .hint { margin-bottom:6px; color:var(--ink3); font-size:12.6px; }
+  .row { display:flex; gap:8px; position:relative; }
+
+  input {
+    min-width:0; flex:1; border-radius:999px;
+    border:1px solid var(--edge2); background:var(--panel2);
+    padding:9px 14px; font:inherit; font-size:15px; color:var(--ink);
+    outline:none; caret-color:var(--accent);
+    transition:border-color .2s cubic-bezier(.22,1,.36,1),
+               box-shadow .25s cubic-bezier(.22,1,.36,1);
+  }
+  input:focus { border-color:var(--accent); }
+  ::selection { background:rgba(124,158,255,.3); }
+
+  .btn {
+    white-space:nowrap; border-radius:999px; padding:8px 16px;
+    font:inherit; font-size:15px; font-weight:600; cursor:pointer;
+    background:var(--accent); color:#0e1016; border:1px solid transparent;
+    display:inline-flex; align-items:center; justify-content:center; gap:6px;
+    transition:background-color .25s cubic-bezier(.22,1,.36,1),
+               color .25s cubic-bezier(.22,1,.36,1),
+               transform .15s cubic-bezier(.22,1,.36,1),
+               filter .2s;
+  }
+  .btn:hover { filter:brightness(1.1); }
+  .btn:active { transform:scale(.96); }
+  .btn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .btn svg { flex:none; }
+
+  /* 通用 spinner / check */
+  .spin { animation:rot .7s linear infinite; }
+  @keyframes rot { to { transform:rotate(360deg); } }
+  .draw path {
+    stroke-dasharray:20; stroke-dashoffset:20;
+    animation:draw .35s cubic-bezier(.22,1,.36,1) forwards;
+  }
+  @keyframes draw { to { stroke-dashoffset:0; } }
+
+  /* A：按钮自反馈（文字→转圈→打勾变绿，回弹） */
+  .btn.saving { background:var(--panel2); color:var(--ink2);
+                border-color:var(--edge2); pointer-events:none; }
+  .btn.saved  { background:var(--ok); color:#0b1510; pointer-events:none; }
+
+  /* B：按钮旁就近浮出 */
+  .inline-ok {
+    position:absolute; left:calc(100% + 10px); top:50%;
+    transform:translate(-6px,-50%); white-space:nowrap;
+    display:inline-flex; align-items:center; gap:5px;
+    color:var(--ok); font-size:13px; opacity:0; pointer-events:none;
+    transition:opacity .3s cubic-bezier(.22,1,.36,1),
+               transform .3s cubic-bezier(.22,1,.36,1);
+  }
+  .inline-ok.show { opacity:1; transform:translate(0,-50%); }
+
+  /* C：输入框整体确认（描边+柔光呼吸一次） */
+  .row.confirm input {
+    border-color:var(--ok);
+    box-shadow:0 2px 18px -6px rgba(79,209,144,.45);
+  }
+
+  /* D：卡片内 snackbar */
+  .snackwrap { position:relative; overflow:hidden; border-radius:12px;
+               margin:-16px; padding:16px; }
+  .snack {
+    position:absolute; left:50%; bottom:10px;
+    transform:translate(-50%, 140%);
+    display:inline-flex; align-items:center; gap:7px;
+    background:var(--panel2); border:1px solid var(--edge2);
+    color:var(--ink); font-size:13px;
+    padding:7px 14px; border-radius:999px;
+    box-shadow:0 10px 24px -10px rgba(0,0,0,.7);
+    transition:transform .4s cubic-bezier(.22,1.3,.36,1);
+  }
+  .snack.show { transform:translate(-50%, 0); }
+  .snack .dot { width:6px; height:6px; border-radius:50%;
+                background:var(--ok); flex:none; }
+
+  .note { width:min(420px,100%); color:var(--ink3); font-size:12.5px;
+          text-align:center; }
+</style>
+</head>
+<body>
+
+<h1>保存按钮点击反馈 · 4 个方案</h1>
+<p class="sub">每个都能点，保存模拟 600ms 网络延迟</p>
+
+<!-- A -->
+<div class="proto">
+  <div class="tag"><b>方案 A · 按钮自己说话</b><span>保存中转圈 → 变绿打勾「已保存」→ 回弹</span></div>
+  <div class="hint">歌词时间校准（毫秒，正=歌词提前）</div>
+  <form class="row" data-proto="A">
+    <input inputmode="numeric" value="120">
+    <button class="btn" type="submit"><span class="label">保存</span></button>
+  </form>
+</div>
+
+<!-- B -->
+<div class="proto">
+  <div class="tag"><b>方案 B · 就近轻提示</b><span>按钮按压缩放，右侧浮出「已保存」2 秒后淡出</span></div>
+  <div class="hint">歌词时间校准（毫秒，正=歌词提前）</div>
+  <form class="row" data-proto="B">
+    <input inputmode="numeric" value="120">
+    <button class="btn" type="submit">保存</button>
+    <span class="inline-ok">
+      <svg class="draw" width="13" height="13" viewBox="0 0 16 16" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round"
+           stroke-linejoin="round"><path d="M2.5 8.5l3.5 3.5 7-8"/></svg>
+      已保存
+    </span>
+  </form>
+</div>
+
+<!-- C -->
+<div class="proto">
+  <div class="tag"><b>方案 C · 字段确认</b><span>保存成功时整个输入框绿色描边柔光呼吸一次</span></div>
+  <div class="hint">歌词时间校准（毫秒，正=歌词提前）</div>
+  <form class="row" data-proto="C">
+    <input inputmode="numeric" value="120">
+    <button class="btn" type="submit"><span class="label">保存</span></button>
+  </form>
+</div>
+
+<!-- D -->
+<div class="proto">
+  <div class="snackwrap">
+    <div class="tag"><b>方案 D · 卡片内 snackbar</b><span>卡片底部弹出小胶囊，自动收回</span></div>
+    <div class="hint">歌词时间校准（毫秒，正=歌词提前）</div>
+    <form class="row" data-proto="D">
+      <input inputmode="numeric" value="120">
+      <button class="btn" type="submit">保存</button>
+    </form>
+    <div class="snack"><span class="dot"></span>偏移已保存</div>
+  </div>
+</div>
+
+<p class="note">现状问题：反馈文字出现在面板顶部标题旁，离按钮太远根本看不见。<br>
+以上任一方案都把反馈放回视线落点。A 与 B 可叠加使用。</p>
+
+<script>
+const SPINNER = `<svg class="spin" width="14" height="14" viewBox="0 0 16 16"
+  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+  <path d="M8 1.5a6.5 6.5 0 1 1-6.5 6.5"/></svg>`;
+const CHECK = `<svg class="draw" width="14" height="14" viewBox="0 0 16 16"
+  fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+  stroke-linejoin="round"><path d="M2.5 8.5l3.5 3.5 7-8"/></svg>`;
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+document.querySelectorAll("form[data-proto]").forEach((form) => {
+  const kind = form.dataset.proto;
+  const btn = form.querySelector(".btn");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (btn.dataset.busy) return;
+    btn.dataset.busy = "1";
+
+    if (kind === "A") {
+      btn.classList.add("saving");
+      btn.innerHTML = SPINNER + "<span>保存中</span>";
+      await wait(600);
+      btn.classList.remove("saving");
+      btn.classList.add("saved");
+      btn.innerHTML = CHECK + "<span>已保存</span>";
+      await wait(1400);
+      btn.classList.remove("saved");
+      btn.innerHTML = "<span class='label'>保存</span>";
+    }
+
+    if (kind === "B") {
+      btn.disabled = true;
+      await wait(600);
+      btn.disabled = false;
+      const tip = form.querySelector(".inline-ok");
+      const svg = tip.querySelector("svg");
+      svg.replaceWith(svg.cloneNode(true)); // 重放描边动画
+      tip.classList.add("show");
+      await wait(2000);
+      tip.classList.remove("show");
+    }
+
+    if (kind === "C") {
+      btn.innerHTML = SPINNER;
+      await wait(600);
+      btn.innerHTML = CHECK;
+      form.classList.add("confirm");
+      await wait(1500);
+      form.classList.remove("confirm");
+      btn.innerHTML = "<span class='label'>保存</span>";
+    }
+
+    if (kind === "D") {
+      btn.disabled = true;
+      await wait(600);
+      btn.disabled = false;
+      const snack = form.parentElement.querySelector(".snack");
+      snack.classList.add("show");
+      await wait(2200);
+      snack.classList.remove("show");
+    }
+
+    delete btn.dataset.busy;
+  });
+});
+</script>
+</body>
+</html>
