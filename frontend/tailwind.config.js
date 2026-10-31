@@ -39,10 +39,22 @@ export default {
           from: { opacity: "0", transform: "translate(-50%, 4px)" },
           to: { opacity: "1", transform: "translate(-50%, 0)" },
         },
+        // popin 的关键帧焊死了居中用的 translate(-50%)，只配水平居中
+        // 的气泡；普通下拉/图标用下面两个
+        dropin: {
+          from: { opacity: "0", transform: "translateY(-6px) scale(.98)" },
+          to: { opacity: "1", transform: "translateY(0) scale(1)" },
+        },
+        popscale: {
+          from: { opacity: "0", transform: "scale(.5)" },
+          to: { opacity: "1", transform: "scale(1)" },
+        },
       },
       animation: {
         headshake: "headshake .4s ease",
         popin: "popin .18s cubic-bezier(.16,1,.3,1) both",
+        dropin: "dropin .22s cubic-bezier(.22,1,.36,1) both",
+        popscale: "popscale .25s cubic-bezier(.22,1,.36,1) both",
       },
     },
   },

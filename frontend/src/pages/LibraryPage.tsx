@@ -14,6 +14,182 @@ const inputCls =
   "rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[19.5px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none";
 
 
+/** 匹配字高亮（搜索框与自动补全共用）。 */
+function Mark({ text, q }: { text: string; q: string }) {
+  const i = text.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0 || !q) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, i)}
+      <span className="font-bold text-accent">{text.slice(i, i + q.length)}</span>
+      {text.slice(i + q.length)}
+    </>
+  );
+}
+
+const HISTORY_KEY = "ll_catalog_search_history";
+const loadHistory = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+};
+const saveHistory = (h: string[]) => {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+  } catch {
+    /* 隐私模式等场景拿不到 localStorage，历史只活在本次会话 */
+  }
+};
+
+const IconSearch = () => (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5L14 14" />
+  </svg>
+);
+const IconClock = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+       stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+    <circle cx="8" cy="8" r="6" /><path d="M8 4.5V8l2.3 1.6" />
+  </svg>
+);
+const IconNoteSm = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+       stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+    <path d="M5.5 13V3.8l7-1.3v8.9" />
+    <circle cx="3.9" cy="13" r="1.7" /><circle cx="10.9" cy="11.4" r="1.7" />
+  </svg>
+);
+const IconX = ({ size = 12 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 12 12" fill="none"
+       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+    <path d="M2 2l8 8M10 2l-8 8" />
+  </svg>
+);
+
+/** 曲库搜索框（原型方案 A）：聚焦出最近搜索，输入变实时过滤。 */
+function SearchBox({
+  value, onChange, options, placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: { label: string; sub?: string }[];
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [history, setHistory] = useState<string[]>(loadHistory);
+  const q = value.trim();
+  const hits = q
+    ? options.filter((o) =>
+        (o.label + (o.sub ?? "")).toLowerCase().includes(q.toLowerCase()))
+        .slice(0, 5)
+    : [];
+  const commit = (v: string) => {
+    onChange(v);
+    const next = [v, ...history.filter((x) => x !== v)].slice(0, 5);
+    setHistory(next);
+    saveHistory(next);
+    setOpen(false);
+  };
+  const dropHistory = (h: string) => {
+    const next = history.filter((x) => x !== h);
+    setHistory(next);
+    saveHistory(next);
+  };
+  const rowCls =
+    "flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[17px] " +
+    "text-ink transition-[background-color,padding] duration-200 " +
+    "hover:bg-panel2 hover:pl-[22px]";
+  const showPop = open && (q ? hits.length > 0 : history.length > 0);
+  return (
+    <div className="relative ml-auto w-72">
+      <div className="group flex items-center gap-2.5 rounded-full border border-edge2 bg-panel2 px-3.5 transition-[border-color,box-shadow] duration-300 focus-within:border-accent focus-within:shadow-[0_0_0_3px_rgba(124,158,255,.16)]">
+        <span className="flex-none text-ink3 transition-[color,transform] duration-300 group-focus-within:scale-110 group-focus-within:text-accent">
+          <IconSearch />
+        </span>
+        <input
+          value={value}
+          autoComplete="off"
+          placeholder={placeholder}
+          className="min-w-0 flex-1 bg-transparent py-2 text-[19.5px] text-ink caret-accent placeholder:text-ink3 focus:outline-none"
+          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={(e) => { if (e.key === "Enter" && q) commit(q); }}
+        />
+        <button
+          type="button"
+          aria-label="清空搜索"
+          onMouseDown={(e) => { e.preventDefault(); onChange(""); setOpen(true); }}
+          className={`grid h-6 w-6 flex-none place-items-center rounded-full text-ink3 transition-[opacity,transform,color,background-color] duration-200 hover:bg-edge2 hover:text-ink ${
+            value ? "scale-100 opacity-100" : "pointer-events-none scale-50 opacity-0"
+          }`}
+        >
+          <IconX />
+        </button>
+      </div>
+      {showPop && (
+        <div className="absolute inset-x-0 top-[calc(100%+8px)] z-10 animate-dropin overflow-hidden rounded-[12px] border border-edge bg-panel shadow-[0_18px_40px_-16px_rgba(0,0,0,.8)]">
+          {!q && (
+            <>
+              <div className="flex items-center justify-between px-3.5 pb-1 pt-2.5 text-[12px] font-semibold tracking-[.1em] text-ink3">
+                <span>最近搜索</span>
+                <button
+                  type="button"
+                  className="tracking-normal transition-colors hover:text-accent"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setHistory([]);
+                    saveHistory([]);
+                  }}
+                >
+                  清空
+                </button>
+              </div>
+              {history.map((h) => (
+                <div key={h} className={`${rowCls} group/row cursor-pointer`}
+                     onMouseDown={(e) => { e.preventDefault(); commit(h); }}>
+                  <span className="flex-none text-ink3"><IconClock /></span>
+                  <span className="truncate">{h}</span>
+                  <button
+                    type="button"
+                    aria-label={`删除历史 ${h}`}
+                    className="ml-auto grid h-5 w-5 flex-none place-items-center rounded-full text-ink3 opacity-0 transition-opacity hover:bg-edge2 hover:text-ink group-hover/row:opacity-100"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      dropHistory(h);
+                    }}
+                  >
+                    <IconX size={10} />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+          {q && hits.map((o) => (
+            <button
+              type="button"
+              key={o.label + (o.sub ?? "")}
+              className={rowCls}
+              onMouseDown={(e) => { e.preventDefault(); commit(o.label); }}
+            >
+              <span className="flex-none text-ink3"><IconNoteSm /></span>
+              <span className="truncate font-medium"><Mark text={o.label} q={q} /></span>
+              {o.sub && (
+                <span className="ml-auto flex-none text-[14px] text-ink2">{o.sub}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 自绘自动补全（替代无法改样式的原生 datalist 白框）。 */
 function AutoInput({
   value, onChange, onPick, options, placeholder, required, className,
@@ -31,18 +207,6 @@ function AutoInput({
     ? options.filter((o) =>
         o.label.toLowerCase().includes(value.trim().toLowerCase())).slice(0, 7)
     : [];
-  const mark = (t: string) => {
-    const q = value.trim();
-    const i = t.toLowerCase().indexOf(q.toLowerCase());
-    if (i < 0 || !q) return t;
-    return (
-      <>
-        {t.slice(0, i)}
-        <span className="font-bold text-accent">{t.slice(i, i + q.length)}</span>
-        {t.slice(i + q.length)}
-      </>
-    );
-  };
   return (
     <div className={`relative ${className ?? ""}`}>
       <input
@@ -55,12 +219,12 @@ function AutoInput({
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
       {open && hits.length > 0 && (
-        <div className="absolute inset-x-0 top-[calc(100%+6px)] z-10 overflow-hidden rounded-[12px] border border-edge bg-panel shadow-[0_18px_40px_-16px_rgba(0,0,0,.8)]">
+        <div className="absolute inset-x-0 top-[calc(100%+6px)] z-10 animate-dropin overflow-hidden rounded-[12px] border border-edge bg-panel shadow-[0_18px_40px_-16px_rgba(0,0,0,.8)]">
           {hits.map((o) => (
             <button
               type="button"
               key={o.label + (o.sub ?? "")}
-              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[17px] text-ink hover:bg-panel2"
+              className="flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-[17px] text-ink transition-[background-color,padding] duration-200 hover:bg-panel2 hover:pl-[22px]"
               onMouseDown={(e) => {
                 e.preventDefault();
                 onChange(o.label);
@@ -68,7 +232,9 @@ function AutoInput({
                 setOpen(false);
               }}
             >
-              <span className="truncate font-medium">{mark(o.label)}</span>
+              <span className="truncate font-medium">
+                <Mark text={o.label} q={value.trim()} />
+              </span>
               {o.sub && (
                 <span className="ml-auto flex-none text-[14px] text-ink2">{o.sub}</span>
               )}
@@ -147,12 +313,13 @@ export default function LibraryPage() {
           从内置曲库挑选（{rows.length} 首，其中 {addable.length} 首可添加）
         </summary>
         <div className="mb-3 mt-3 flex flex-wrap items-center gap-2">
-          <input
-            name="catalog-search"
+          <SearchBox
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={setQ}
             placeholder="搜索曲库（歌名 / 歌手 / 专辑）"
-            className={`${inputCls} ml-auto w-64`}
+            options={(fullCatalog.data ?? []).map((r) => ({
+              label: r.title, sub: r.artist,
+            }))}
           />
           <button
             className={chip()}

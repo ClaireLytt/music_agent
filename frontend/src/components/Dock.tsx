@@ -495,7 +495,7 @@ export default function Dock({
                 )}
                 {offsetPhase === "saved" && (
                   <svg
-                    className="animate-popin"
+                    className="animate-popscale"
                     width="14" height="14" viewBox="0 0 16 16" fill="none"
                     stroke="currentColor" strokeWidth="2" strokeLinecap="round"
                     strokeLinejoin="round"

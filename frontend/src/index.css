@@ -7,6 +7,15 @@
   background: rgba(124, 158, 255, 0.16);
   color: #f5f5f4;
 }
+/* Chrome autofill 会给表单字段刷白蓝底，按暗色面板覆写 */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px #24242a inset;
+  -webkit-text-fill-color: #f5f5f4;
+  caret-color: #7c9eff;
+}
+
 /* 滚动条：主区域走 Scrollable 组件自绘（部分系统强制经典白底原生条、
    无视配色 CSS）。下面的全局配色只兜底还没迁移的次要滚动区。 */
 * {
