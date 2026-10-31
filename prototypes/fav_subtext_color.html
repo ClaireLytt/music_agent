@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>收藏夹副文字 色号原型</title>
+<style>
+  :root{
+    --bg:#121212; --panel:#1e1e22; --panel2:#24242a;
+    --ink:#f5f5f4; --ink2:#a8a8b3; --ink3:#6e6e78;
+    --accent:#7c9eff;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:Inter,"Noto Sans SC",system-ui,sans-serif;
+    display:flex; flex-wrap:wrap; gap:28px; justify-content:center;
+    padding:40px 16px;
+  }
+  .col{width:340px}
+  .col h2{
+    font-size:12px; font-weight:600; letter-spacing:.1em;
+    color:var(--ink3); margin:0 0 4px;
+  }
+  .col .meta{
+    font-size:12px; color:var(--ink2); margin:0 0 12px;
+    font-variant-numeric:tabular-nums;
+  }
+  .card{
+    background:var(--panel); border:1px solid #2a2a31;
+    border-radius:12px; padding:16px;
+  }
+  ul{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px}
+  li{
+    background:var(--panel2); border-radius:8px;
+    padding:8px 12px; font-size:15.6px; line-height:1.45;
+  }
+  li .line{color:var(--ink2); display:block}
+  li .sub{display:block; margin-top:2px; font-size:13.2px}
+  .pick{outline:2px solid var(--accent); outline-offset:3px; border-radius:14px}
+</style>
+</head>
+<body>
+<script>
+const favs=[
+  ["When you are young, they assume you know nothing"],
+  ["A friend to all is a friend to none"],
+  ["You drew stars around my scars"],
+  ["Chase two girls, lose the one"],
+];
+const variants=[
+  ["上一轮 B","#9898a4","5.4:1 — 你觉得还是不够清楚"],
+  ["D ink2 同亮","#a8a8b3","6.5:1 — 和主句同色"],
+  ["E 更亮一档（推荐）","#bcbcc6","8.2:1 — 明显易读，靠字号区分主次"],
+  ["F 近白","#cfcfd6","10:1 — 最显眼，副文字开始抢主句"],
+  ["G 带主题蓝","#a9b8e0","7.8:1 — 亮且与主句色相不同，署名有身份感"],
+];
+document.body.innerHTML=variants.map(([name,hex,meta],i)=>`
+  <div class="col">
+    <h2>${name}</h2>
+    <p class="meta">${hex} · ${meta}</p>
+    <div class="card${i===2?" pick":""}">
+      <ul>
+        ${favs.map(([l])=>`
+        <li>
+          <span class="line">${l}</span>
+          <span class="sub" style="color:${hex}">cardigan · Taylor Swift</span>
+        </li>`).join("")}
+      </ul>
+    </div>
+  </div>`).join("");
+</script>
+</body>
+</html>

@@ -107,9 +107,10 @@ def _session_cookie() -> str:
         import http.cookiejar
         import random
         import uuid
-        from .jsonio import http_get_json
+        from .jsonio import V4FirstHTTPSHandler, http_get_json
         jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(
+            V4FirstHTTPSHandler(),
             urllib.request.HTTPCookieProcessor(jar))
         with opener.open(urllib.request.Request(
                 "https://www.bilibili.com/", headers=_HEADERS),

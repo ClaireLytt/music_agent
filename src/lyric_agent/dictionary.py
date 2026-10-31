@@ -74,6 +74,17 @@ def _candidates(word: str) -> list[str]:
     return [x for x in out if x and not (x in seen or seen.add(x))]
 
 
+def candidates(word: str) -> list[str]:
+    _load()
+    return _candidates(word)
+
+
+def lemma_of(word: str) -> str:
+    _load()
+    w = word.lower().strip("'-")
+    return (_lemma or {}).get(w, w)
+
+
 def lookup(word: str) -> dict | None:
     """Offline lookup. Returns {word, phonetic, translation} or None."""
     word = (word or "").strip()

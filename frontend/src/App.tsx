@@ -1,28 +1,123 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { audioUrl, useLyrics, useSongs } from "./api";
 import { usePlayer } from "./store";
+import DictPops from "./components/DictPops";
 import Dock from "./components/Dock";
 import LyricsView from "./components/LyricsView";
 import MvPanel from "./components/MvPanel";
 import PlayerBar from "./components/PlayerBar";
 import Sidebar from "./components/Sidebar";
+import WordsPage from "./pages/WordsPage";
+import ExplorePage from "./pages/ExplorePage";
+import LibraryPage from "./pages/LibraryPage";
+import SettingsPage from "./pages/SettingsPage";
 
 export default function App() {
-  const { data: songs = [], isLoading } = useSongs();
+  const [query, setQuery] = useState("");
+  const { data: songs = [], isLoading } = useSongs(query);
   const {
     songId, setSong, setPlaying, setTime, setCurrentLine, currentLine,
+    seekMs, clearSeek, drillReturn, setDrillReturn,
   } = usePlayer();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const navigate = useNavigate();
+  const onPlayPage = useLocation().pathname === "/";
 
-  // 首次加载：默认选第一首（黄金路径）
+  // 侧栏宽度：拖动右缘调整，拖到很窄自动收起；双击分隔条展开/收起。
+  // localStorage 只是每浏览器的便利记忆，读写都要兜底。
+  const SIDEBAR_W = 420;
+  const [sideW, setSideW] = useState(() => {
+    try {
+      const v = localStorage.getItem("ll_side_w");
+      return v === null ? SIDEBAR_W : Math.max(0, Number(v) || 0);
+    } catch {
+      return SIDEBAR_W;
+    }
+  });
+  const applySideW = (w: number) => {
+    setSideW(w);
+    try {
+      localStorage.setItem("ll_side_w", String(w));
+    } catch {
+      /* 私密窗口等场景忽略 */
+    }
+  };
+  const onSplitDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sideW;
+    const move = (ev: PointerEvent) => {
+      const w = Math.min(520, Math.max(0, startW + ev.clientX - startX));
+      setSideW(w < 140 ? 0 : w); // 太窄直接吸附收起
+    };
+    const up = (ev: PointerEvent) => {
+      const w = Math.min(520, Math.max(0, startW + ev.clientX - startX));
+      applySideW(w < 140 ? 0 : w);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  // 右侧解读坞：同款拖动条（镜像方向），只在播放页出现
+  const DOCK_W = 460;
+  const [dockW, setDockW] = useState(() => {
+    try {
+      const v = localStorage.getItem("ll_dock_w");
+      return v === null ? DOCK_W : Math.max(0, Number(v) || 0);
+    } catch {
+      return DOCK_W;
+    }
+  });
+  const applyDockW = (w: number) => {
+    setDockW(w);
+    try {
+      localStorage.setItem("ll_dock_w", String(w));
+    } catch {
+      /* 忽略 */
+    }
+  };
+  const onDockSplitDown = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = dockW;
+    const move = (ev: PointerEvent) => {
+      const w = Math.min(600, Math.max(0, startW - (ev.clientX - startX)));
+      setDockW(w < 140 ? 0 : w);
+    };
+    const up = (ev: PointerEvent) => {
+      const w = Math.min(600, Math.max(0, startW - (ev.clientX - startX)));
+      applyDockW(w < 140 ? 0 : w);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  // 首次加载：默认进入 cardigan（没有则退回第一首）
   useEffect(() => {
-    if (!songId && songs.length) setSong(songs[0].id);
+    if (!songId && songs.length)
+      setSong((songs.find((s) => s.id === "cardigan") ?? songs[0]).id);
   }, [songId, songs, setSong]);
 
   const song = useMemo(() => songs.find((s) => s.id === songId), [songs, songId]);
   const { data: lyrics } = useLyrics(songId);
 
-  // HTML5 Audio → 歌词同步（含 audio_offset_ms 试听片段对齐 + A-B 循环）
+  // 消费跳播请求（歌词时间轴口径 → 音频时间，扣掉试听片段偏移）。
+  useEffect(() => {
+    if (seekMs === null) return;
+    const a = audioRef.current;
+    if (a && song && song.audio_type !== "none") {
+      a.currentTime = Math.max(0, (seekMs - song.audio_offset_ms) / 1000);
+      if (a.paused) void a.play();
+    }
+    clearSeek();
+  }, [seekMs, song, clearSeek]);
+
+  // HTML5 Audio → 歌词同步（含 audio_offset_ms 试听片段对齐）
   useEffect(() => {
     const a = audioRef.current;
     if (!a || !lyrics || !song) return;
@@ -30,14 +125,6 @@ export default function App() {
     const onTime = () => {
       const t = a.currentTime * 1000 + song.audio_offset_ms;
       setTime(t, (a.duration || 0) * 1000 + song.audio_offset_ms);
-      // A-B 循环（PlayerBar 经 rail dataset 传递区间）
-      const rail = document.querySelector<HTMLElement>("[data-a]");
-      const A = rail?.dataset.a ? Number(rail.dataset.a) : NaN;
-      const B = rail?.dataset.b ? Number(rail.dataset.b) : NaN;
-      if (!Number.isNaN(A) && !Number.isNaN(B) && t > B) {
-        a.currentTime = (A - song.audio_offset_ms) / 1000;
-        return;
-      }
       let i = -1;
       for (let k = 0; k < lines.length; k++) {
         if (lines[k].timestamp_ms <= t) i = k;
@@ -58,21 +145,145 @@ export default function App() {
   }, [lyrics, song, currentLine, setTime, setCurrentLine, setPlaying]);
 
   return (
-    <div className="grid h-screen grid-cols-[232px_1fr_320px] grid-rows-[1fr_88px] overflow-hidden bg-bg font-sans text-ink">
-      <Sidebar songs={songs} />
-      <main className="relative overflow-hidden [background:radial-gradient(90%_70%_at_50%_-10%,#2e4639_0%,#1a2420_45%,#121212_100%)]">
-        <div className="flex h-full flex-col items-center gap-5 px-12 pb-3 pt-7">
-          {song && <MvPanel song={song} />}
-          {lyrics ? (
-            <LyricsView lyrics={lyrics} />
-          ) : (
-            <p className="flex flex-1 items-center text-sm text-ink3">
-              {isLoading ? "加载曲库中…" : "曲库为空：先用旧版界面或 CLI 添加歌曲"}
-            </p>
-          )}
-        </div>
-      </main>
-      <Dock lyrics={lyrics} />
+    <div
+      className="relative grid h-screen grid-rows-[1fr_88px] overflow-hidden bg-bg font-sans text-ink"
+      style={{ gridTemplateColumns: `${sideW}px 1fr ${onPlayPage ? dockW : 460}px` }}
+    >
+      <div className="h-full min-h-0 min-w-0 overflow-hidden">
+        <Sidebar songs={songs} query={query} onQuery={setQuery} />
+      </div>
+      <div
+        role="separator"
+        aria-label="拖动调整侧栏宽度，双击收起/展开"
+        title="拖动调整侧栏；双击收起/展开"
+        className="absolute bottom-[88px] top-0 z-20 w-[7px] -translate-x-1/2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-accent"
+      style={{ left: sideW }}
+        onPointerDown={onSplitDown}
+        onDoubleClick={() => applySideW(sideW === 0 ? SIDEBAR_W : 0)}
+      />
+      {sideW === 0 && (
+        <button
+          aria-label="展开侧栏"
+          title="展开侧栏"
+          className="absolute left-2 top-2 z-20 grid h-8 w-8 place-items-center rounded-full border border-edge bg-panel text-ink2 shadow-art transition-colors hover:border-accent hover:text-ink"
+          onClick={() => applySideW(SIDEBAR_W)}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M6 3l5 5-5 5" />
+          </svg>
+        </button>
+      )}
+      {onPlayPage && (
+        <div
+          role="separator"
+          aria-label="拖动调整解读坞宽度，双击收起/展开"
+          title="拖动调整解读坞；双击收起/展开"
+          className="absolute bottom-[88px] top-0 z-20 w-[7px] translate-x-1/2 cursor-col-resize after:absolute after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2 after:bg-transparent hover:after:bg-accent"
+          style={{ right: dockW }}
+          onPointerDown={onDockSplitDown}
+          onDoubleClick={() => applyDockW(dockW === 0 ? DOCK_W : 0)}
+        />
+      )}
+      {onPlayPage && dockW === 0 && (
+        <button
+          aria-label="展开解读坞"
+          title="展开解读坞"
+          className="absolute right-2 top-2 z-20 grid h-8 w-8 place-items-center rounded-full border border-edge bg-panel text-ink2 shadow-art transition-colors hover:border-accent hover:text-ink"
+          onClick={() => applyDockW(DOCK_W)}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+            strokeLinejoin="round">
+            <path d="M10 3L5 8l5 5" />
+          </svg>
+        </button>
+      )}
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <>
+              <main className="relative overflow-hidden [background:radial-gradient(90%_70%_at_50%_-10%,#2e4639_0%,#1a2420_45%,#121212_100%)]">
+                <div className="flex h-full flex-col items-center gap-5 px-12 pb-3 pt-7">
+                  {song && <MvPanel song={song} />}
+                  {lyrics ? (
+                    <div className="relative flex min-h-0 w-full max-w-[880px] flex-1 justify-center">
+                      <LyricsView
+                        lyrics={lyrics}
+                        hasAudio={!!song && song.audio_type !== "none"}
+                      />
+                      {drillReturn && (
+                        <button
+                          className="absolute left-full top-1/3 z-10 ml-4 -translate-y-1/2 whitespace-nowrap rounded-full bg-[#5fc79b] px-4 py-2 text-[13px] font-semibold text-[#0e1016] shadow-art transition-transform hover:scale-105"
+                          onClick={() => {
+                            const url = drillReturn;
+                            setDrillReturn(null);
+                            navigate(url);
+                          }}
+                        >
+                          回到打字练习
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="flex flex-1 items-center text-sm text-ink3">
+                      {isLoading
+                        ? "加载曲库中…"
+                        : "曲库为空：先用旧版界面或 CLI 添加歌曲"}
+                    </p>
+                  )}
+                </div>
+              </main>
+              <div className="h-full min-h-0 min-w-0 overflow-hidden">
+                <Dock lyrics={lyrics} song={song} />
+              </div>
+              <DictPops song={song} />
+            </>
+          }
+        />
+        <Route
+          path="/words"
+          element={
+            <div className="col-span-2 min-h-0 overflow-hidden">
+              <WordsPage />
+            </div>
+          }
+        />
+        <Route
+          path="/words/analysis"
+          element={
+            <div className="col-span-2 min-h-0 overflow-hidden">
+              <WordsPage analysis />
+            </div>
+          }
+        />
+        <Route
+          path="/explore"
+          element={
+            <div className="col-span-2 min-h-0 overflow-hidden">
+              <ExplorePage />
+            </div>
+          }
+        />
+        <Route
+          path="/library"
+          element={
+            <div className="col-span-2 min-h-0 overflow-hidden">
+              <LibraryPage />
+            </div>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <div className="col-span-2 min-h-0 overflow-hidden">
+              <SettingsPage />
+            </div>
+          }
+        />
+      </Routes>
       <div className="col-span-3">
         <PlayerBar song={song} songs={songs} audioRef={audioRef} />
       </div>

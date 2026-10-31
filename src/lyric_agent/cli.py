@@ -7,6 +7,19 @@ import logging
 import click
 
 
+def _mute_proactor_noise() -> None:
+    """Windows：浏览器掐断连接（刷新/关标签/音频 Range 请求拉够即断）时，
+    asyncio proactor 会打 ConnectionResetError 堆栈——无害但刷屏误导排障，
+    定向静音。"""
+    class _MuteProactorNoise(logging.Filter):
+        def filter(self, record):
+            msg = str(record.getMessage()) + str(record.exc_info)
+            return not ("ConnectionResetError" in msg
+                        or "_call_connection_lost" in msg)
+
+    logging.getLogger("asyncio").addFilter(_MuteProactorNoise())
+
+
 @click.group()
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
 def cli(verbose: bool) -> None:
@@ -36,11 +49,43 @@ def generate(song_dir: str, chunk_size: int, fresh: bool) -> None:
 
 @cli.command("serve-web")
 @click.option("--port", default=8765, type=int, help="API/SPA port")
-def serve_web(port: int) -> None:
+@click.option("--no-browser", is_flag=True,
+              help="don't auto-open the page in the default browser")
+@click.option("--sandbox", is_flag=True,
+              help="run against a throwaway copy of data/ — agent/browser "
+                   "testing must use this so real data never gets written")
+def serve_web(port: int, no_browser: bool, sandbox: bool) -> None:
     """Launch the new React SPA + FastAPI layer (play page vertical slice)."""
+    import threading
+    import webbrowser
+
     import uvicorn
 
     from .api import create_app
+
+    _mute_proactor_noise()
+    if sandbox:
+        # 与 scripts/ui_probe.py 同款数据沙箱：所有相对路径 data/ 的
+        # 读写都落在临时副本里，真实曲库绝不被测试点击污染
+        import os
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        # chdir 前把仓库根的 .env 吸进进程环境，否则沙箱里 LLM 全挂
+        from dotenv import load_dotenv
+        load_dotenv()
+        box = Path(tempfile.mkdtemp(prefix="ll_sandbox_"))
+        shutil.copytree(
+            Path("data"), box / "data",
+            ignore=shutil.ignore_patterns("ui_probe", "design_loop",
+                                          "reports"))
+        os.chdir(box)
+        click.echo(f"data sandbox: {box}")
+    url = f"http://127.0.0.1:{port}"
+    if not no_browser:
+        # uvicorn.run 阻塞到退出,延时开页避免抢在服务就绪之前
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     uvicorn.run(create_app(), host="127.0.0.1", port=port)
 
 
@@ -50,17 +95,7 @@ def serve_web(port: int) -> None:
               help="don't auto-open the page in the default browser")
 def serve(port: int | None, no_browser: bool) -> None:
     """Launch the lyrics annotation player UI."""
-    import logging as _logging
-
-    class _MuteProactorNoise(_logging.Filter):
-        """Windows：浏览器刷新/关标签时 SSE 断开，asyncio proactor 会打
-        ConnectionResetError 堆栈——无害但刷屏误导排障，定向静音。"""
-        def filter(self, record):
-            msg = str(record.getMessage()) + str(record.exc_info)
-            return not ("ConnectionResetError" in msg
-                        or "_call_connection_lost" in msg)
-
-    _logging.getLogger("asyncio").addFilter(_MuteProactorNoise())
+    _mute_proactor_noise()
     from .review import TTS_CACHE_DIR as _TTS_CACHE_DIR
     from pathlib import Path
 

@@ -6,17 +6,36 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import os
+import threading
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, Body, FastAPI, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
+from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 
-from . import dictionary, songdata
+from . import (background_task, bilibili_audio, cover_art, dictionary,
+               itunes_audio, songdata)
 from .config import load_settings
-from .songdata import _discover_songs, _load_song_data
+from .occurrences import find_occurrences
+from .songdata import (
+    _INTRO_FILENAME,
+    _discover_songs,
+    _fav_id,
+    _load_favorites,
+    _load_intro,
+    _load_notes,
+    _load_song_data,
+    _save_favorites,
+    _save_notes,
+)
+
+logger = logging.getLogger(__name__)
 
 _FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
@@ -35,22 +54,234 @@ def _find_song(song_id: str) -> dict:
     raise HTTPException(status_code=404, detail=f"song not found: {song_id}")
 
 
-def _song_payload(s: dict) -> dict:
+def _song_payload(s: dict, settings=None) -> dict:
+    audio_type = s["audio_type"]
+    # ── B站音轨代理（实验性，可整体移除；见 bilibili_audio.py）──
+    # 无本地/URL 音频但绑了 MV：报 "bilibili"，前端照常渲染播放器，
+    # 音频仍走统一的 /api/songs/{id}/audio
+    # settings 每次 load_dotenv+读盘，列表循环里只算一次（性能：
+    # /api/songs 曾经每首歌读两次盘）
+    if settings is None:
+        settings = load_settings()
+    if audio_type == "none" and s["bvid"] and \
+            bilibili_audio.enabled(settings):
+        audio_type = "bilibili"
+    # ── end B站音轨代理 ──
+    # ── iTunes 试听（实验性，可整体移除；见 itunes_audio.py）──
+    # 连 MV 都没有的歌：有已缓存的 30s 试听就报 "preview"，
+    # 前端照常渲染播放器并在播放条上标注"试听"
+    if audio_type == "none" and itunes_audio.preview_url(s["name"]):
+        audio_type = "preview"
+    # ── end iTunes 试听 ──
     return {
         "id": s["name"], "title": s["title"], "artist": s["artist"],
         "album": s["album"], "year": s["year"],
-        "audio_type": s["audio_type"],
+        "audio_type": audio_type,
         "audio_offset_ms": s["audio_offset_ms"],
         "bvid": s["bvid"],
+        "added_ts": s["added_ts"],
     }
+
+
+def _write_meta(song_dir: str, mutate) -> None:
+    """读-改-写 metadata.json（与旧 UI handler 同一套逻辑）。"""
+    meta_path = Path(song_dir) / "metadata.json"
+    meta = (json.loads(meta_path.read_text(encoding="utf-8"))
+            if meta_path.exists() else {})
+    mutate(meta)
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2),
+                         encoding="utf-8")
+
+
+# 导读后台生成状态（长耗时 LLM 铁律：后台线程 + 落盘 + 轮询）
+# 长耗时 LLM 任务（intro/annotate/fanlore/rebuild）统一走 background_task
+# 深模块：kick 幂等起跳 / status 轮询 / update 进度，done 的真相在磁盘
+_CORPUS_REBUILDING = threading.Lock()
+
+
+def _kick_corpus_rebuild() -> None:
+    """曲库增删后后台重建语料+embeddings（零 LLM），与旧 Runtime 同口径。"""
+    if os.getenv("LL_CORPUS_REBUILD", "1") == "0":
+        return  # probe/tests：不污染真实语料
+    if not _CORPUS_REBUILDING.acquire(blocking=False):
+        return
+
+    def _run() -> None:
+        try:
+            from .intertextuality.corpus import build_corpus
+            from .intertextuality.embeddings import generate_embeddings
+            s = load_settings()
+            build_corpus(s.songs_dir, s.corpus_dir,
+                         catalog_path="data/catalog/catalog.json")
+            generate_embeddings(s.corpus_dir, model_name=s.embedding_model)
+        except Exception:
+            logger.exception("background corpus rebuild failed")
+        finally:
+            _CORPUS_REBUILDING.release()
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _fanlore_echo_pairs(info: dict, data: dict) -> list[tuple]:
+    """曲库呼应 = 喂给模型的硬证据（同旧 build_echo_map 的 top-5）。"""
+    try:
+        from .intertextuality.embeddings import load_embeddings
+        from .intertextuality.search import find_song_echoes
+        s = load_settings()
+        embeddings, corpus = load_embeddings(s.corpus_dir, s.embedding_model)
+        texts = [ln.text for ln in data["timed_lines"]]
+        echoes = find_song_echoes(
+            texts, embeddings, corpus, model_name=s.embedding_model,
+            exclude_song=info.get("title", ""),
+            artist=info.get("artist") or None,
+            min_similarity=s.echo_min_similarity,
+            min_similarity_cjk=s.echo_min_similarity_cjk)
+        hits = [(e.similarity, texts[i], e.song, e.line)
+                for i, e in enumerate(echoes) if e]
+        hits.sort(reverse=True)
+        return [(t, sg, ln) for _sim, t, sg, ln in hits[:5]]
+    except Exception:
+        logger.exception("fanlore echo scan unavailable")
+        return []
+
+
+def _gen_fanlore_bg(song_id: str, info: dict) -> None:
+    from .fanlore import fanlore_messages, progress_stage, save_fanlore
+    from .intertextuality.search import artist_matches
+    from .llm import LLMClient
+    data = _load_song_data(info["dir"])
+    pairs = _fanlore_echo_pairs(info, data)
+    titles = [s["title"] for s in _songs()
+              if artist_matches(info.get("artist", ""),
+                                s.get("artist", ""))]
+    system, user_msg = fanlore_messages(
+        info.get("title", ""), info.get("artist", ""),
+        info.get("album", ""), info.get("year"),
+        echo_pairs=pairs, library_titles=titles)
+    settings = load_settings()
+    buf: list[str] = []
+
+    def _on_delta(piece: str) -> None:
+        buf.append(piece)
+        s = "".join(buf)
+        background_task.update(f"fanlore:{song_id}",
+                               progress=progress_stage(s), chars=len(s))
+
+    verdict = LLMClient(settings).generate_json(
+        system, user_msg, on_text_delta=_on_delta)
+    save_fanlore(info["dir"], verdict, settings.model_name)
+
+
+def _rebuild_index_bg(model: str) -> None:
+    from .config import save_user_settings, user_settings_path
+    from .intertextuality.corpus import build_corpus
+    from .intertextuality.embeddings import generate_embeddings
+    from .jsonio import read_json
+    s = load_settings()
+    catalog = Path("data/catalog/catalog.json")
+    n_songs, n_lines = build_corpus(
+        s.songs_dir, s.corpus_dir,
+        catalog_path=catalog if catalog.exists() else None)
+    background_task.update(
+        "rebuild",
+        msg=f"2/2 语料库完成（{n_songs} 首 / {n_lines} 行），"
+            f"正在用 {model} 生成 embeddings（首次需下载，1-3 分钟）…")
+    generate_embeddings(s.corpus_dir, model_name=model)
+    # 持久化模型选择（合并，不覆盖其他键）
+    cur = read_json(user_settings_path(), default={})
+    cur = cur if isinstance(cur, dict) else {}
+    cur["embedding_model"] = model
+    save_user_settings(cur)
+    background_task.update(
+        "rebuild", msg=f"重建完成：{n_songs} 首 / {n_lines} 行，"
+                       f"模型 {model} 已生效并保存")
+
+
+def _gen_line_annotation_bg(info: dict, line_index: int,
+                            lyric_text: str) -> None:
+    """单句批注：生成 → 合并进 annotations.json（失败抛异常即 error 态）。"""
+    from .annotator.engine import regenerate_annotation
+    from .annotator.models import Song, SongMetadata
+    ann_path = Path(info["dir"]) / "annotations.json"
+    song = (Song.load(ann_path) if ann_path.exists()
+            else Song(metadata=SongMetadata(
+                title=info.get("title", ""),
+                artist=info.get("artist", ""),
+                album=info.get("album", ""),
+                year=int(info.get("year") or 0),
+                era=info.get("era", ""))))
+    ann = regenerate_annotation(load_settings(), song.metadata,
+                                line_index, lyric_text)
+    song.annotations = [a for a in song.annotations
+                        if a.line_index != line_index] + [ann]
+    song.annotations.sort(key=lambda a: a.line_index)
+    song.save(ann_path)
+
+
+def _gen_intro_bg(info: dict) -> None:
+    data = _load_song_data(info["dir"])
+    lyrics_text = "\n".join(ln.text for ln in data["timed_lines"])
+    user_msg = (
+        f"歌名：《{info.get('title', '')}》\n"
+        f"歌手：{info.get('artist', '')}\n"
+        f"专辑：{info.get('album', '') or '未知'}\n\n"
+        f"完整歌词：\n{lyrics_text}\n\n"
+        "请写一段 120-180 字的「歌曲导读」：这首歌讲了什么故事/情绪，"
+        "创作背景（确定的才写），以及听的时候值得注意的 1-2 个歌词细节。"
+        "语气亲切自然，直接输出正文。"
+    )
+    from .llm import LLMClient
+    resp = LLMClient(load_settings()).generate(
+        system_prompt=("你是精通流行音乐与歌词分析的电台 DJ，"
+                       "用简体中文写作，克制而准确。"),
+        user_message=user_msg,
+    )
+    text = (resp.reply_text or "").strip()
+    if not text:
+        raise RuntimeError("AI 未返回内容，请重试")
+    (Path(info["dir"]) / _INTRO_FILENAME).write_text(text, encoding="utf-8")
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Lyric Lens API")
 
+    # ── public 写闸门 ─────────────────────────────────────────
+    # public 演示模式：不写服务器盘、管理功能不可达（服务端强制，
+    # 而非仅前端隐藏——旧版只藏按钮是已知缺陷）。写类端点统一挂此依赖。
+    def _forbid_public() -> None:
+        if load_settings().public_mode:
+            raise HTTPException(403, "public 演示模式为只读，该操作不可用")
+
+    WRITE_GATE = {"dependencies": [Depends(_forbid_public)]}
+
     @app.get("/api/songs")
-    def list_songs() -> list[dict]:
-        return [_song_payload(s) for s in _songs()]
+    def list_songs(q: str = "") -> list[dict]:
+        songs = _songs()
+        settings = load_settings()
+        # ── iTunes 试听（实验性，可整体移除；见 itunes_audio.py）──
+        # 后台补缓存：候选 = 没音频且（没 MV 或 B 站代理不可用）的歌。
+        # public 不写服务器盘（与 cover_art/bilibili 同一铁律）→ 不触发
+        if not settings.public_mode:
+            itunes_audio.fill_missing_async([
+                s for s in songs
+                if s["audio_type"] == "none"
+                and not (s["bvid"] and bilibili_audio.enabled(settings))
+            ])
+            # 封面预热：首次打开列表就后台补齐全库缺图（感知 0s）
+            cover_art.prewarm_async(songs)
+        # ── end iTunes 试听 ──
+        q = (q or "").strip().lower()
+        if q:
+            def hit(s: dict) -> bool:
+                if q in s["title"].lower() or q in s["artist"].lower():
+                    return True
+                try:  # 全文歌词匹配（与旧 UI 歌单筛选同口径）
+                    data = _load_song_data(s["dir"])
+                    return any(q in ln.text.lower()
+                               for ln in data["timed_lines"])
+                except Exception:
+                    return False
+            songs = [s for s in songs if hit(s)]
+        return [_song_payload(s, settings) for s in songs]
 
     @app.get("/api/songs/{song_id}")
     def get_song(song_id: str) -> dict:
@@ -63,7 +294,9 @@ def create_app() -> FastAPI:
         return {
             "timed_lines": [
                 {"line_index": tl.line_index, "timestamp_ms": tl.timestamp_ms,
-                 "text": tl.text}
+                 "text": tl.text,
+                 # 词级时间轴（Enhanced LRC）；行级歌词为 null
+                 "words": tl.words}
                 for tl in data["timed_lines"]
             ],
             "annotations": {
@@ -73,13 +306,700 @@ def create_app() -> FastAPI:
         }
 
     @app.get("/api/songs/{song_id}/audio")
-    def get_audio(song_id: str):
+    def get_audio(song_id: str, request: Request):
         s = _find_song(song_id)
         if s["audio_type"] == "url":
             return RedirectResponse(s["audio_src"])
         if s["audio_type"] == "local" and Path(s["audio_src"]).exists():
             return FileResponse(s["audio_src"])
+        # ── B站音轨代理（实验性，可整体移除；见 bilibili_audio.py）──
+        if s["bvid"] and bilibili_audio.enabled(load_settings()):
+            try:
+                return bilibili_audio.proxy_response(
+                    s["bvid"], request.headers.get("range"))
+            except Exception:
+                logger.exception("bilibili audio proxy failed for %s",
+                                 song_id)
+        # ── end B站音轨代理 ──
+        # ── iTunes 试听（实验性，可整体移除；见 itunes_audio.py）──
+        preview = itunes_audio.preview_url(song_id)
+        if preview:
+            return RedirectResponse(preview)
+        # ── end iTunes 试听 ──
         raise HTTPException(status_code=404, detail="no audio for this song")
+
+    # ── 歌曲工具（旧 tab_play_tools 的 REST 化） ──────────────
+
+    @app.get("/api/songs/{song_id}/mv-candidates")
+    def mv_candidates(song_id: str) -> list[dict]:
+        """B 站搜 MV 候选（旧 UI 的「搜索」搬运：关键词=歌名+歌手+MV）。
+        搜索不可用时返回 []，前端提示手填。"""
+        from .bilibili import search_mv
+        s = _find_song(song_id)
+        cands = search_mv(s["title"], s["artist"])
+        return sorted(cands, key=lambda c: c.get("play", 0),
+                      reverse=True)[:8]
+
+    @app.put("/api/songs/{song_id}/bvid", **WRITE_GATE)
+    def put_bvid(song_id: str, value: str = Body("", embed=True)) -> dict:
+        from .bilibili import extract_bvid
+        s = _find_song(song_id)
+        value = (value or "").strip()
+        bvid = extract_bvid(value) if value else ""
+        if value and not bvid:
+            raise HTTPException(422, "无法识别 BV 号/链接")
+
+        def mutate(meta: dict) -> None:
+            if bvid:
+                meta["bvid"] = bvid
+                meta.pop("bvid_no_auto", None)  # 用户重选=重新放行自动绑定
+            else:
+                meta.pop("bvid", None)
+                meta["bvid_no_auto"] = True     # 留空保存=解绑且不再自动绑
+        _write_meta(s["dir"], mutate)
+        return {"bvid": bvid}
+
+    @app.put("/api/songs/{song_id}/offset", **WRITE_GATE)
+    def put_offset(song_id: str,
+                   offset_ms: int = Body(0, embed=True)) -> dict:
+        s = _find_song(song_id)
+
+        def mutate(meta: dict) -> None:
+            if int(offset_ms):
+                meta["audio_offset_ms"] = int(offset_ms)
+            else:
+                meta.pop("audio_offset_ms", None)
+        _write_meta(s["dir"], mutate)
+        return {"audio_offset_ms": int(offset_ms)}
+
+    @app.post("/api/songs/{song_id}/audio", **WRITE_GATE)
+    async def upload_audio(song_id: str, file: UploadFile) -> dict:
+        s = _find_song(song_id)
+        ext = Path(file.filename or "").suffix.lower()
+        if ext not in {".mp3", ".wav", ".flac", ".ogg", ".m4a"}:
+            raise HTTPException(422, "仅支持 mp3 / wav / flac / ogg / m4a")
+        d = Path(s["dir"])
+        for old in d.glob("audio.*"):
+            old.unlink()
+        (d / f"audio{ext}").write_bytes(await file.read())
+        # 手动上传的是完整歌曲——清掉试听片段偏移（与旧 UI 行为一致）
+        _write_meta(s["dir"], lambda m: m.pop("audio_offset_ms", None))
+        return {"audio_type": "local"}
+
+    # ── 听歌笔记 ──────────────────────────────────────────────
+
+    @app.get("/api/songs/{song_id}/notes")
+    def get_notes(song_id: str) -> list[dict]:
+        return _load_notes(_find_song(song_id)["dir"])
+
+    @app.post("/api/songs/{song_id}/notes", **WRITE_GATE)
+    def add_note(song_id: str, ts_ms: int = Body(...),
+                 text: str = Body(...)) -> list[dict]:
+        s = _find_song(song_id)
+        text = (text or "").strip()
+        if not text:
+            raise HTTPException(422, "笔记内容不能为空")
+        notes = _load_notes(s["dir"])
+        notes.append({"ts_ms": int(ts_ms), "text": text})
+        _save_notes(s["dir"], notes)
+        return notes
+
+    @app.delete("/api/songs/{song_id}/notes/{ts_ms}", **WRITE_GATE)
+    def del_note(song_id: str, ts_ms: int) -> list[dict]:
+        s = _find_song(song_id)
+        notes = [n for n in _load_notes(s["dir"])
+                 if int(n.get("ts_ms", -1)) != int(ts_ms)]
+        _save_notes(s["dir"], notes)
+        return notes
+
+    # ── 歌词收藏夹（全局，与旧版共用 data/favorites.json） ────
+
+    @app.get("/api/favorites")
+    def get_favorites() -> list[dict]:
+        return _load_favorites()
+
+    @app.post("/api/favorites", **WRITE_GATE)
+    def add_favorite(song_id: str = Body(...),
+                     line_index: int = Body(...)) -> list[dict]:
+        s_ = _find_song(song_id)
+        data = _load_song_data(s_["dir"])
+        line = next((ln for ln in data["timed_lines"]
+                     if ln.line_index == int(line_index)), None)
+        if line is None:
+            raise HTTPException(404, "未找到选中的歌词行")
+        favs = _load_favorites()
+        title = s_.get("title", "")
+        if not any(f.get("line") == line.text and f.get("title") == title
+                   for f in favs):
+            favs.append({"id": _fav_id(line.text, title),
+                         "line": line.text, "title": title,
+                         "artist": s_.get("artist", ""),
+                         "song_id": s_["name"],
+                         "line_index": line.line_index})
+            _save_favorites(favs)
+        return favs
+
+    @app.delete("/api/favorites/{fid}", **WRITE_GATE)
+    def del_favorite(fid: str) -> list[dict]:
+        favs = [f for f in _load_favorites() if f.get("id") != fid]
+        _save_favorites(favs)
+        return favs
+
+    # ── 单词本 / 词组本（跟随歌曲） ───────────────────────────
+
+    @app.get("/api/wordbook")
+    def get_wordbook(song: str = "") -> list[dict]:
+        book = dictionary.load_wordbook()
+        if song:
+            book = [e for e in book if e.get("song", "") == song]
+        return book
+
+    @app.post("/api/wordbook", **WRITE_GATE)
+    def post_word(word: str = Body(...), line: str = Body(""),
+                  song: str = Body(""),
+                  line_index: int = Body(-1)) -> list[dict]:
+        if not (word or "").strip():
+            raise HTTPException(422, "word 不能为空")
+        # 弹卡里生成过的 AI 语境解释随词条入本（与旧 on_wb_act 一致）
+        key = hashlib.md5(f"v3:{word.strip()}\x00{line}".encode()).hexdigest()
+        try:
+            ai = json.loads(
+                (Path(load_settings().songs_dir).parent / "dict"
+                 / "ai_cache.json").read_text(encoding="utf-8")).get(key, "")
+        except (OSError, ValueError):
+            ai = ""
+        return dictionary.add_word(word.strip(), line=line, song=song,
+                                   line_index=line_index, ai=ai)
+
+    @app.delete("/api/wordbook/{word}", **WRITE_GATE)
+    def delete_word(word: str) -> list[dict]:
+        return dictionary.remove_word(word)
+
+    @app.put("/api/wordbook/{word}/note", **WRITE_GATE)
+    def put_word_note(word: str, note: str = Body("", embed=True)) -> list[dict]:
+        return dictionary.set_note(word, note)
+
+    # ── 歌曲导读（缓存命中直接回；否则后台生成 + 轮询） ──────
+
+    @app.get("/api/songs/{song_id}/intro")
+    def get_intro(song_id: str) -> dict:
+        s = _find_song(song_id)
+        text = _load_intro(s["dir"])
+        if text:
+            return {"status": "done", "text": text}
+        st = background_task.status(f"intro:{song_id}")
+        if st["status"] in ("running", "error"):
+            return {"status": st["status"], "text": st["msg"]}
+        return {"status": "none", "text": ""}
+
+    @app.post("/api/songs/{song_id}/intro")
+    def gen_intro(song_id: str) -> dict:
+        s = _find_song(song_id)
+        if _load_intro(s["dir"]):
+            return {"status": "done"}
+        if not load_settings().api_key:
+            raise HTTPException(400, "未配置 API Key：请在 .env 填写后重启")
+        background_task.kick(f"intro:{song_id}", lambda: _gen_intro_bg(s))
+        return {"status": "running"}
+
+    # ── 专辑封面（实验性，可整体移除；见 cover_art.py） ──────
+    @app.get("/api/songs/{song_id}/cover")
+    def get_cover(song_id: str):
+        s = _find_song(song_id)
+        p = cover_art.find_local(s["dir"])
+        if p:
+            return FileResponse(p)
+        # 未命中：后台补抓（public 不写服务器盘，不触发），本次 404 →
+        # 前端回落占位渐变，切歌回来即可见
+        if not load_settings().public_mode:
+            cover_art.fetch_async(s)
+        raise HTTPException(status_code=404, detail="no cover yet")
+    # ── end 专辑封面 ──
+
+    # ── 单句批注（旧 tab_play on_gen_ann 的 REST 化；
+    #    长耗时 LLM 铁律：后台线程 + 落盘 + 轮询） ──────────────
+
+    @app.get("/api/songs/{song_id}/annotate/{line_index}")
+    def annotate_status(song_id: str, line_index: int) -> dict:
+        s = _find_song(song_id)
+        st = background_task.status(f"annotate:{song_id}:{line_index}")
+        if st["status"] in ("running", "error"):
+            return {"status": st["status"], "msg": st["msg"]}
+        ann = _load_song_data(s["dir"])["annotations"].get(line_index)
+        if ann and ann.summary and "generation failed" not in ann.summary:
+            return {"status": "done", "msg": ""}
+        return {"status": "none", "msg": ""}
+
+    @app.post("/api/songs/{song_id}/annotate/{line_index}", **WRITE_GATE)
+    def annotate_line(song_id: str, line_index: int) -> dict:
+        s = _find_song(song_id)
+        if not load_settings().api_key:
+            raise HTTPException(400, "未配置 API Key：请在 .env 填写后重启")
+        data = _load_song_data(s["dir"])
+        line = next((ln for ln in data["timed_lines"]
+                     if ln.line_index == line_index), None)
+        if line is None:
+            raise HTTPException(404, f"没有第 {line_index + 1} 句")
+        background_task.kick(
+            f"annotate:{song_id}:{line_index}",
+            lambda: _gen_line_annotation_bg(s, line_index, line.text))
+        return {"status": "running"}
+
+    # ── 歌曲寻词（打字练习；旧 tab_review 的 REST 化） ────────
+
+    def _drill_book(group: str) -> list[dict]:
+        from .dictionary import is_phrase
+        book = dictionary.load_wordbook()
+        if group == "歌词收藏":
+            return [e for e in book if not e.get("group")]
+        if group == "单词":
+            return [e for e in book if not is_phrase(e.get("word", ""))]
+        if group == "词组":
+            return [e for e in book if is_phrase(e.get("word", ""))]
+        if group and group != "全部":
+            return [e for e in book if e.get("group") == group]
+        return book
+
+    @app.get("/api/drill/queue")
+    def drill_queue(group: str = "全部") -> dict:
+        from .review import book_stats, round_queue
+        book = _drill_book(group)
+        order = round_queue(book)
+        by_word = {e.get("word", "").lower(): e for e in book}
+        return {
+            "entries": [by_word[w.lower()] for w in order
+                        if w.lower() in by_word],
+            "stats": book_stats(dictionary.load_wordbook()),
+        }
+
+    @app.get("/api/drill/card/{word}")
+    def drill_card(word: str) -> dict:
+        from .review import synthesize_word, word_examples
+        entry = next((e for e in dictionary.load_wordbook()
+                      if e.get("word", "").lower() == word.lower()), None)
+        if not entry:
+            raise HTTPException(404, f"单词本里没有「{word}」")
+        examples = word_examples(
+            entry["word"], exclude_song=entry.get("song", ""),
+            corpus_dir=load_settings().corpus_dir)
+        tts = synthesize_word(entry["word"])
+        return {"entry": entry, "examples": examples, "tts": bool(tts)}
+
+    @app.get("/api/drill/tts/{word}")
+    def drill_tts(word: str):
+        from .review import synthesize_word
+        mp3 = synthesize_word(word)
+        if not mp3:
+            raise HTTPException(404, "TTS 不可用")
+        return FileResponse(mp3, media_type="audio/mpeg")
+
+    @app.post("/api/drill/result", **WRITE_GATE)
+    def drill_result(word: str = Body(...), clean: bool = Body(...),
+                     blind: bool = Body(False),
+                     peeks: int = Body(0)) -> dict:
+        from .review import book_stats, record_result
+        record_result(word, clean, blind=blind, peeks=max(0, int(peeks)))
+        return {"stats": book_stats(dictionary.load_wordbook())}
+
+    @app.get("/api/drill/analysis")
+    def drill_analysis() -> dict:
+        from .review import is_mastered, weak_words
+        from .stats import backfill_from_wordbook, year_series
+        book = dictionary.load_wordbook()
+        stats = backfill_from_wordbook(book)
+        practiced = [e for e in book
+                     if (e.get("review") or {}).get("correct", 0)
+                     + (e.get("review") or {}).get("wrong", 0) > 0]
+        return {
+            "practice": year_series(stats, "practice"),
+            "collect": year_series(stats, "collect"),
+            "totals": {
+                "collected": len(book),
+                "practiced": len(practiced),
+                "mastered": len([e for e in book if is_mastered(e)]),
+            },
+            "weak": weak_words(book),
+        }
+
+    # ── 单词本分组 / 导入 / 导出 ──────────────────────────────
+
+    @app.get("/api/wordbook/groups")
+    def wordbook_groups() -> list[str]:
+        return dictionary.word_groups()
+
+    @app.delete("/api/wordbook/groups/{group}", **WRITE_GATE)
+    def wordbook_del_group(group: str) -> dict:
+        return {"removed": dictionary.delete_group(group)}
+
+    @app.post("/api/wordbook/import", **WRITE_GATE)
+    async def wordbook_import(file: UploadFile,
+                              group: str = "") -> dict:
+        import tempfile
+        suffix = Path(file.filename or "words.txt").suffix or ".txt"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+            f.write(await file.read())
+            tmp = f.name
+        try:
+            rows = dictionary.parse_wordlist_file(tmp)
+        finally:
+            os.unlink(tmp)
+        if not rows:
+            raise HTTPException(422, "没有解析出任何单词（支持 txt/json 词表）")
+        group = (group or "").strip() or Path(file.filename or "导入").stem
+        added, skipped = dictionary.import_words(rows, group)
+        return {"added": added, "skipped": skipped, "group": group}
+
+    @app.get("/api/wordbook/export")
+    def wordbook_export(format: str = "json"):
+        from fastapi.responses import PlainTextResponse
+        from .review import export_anki, export_qwerty
+        book = dictionary.load_wordbook()
+        if not book:
+            raise HTTPException(404, "单词本是空的，没有可导出的词")
+        if format == "anki":
+            return PlainTextResponse(
+                export_anki(book), media_type="text/tab-separated-values",
+                headers={"Content-Disposition":
+                         'attachment; filename="lyric_lens_anki.txt"'})
+        return PlainTextResponse(
+            json.dumps(export_qwerty(book), ensure_ascii=False, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition":
+                     'attachment; filename="lyric_lens_qwerty.json"'})
+
+    # ── 歌迷考据（长文后台生成 + 缓存；铁律同导读） ──────────
+
+    @app.get("/api/songs/{song_id}/fanlore")
+    def get_fanlore(song_id: str) -> dict:
+        from dataclasses import asdict as dc_asdict
+        from .fanlore import load_fanlore, parse_fanlore
+        s = _find_song(song_id)
+        cached = load_fanlore(s["dir"])
+        if cached is not None:
+            return {"status": "done", "data": dc_asdict(parse_fanlore(cached))}
+        st = background_task.status(f"fanlore:{song_id}")
+        if st["status"] == "running":
+            return {"status": "running",
+                    "progress": st.get("progress", ""),
+                    "chars": st.get("chars", 0)}
+        if st["status"] == "error":
+            return {"status": "error", "msg": st["msg"]}
+        return {"status": "none"}
+
+    @app.post("/api/songs/{song_id}/fanlore")
+    def gen_fanlore(song_id: str) -> dict:
+        from .fanlore import load_fanlore
+        s = _find_song(song_id)
+        if load_fanlore(s["dir"]) is not None:
+            return {"status": "done"}
+        if not load_settings().api_key:
+            raise HTTPException(400, "未配置 API Key：请到「设置」页填写")
+        background_task.kick(f"fanlore:{song_id}",
+                             lambda: _gen_fanlore_bg(song_id, s))
+        return {"status": "running"}
+
+    # ── 行级 AI 助手（旧播放页「💬 AI 助手」迁移） ──────────────
+
+    @app.get("/api/songs/{song_id}/chat/{line_index}")
+    def get_line_chat(song_id: str, line_index: int) -> dict:
+        """该句歌词已保存的问答历史。public：访客不能看彼此的问答。"""
+        if load_settings().public_mode:
+            return {"history": []}
+        from .songdata import _load_chat_history
+        s_info = _find_song(song_id)
+        saved = _load_chat_history(s_info["dir"]).get(str(line_index))
+        turns = (saved or {}).get("turns")
+        return {"history": turns if isinstance(turns, list) else []}
+
+    @app.post("/api/songs/{song_id}/chat")
+    def ask_line(song_id: str, line_index: int = Body(...),
+                 question: str = Body(...),
+                 history: list[dict] = Body(default=[])) -> dict:
+        """针对一句歌词提问。批注作为上下文喂给 AI（与旧版同口径；
+        互文档案 echo_context 依赖重型索引，薄层暂不带，留待后续）。"""
+        from .debate import DebateSession, speak as ai_speak
+        from .songdata import _load_chat_history, _save_chat_history
+        question = (question or "").strip()
+        if not question:
+            raise HTTPException(422, "问题不能为空")
+        s_info = _find_song(song_id)
+        data = _load_song_data(s_info["dir"])
+        line = next((ln for ln in data["timed_lines"]
+                     if ln.line_index == line_index), None)
+        if line is None:
+            raise HTTPException(404, "没有这句歌词")
+        settings = load_settings()
+        if not settings.api_key:
+            raise HTTPException(400, "未配置 API Key：请到「设置」页填写")
+
+        ann = data["annotations"].get(line_index)
+        ann_parts = []
+        if ann:
+            ann_parts.append(ann.summary)
+            if getattr(ann, "metaphor_analysis", None):
+                ann_parts.append(f"修辞：{ann.metaphor_analysis}")
+            if getattr(ann, "taylor_swift_context", None):
+                ann_parts.append(f"背景：{ann.taylor_swift_context}")
+
+        session = DebateSession(
+            lyric_line=line.text,
+            song_title=s_info.get("title", ""),
+            artist=s_info.get("artist", ""),
+            annotation_context="　".join(ann_parts),
+            line_index=line_index,
+        )
+        if history:
+            session.history = [h for h in history
+                               if isinstance(h, dict) and h.get("text")]
+        elif not settings.public_mode:
+            saved = _load_chat_history(s_info["dir"]).get(str(line_index))
+            if saved and isinstance(saved.get("turns"), list):
+                session.history = saved["turns"]
+        session.history.append({"speaker": "user", "text": question})
+        answer = "".join(ai_speak(settings, session, "assistant",
+                                  user_prompt=question))
+        if answer and not answer.startswith("⚠️"):
+            if session.history and session.history[-1].get("speaker") == "user":
+                session.history.append({"speaker": "🤖 AI 助手",
+                                        "text": answer})
+            if not settings.public_mode:
+                _save_chat_history(s_info["dir"], line_index, line.text,
+                                   session.history)
+        return {"answer": answer, "history": session.history}
+
+    @app.post("/api/chat/lore")
+    def chat_lore(song_id: str = Body(...), question: str = Body(...),
+                  history: list[dict] = Body(default=[])) -> dict:
+        from .debate import DebateSession, speak as ai_speak
+        from .fanlore import load_fanlore, parse_fanlore
+        s = _find_song(song_id)
+        question = (question or "").strip()
+        if not question:
+            raise HTTPException(422, "问题不能为空")
+        settings = load_settings()
+        if not settings.api_key:
+            raise HTTPException(400, "未配置 API Key：请到「设置」页填写")
+        ctx_txt = ""
+        cached = load_fanlore(s["dir"])
+        if cached is not None:
+            f = parse_fanlore(cached)
+            bits = ([f"一句话看懂：{f.hook}"] if f.hook else [])
+            bits += [f"线索[{c.type}]{c.title}：{c.body}" for c in f.clues]
+            if f.chain:
+                bits.append("剧情推测链：" + " → ".join(
+                    f"《{sg}》（{b}）" for sg, b in f.chain))
+            if f.summary:
+                bits.append(f"总结：{f.summary}")
+            ctx_txt = ("用户正在看的考据页内容：\n" + "\n".join(bits))[:1500]
+        session = DebateSession(
+            lyric_line="（用户在看这首歌的考据页，可能就页面任何内容提问）",
+            song_title=s.get("title", ""), artist=s.get("artist", ""),
+            annotation_context=ctx_txt)
+        session.history = [h for h in history
+                           if isinstance(h, dict) and h.get("text")]
+        session.history.append({"speaker": "user", "text": question})
+        answer = "".join(ai_speak(settings, session, "assistant",
+                                  user_prompt=question))
+        return {"answer": answer}
+
+    # ── 游戏（答案随 payload 下发，前端判题——与旧版同口径） ──
+
+    @app.get("/api/games/quiz")
+    def game_quiz() -> dict:
+        from dataclasses import asdict as dc_asdict
+        from .quiz import make_question
+        pool = {
+            s["title"]: (s["artist"],
+                         [ln.text for ln in
+                          _load_song_data(s["dir"])["timed_lines"]])
+            for s in _songs()
+            if (Path(s["dir"]) / "lyrics.lrc").exists()
+        }
+        q = make_question(pool)
+        if q is None:
+            raise HTTPException(409, "歌曲列表至少需要 2 首歌才能出题")
+        return dc_asdict(q)
+
+    @app.get("/api/games/title-puzzle")
+    def game_title_puzzle() -> dict:
+        from dataclasses import asdict as dc_asdict
+        from .quiz import make_title_puzzle
+        q = make_title_puzzle([(s["title"], s["artist"]) for s in _songs()])
+        if q is None:
+            raise HTTPException(409, "曲库里可拼的歌名不足（至少 2 首可挖）")
+        return dc_asdict(q)
+
+    # ── 曲库管理（内置曲库 / 手动添加 / 删除） ────────────────
+
+    @app.get("/api/catalog")
+    def get_catalog(q: str = "") -> list[dict]:
+        from .songdata import _load_catalog
+        have = {(s["title"], s["artist"]) for s in _songs()}
+        ql = (q or "").strip().lower()
+        out = []
+        cat_keys = set()
+        for c in _load_catalog():
+            cat_keys.add((c["title"], c["artist"]))
+            if ql and not (ql in c["title"].lower()
+                           or ql in c["artist"].lower()
+                           or ql in c.get("album", "").lower()):
+                continue
+            out.append({"title": c["title"], "artist": c["artist"],
+                        "album": c.get("album", ""),
+                        "in_library": (c["title"], c["artist"]) in have})
+        # 曲库里有但内置目录没有的歌（手动添加）也可被搜到，标已在列表
+        for s in _songs():
+            key = (s["title"], s["artist"])
+            if key in cat_keys:
+                continue
+            if ql and ql not in f"{key[0]} — {key[1]}".lower():
+                continue
+            out.append({"title": key[0], "artist": key[1],
+                        "album": s.get("album", ""), "in_library": True})
+        return out
+
+    @app.post("/api/songs/from-catalog", **WRITE_GATE)
+    def add_from_catalog(labels: list[str] = Body(..., embed=True)) -> dict:
+        import re as _re
+        import time as _time
+        from .songdata import _load_catalog
+        catalog = _load_catalog()
+        added, existed, missing = [], [], []
+        for label in labels or []:
+            entry = next((c for c in catalog
+                          if f"{c['title']} — {c['artist']}" == label), None)
+            if not entry:
+                missing.append(label)
+                continue
+            slug = _re.sub(r"[^\w]+", "_", entry["title"].lower()) \
+                .strip("_") or f"song_{int(_time.time())}"
+            d = Path(load_settings().songs_dir) / slug
+            if d.exists():
+                try:
+                    have = json.loads((d / "metadata.json")
+                                      .read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    have = {}
+                if (have.get("title") == entry["title"]
+                        and have.get("artist") == entry["artist"]):
+                    existed.append(entry["title"])
+                    continue
+                slug += "_" + (_re.sub(r"[^\w]+", "_",
+                                       entry["artist"].lower()).strip("_")
+                               or "x")
+                d = Path(load_settings().songs_dir) / slug
+                if d.exists():
+                    existed.append(entry["title"])
+                    continue
+            d.mkdir(parents=True)
+            (d / "lyrics.lrc").write_text(entry["lrc"], encoding="utf-8")
+            (d / "metadata.json").write_text(json.dumps({
+                "title": entry["title"], "artist": entry["artist"],
+                "album": entry.get("album", ""), "year": 0,
+                "era": entry.get("era", ""), "themes": [],
+            }, ensure_ascii=False, indent=2), encoding="utf-8")
+            added.append(entry["title"])
+        if added:
+            _kick_corpus_rebuild()
+        return {"added": added, "existed": existed, "missing": missing}
+
+    @app.post("/api/songs", **WRITE_GATE)
+    async def add_song(title: str = Body(...), artist: str = Body(""),
+                       album: str = Body(""),
+                       lrc_text: str = Body("")) -> dict:
+        import re as _re
+        import time as _time
+        from .lrc_parser import parse_lrc
+        from .songdata import _PLACEHOLDER_LRC, _fetch_lrc_from_lrclib
+        title = (title or "").strip()
+        if not title:
+            raise HTTPException(422, "请填写歌曲标题（唯一必填项）")
+        slug = _re.sub(r"[^\w]+", "_", title.lower()).strip("_") \
+            or f"song_{int(_time.time())}"
+        d = Path(load_settings().songs_dir) / slug
+        if d.exists():
+            raise HTTPException(409, f"歌曲目录已存在：{slug}，请换一个标题")
+        lrc_content = (lrc_text or "").strip()
+        if lrc_content:
+            _, timed = parse_lrc(lrc_content)
+            if not timed:
+                raise HTTPException(
+                    422, "未能解析出带时间戳的歌词行，请检查格式"
+                         "（如 [00:12.34] 歌词内容）；暂无歌词可留空")
+            lrc_note = f"{len(timed)} 行歌词"
+        else:
+            fetched = _fetch_lrc_from_lrclib(title, (artist or "").strip())
+            if fetched:
+                lrc_content = fetched
+                _, timed = parse_lrc(lrc_content)
+                lrc_note = f"已自动从 LRCLIB 获取 {len(timed)} 行歌词"
+            else:
+                lrc_content = _PLACEHOLDER_LRC
+                lrc_note = "LRCLIB 未找到歌词，已创建占位歌词"
+        d.mkdir(parents=True)
+        (d / "lyrics.lrc").write_text(lrc_content, encoding="utf-8")
+        (d / "metadata.json").write_text(json.dumps({
+            "title": title, "artist": (artist or "").strip() or "未知歌手",
+            "album": (album or "").strip(), "year": 0, "era": "",
+            "themes": [],
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        _kick_corpus_rebuild()
+        return {"id": slug, "note": lrc_note}
+
+    @app.delete("/api/songs/{song_id}", **WRITE_GATE)
+    def delete_song(song_id: str) -> dict:
+        import shutil
+        from .songdata import _SONG_DATA_CACHE
+        s = _find_song(song_id)
+        try:
+            shutil.rmtree(s["dir"])
+        except Exception as exc:
+            raise HTTPException(409, f"删除失败（文件可能被占用）："
+                                     f"{str(exc)[:120]}")
+        _SONG_DATA_CACHE.pop(s["dir"], None)
+        _kick_corpus_rebuild()
+        return {"deleted": song_id}
+
+    # ── 设置（API 密钥 / 用量 / Embedding 重建） ──────────────
+
+    @app.get("/api/settings")
+    def get_settings() -> dict:
+        s = load_settings()
+        return {"llm_provider": s.llm_provider, "has_key": bool(s.api_key),
+                "public": s.public_mode,
+                "llm_base_url": s.llm_base_url, "model_name": s.model_name,
+                "embedding_model": s.embedding_model}
+
+    @app.put("/api/settings", **WRITE_GATE)
+    def put_settings(provider: str = Body(...), key: str = Body(...),
+                     base: str = Body(""), model: str = Body("")) -> dict:
+        from .config import default_model_for, save_user_settings
+        key = (key or "").strip()
+        if not key:
+            raise HTTPException(422, "请填写 API Key")
+        model = (model or "").strip() or default_model_for(provider)
+        save_user_settings({
+            "api_key": key, "llm_provider": provider,
+            "llm_base_url": (base or "").strip(), "model_name": model,
+        })
+        return {"model_name": model}
+
+    @app.get("/api/usage")
+    def get_usage() -> dict:
+        from .llm import load_usage
+        return load_usage()
+
+    @app.get("/api/rebuild-index")
+    def rebuild_status() -> dict:
+        st = background_task.status("rebuild")
+        return {"status": st["status"], "msg": st.get("msg", "")}
+
+    @app.post("/api/rebuild-index", **WRITE_GATE)
+    def rebuild_index(model: str = Body("", embed=True)) -> dict:
+        model = (model or "").strip() or load_settings().embedding_model
+        if background_task.kick("rebuild", lambda: _rebuild_index_bg(model)):
+            background_task.update("rebuild", msg="1/2 正在重建语料库…")
+        return {"status": "running"}
 
     @app.get("/api/dict/{word}")
     def dict_lookup(word: str) -> dict:
@@ -88,8 +1008,227 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"not found: {word}")
         return hit
 
-    # 生产形态：Vite build 产物由同一进程托管（部署体验与 serve 一致）
+    @app.get("/api/dict/{word}/occurrences")
+    def dict_occurrences(word: str, song: str = "", line: str = "",
+                         limit: int = 20) -> dict:
+        s = load_settings()
+        return find_occurrences(word.strip(), s.corpus_dir, s.songs_dir,
+                                song=song, line=line, limit=limit)
+
+    # ── 弹卡 ✨AI 语境解释（v4 条件四行模板 + 曲库例句注入，落盘缓存命中零调用） ──
+
+    _AI_CACHE_PATH = Path(load_settings().songs_dir).parent \
+        / "dict" / "ai_cache.json"
+
+    def _ai_cache() -> dict:
+        try:
+            return json.loads(_AI_CACHE_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _ai_examples(word: str, line: str, song: str) -> list[dict]:
+        s = load_settings()
+        res = find_occurrences(word, s.corpus_dir, s.songs_dir,
+                               song=song, line=line, limit=20)
+        picked: list[dict] = []
+        per_song: dict[str, int] = {}
+        for it in res["items"]:
+            if per_song.get(it["song"], 0) >= 2:
+                continue
+            per_song[it["song"]] = per_song.get(it["song"], 0) + 1
+            picked.append(it)
+            if len(picked) >= 5:
+                break
+        return picked
+
+    def _ctx_digest(examples: list[dict]) -> str:
+        if not examples:
+            return ""
+        joined = "\n".join(
+            f"{it['song']}\x00{it['line_index']}\x00{it['line']}"
+            for it in examples)
+        return hashlib.md5(joined.encode()).hexdigest()[:8]
+
+    def _ai_key(word: str, line: str, ctx_digest: str) -> str:
+        return hashlib.md5(
+            f"v4:{word}\x00{line}\x00{ctx_digest}".encode()).hexdigest()
+
+    @app.get("/api/dict-ai")
+    def dict_ai_cached(word: str, line: str = "", song: str = "") -> dict:
+        word = word.strip()
+        digest = _ctx_digest(_ai_examples(word, line, song))
+        return {"ai": _ai_cache().get(_ai_key(word, line, digest), "")}
+
+    @app.post("/api/dict-ai")
+    def dict_ai(word: str = Body(...), line: str = Body(""),
+                song: str = Body("")) -> dict:
+        word = (word or "").strip()
+        if not word:
+            raise HTTPException(422, "word 不能为空")
+        examples = _ai_examples(word, line, song)
+        key = _ai_key(word, line, _ctx_digest(examples))
+        cache = _ai_cache()
+        if key in cache:
+            return {"ai": cache[key]}
+        settings = load_settings()
+        if not settings.api_key:
+            raise HTTPException(400, "AI 语境解释需要配置 API Key（设置页）")
+        from .llm import LLMClient
+        resp = LLMClient(settings).generate(
+            system_prompt=(
+                "你是英语歌词阅读助手。用户双击了歌词里的一个单词。"
+                "用简体中文回答，不超过 160 字。严格按下面模板输出，"
+                "不得增删行、加标题、加 markdown 或任何"
+                "模板外内容：\n"
+                "①语境义：<这个词在这句歌词里的含义>\n"
+                "②整句：<这句歌词的通顺翻译>\n"
+                "③用法：<常见用法/搭配>。例：<简短英文例句> "
+                "<例句中文翻译>\n"
+                "④曲库：<从「曲库例句」中挑 1-2 句，指出该词在那里的"
+                "用法是否相同；格式：在《歌名》里 \"<原句>\" 也是/却是 "
+                "<义>>\n"
+                "仅当用户消息含「曲库例句」时输出第④行，且只许引用"
+                "给出的句子，不得自造歌词；无该段时输出三行。\n"
+                "示例（单词 resist，歌词句 'Cause I can't "
+                "resist it no more）：\n"
+                "①语境义：再也忍不住、无法克制（想挣脱的冲动）\n"
+                "②整句：因为我再也忍不住了\n"
+                "③用法：can't resist (doing) sth 忍不住做某事。"
+                "例：I can't resist checking my phone. "
+                "我忍不住看手机。"),
+            user_message=(f"单词：{word}\n"
+                          f"歌词句：{line}\n出自：《{song}》"
+                          + (("\n曲库例句（该词在用户听过的其他歌里的"
+                              "出现）：\n"
+                              + "\n".join(
+                                  f"{i}. {it['line']} ——《{it['song']}》"
+                                  for i, it in enumerate(examples, 1)))
+                             if examples else "")),
+        )
+        text = (resp.reply_text or "").strip()
+        cache[key] = text
+        _AI_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _AI_CACHE_PATH.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        return {"ai": text}
+
+    # ── 数据备份与恢复（spec: .scratch/backup-restore/spec.md） ──
+    # 术语见 GLOSSARY.md 数据备份域：备份包 / 恢复(清空替换) / 留底 / key 剥离。
+    _DATA_ROOT = Path("data")
+    _SETTINGS_NAME = "user_settings.json"
+
+    @app.get("/api/backup/export", **WRITE_GATE)
+    def export_backup():
+        """整个 data/ 打成 zip 下载；包内 settings 副本剥离 api_key。"""
+        import tempfile
+        import zipfile
+        from datetime import date
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+        tmp.close()
+        with zipfile.ZipFile(tmp.name, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in sorted(_DATA_ROOT.rglob("*")):
+                if not f.is_file():
+                    continue
+                arc = f.relative_to(_DATA_ROOT).as_posix()
+                if arc == _SETTINGS_NAME:
+                    cfg = json.loads(f.read_text(encoding="utf-8"))
+                    cfg.pop("api_key", None)  # key 剥离：密钥不离开本机
+                    zf.writestr(arc, json.dumps(cfg, ensure_ascii=False,
+                                                indent=2))
+                else:
+                    zf.write(f, arc)
+        name = f"lyric_lens_backup_{date.today().isoformat()}.zip"
+        return FileResponse(
+            tmp.name, media_type="application/zip", filename=name,
+            background=BackgroundTask(lambda: Path(tmp.name)
+                                      .unlink(missing_ok=True)))
+
+    @app.post("/api/backup/import", **WRITE_GATE)
+    def import_backup(file: UploadFile):
+        """恢复 = 清空替换：校验 → 留底 → 解包 → 本机 key 保留 → 失败回滚。"""
+        import shutil
+        import tempfile
+        import time
+        import zipfile
+
+        # 1. 校验：是 zip、像备份包（防传错文件）、无 zip-slip
+        try:
+            zf = zipfile.ZipFile(file.file)
+            names = zf.namelist()
+        except zipfile.BadZipFile:
+            raise HTTPException(400, "不是有效的 zip 文件")
+        if not any(n == "wordbook.json" or n.startswith("songs/")
+                   for n in names):
+            raise HTTPException(400, "这不像歌词透镜的备份包"
+                                     "（没有 songs/ 或 wordbook.json）")
+        for n in names:
+            parts = Path(n).parts
+            if ".." in parts or Path(n).is_absolute():
+                raise HTTPException(400, f"备份包含非法路径：{n}")
+
+        # 2. 解包到临时目录（先解后替换，解包失败不影响现有数据）
+        staging = Path(tempfile.mkdtemp(prefix="ll_restore_"))
+        try:
+            zf.extractall(staging)
+        except Exception:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise HTTPException(400, "备份包解压失败")
+
+        # 3. 留底 → 换入；任一步失败回滚留底
+        bak = Path(f"data.bak_{time.strftime('%Y%m%d_%H%M%S')}")
+        try:
+            _DATA_ROOT.rename(bak)
+        except OSError as exc:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise HTTPException(409, f"数据目录被占用，无法恢复："
+                                     f"{str(exc)[:120]}")
+        try:
+            staging.rename(_DATA_ROOT)
+        except OSError:
+            # 跨盘 rename 可能失败，退回复制
+            try:
+                shutil.copytree(staging, _DATA_ROOT)
+                shutil.rmtree(staging, ignore_errors=True)
+            except Exception as exc:
+                bak.rename(_DATA_ROOT)  # 回滚
+                shutil.rmtree(staging, ignore_errors=True)
+                raise HTTPException(500, f"恢复失败，已回滚：{str(exc)[:120]}")
+
+        # 4. 本机 api_key 保留：包内 key 不写入，本机旧 key 拷回
+        try:
+            old_cfg = json.loads((bak / _SETTINGS_NAME)
+                                 .read_text(encoding="utf-8"))
+            key = old_cfg.get("api_key")
+        except Exception:
+            key = None
+        if key:
+            new_path = _DATA_ROOT / _SETTINGS_NAME
+            try:
+                cfg = json.loads(new_path.read_text(encoding="utf-8"))
+            except Exception:
+                cfg = {}
+            cfg["api_key"] = key
+            new_path.write_text(
+                json.dumps(cfg, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+
+        from .songdata import _SONG_DATA_CACHE
+        _SONG_DATA_CACHE.clear()
+        return {"restored": True, "backup_of_old_data": str(bak)}
+
+    # 生产形态：Vite build 产物由同一进程托管（部署体验与 serve 一致）。
+    # SPA 路由（/words 等）回退到 index.html。
     if _FRONTEND_DIST.exists():
-        app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True),
-                  name="spa")
+        app.mount("/assets",
+                  StaticFiles(directory=_FRONTEND_DIST / "assets"),
+                  name="spa-assets")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def spa(path: str):
+            file = _FRONTEND_DIST / path
+            if path and file.is_file():
+                return FileResponse(file)
+            return FileResponse(_FRONTEND_DIST / "index.html")
     return app

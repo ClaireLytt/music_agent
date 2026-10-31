@@ -44,3 +44,18 @@ def test_dict_lookup(client):
     hit = client.get("/api/dict/sequin").json()
     assert hit["word"] == "sequin" and hit["translation"]
     assert client.get("/api/dict/zzzznotaword").status_code == 404
+
+
+def test_mv_candidates_sorted_by_play(client, monkeypatch):
+    import lyric_agent.bilibili as bilibili
+
+    fake = [
+        {"bvid": "BV1", "title": "a", "author": "", "duration": "1:0", "play": 50},
+        {"bvid": "BV2", "title": "b", "author": "", "duration": "1:0", "play": 900},
+        {"bvid": "BV3", "title": "c", "author": "", "duration": "1:0", "play": 300},
+    ]
+    monkeypatch.setattr(bilibili, "search_mv", lambda *a, **k: list(fake))
+    sid = client.get("/api/songs").json()[0]["id"]
+    plays = [c["play"] for c in
+             client.get(f"/api/songs/{sid}/mv-candidates").json()]
+    assert plays == [900, 300, 50]

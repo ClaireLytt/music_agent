@@ -20,6 +20,8 @@ jobs:
           pip install -e .
           pip install numpy scipy jieba pypinyin pronouncing pytest pyflakes mcp openai
       - name: Lint
-        run: python -m pyflakes src/lyric_agent scripts/self_test.py scripts/ui_probe.py scripts/ui_agent.py tests
+        run: python -m pyflakes src/lyric_agent scripts/self_test.py scripts/ui_probe.py scripts/ui_agent.py scripts/lint_scrollbars.py tests
+      - name: Lint frontend scrollbars (自绘 Scrollable，禁裸原生滚动条)
+        run: python scripts/lint_scrollbars.py
       - name: Unit tests
         run: python -m pytest tests -q

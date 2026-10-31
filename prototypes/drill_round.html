@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>歌曲寻词 · 轮次原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg2:#181818; --panel:#1e1e22; --panel2:#24242a; --edge:#2a2a31; --edge2:#2e2e36;
+  --line:#232329; --ink:#f5f5f4; --ink2:#a8a8b3; --ink3:#6e6e78;
+  --accent:#7c9eff; --accent-soft:rgba(124,158,255,.16); --radius:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,"Noto Sans SC",system-ui,sans-serif;background:var(--bg2);color:var(--ink);
+  height:100vh;display:flex;flex-direction:column;padding:24px 40px;gap:16px;overflow:hidden}
+::selection{background:var(--accent-soft)}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.chip{white-space:nowrap;border-radius:999px;padding:6px 14px;font-size:12.5px;font-weight:500;
+  border:1px solid #33333c;color:var(--ink2);transition:color .15s,border-color .15s}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#0e1016;font-weight:600}
+header{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+header h1{font-size:14px;font-weight:700;letter-spacing:.02em;margin-right:8px}
+.len-label{margin-left:auto;font-size:11px;color:var(--ink3);letter-spacing:.1em}
+.len .chip{padding:5px 12px;font-size:12px}
+
+/* 进度条 */
+.progress{display:flex;align-items:center;gap:10px;max-width:560px;width:100%;margin:0 auto}
+.rail{flex:1;height:5px;border-radius:3px;background:var(--edge2);overflow:hidden}
+.rail .done{height:100%;width:35%;background:var(--accent);border-radius:3px;transition:width .25s cubic-bezier(.2,.9,.3,1)}
+.progress .n{font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums}
+
+/* 练习卡 */
+.drill{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;min-height:0}
+.meaning{max-width:36rem;text-align:center;font-size:15px;line-height:1.8;color:var(--ink2)}
+.wordrow{display:flex;align-items:center;gap:12px}
+.w{display:flex;gap:3px;font-size:34px;font-weight:700;letter-spacing:.03em}
+.w span{color:var(--ink3)}
+.w span.ok{color:var(--accent)}
+.phon{font-size:14px;color:var(--ink3)}
+.blind-t{border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:4px 10px;font-size:11px}
+.src{max-width:36rem;text-align:center;font-size:14px;line-height:1.8;color:var(--ink3)}
+.hint{font-size:12px;color:var(--ink3)}
+.statline{font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums}
+
+/* 回顾页 */
+.review{flex:1;display:none;flex-direction:column;align-items:center;gap:18px;overflow-y:auto;padding-top:24px}
+.review h2{font-size:20px;font-weight:700}
+.sumline{font-size:13.5px;color:var(--ink2);font-variant-numeric:tabular-nums}
+.missed{width:min(560px,100%);display:flex;flex-direction:column;gap:8px}
+.missed-h{font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--ink3)}
+.mrow{display:flex;align-items:baseline;gap:10px;background:var(--panel);border:1px solid var(--edge);
+  border-radius:var(--radius);padding:12px 16px;font-size:13.5px}
+.mrow b{font-size:15px}
+.mrow .p{color:var(--ink3);font-size:11.5px}
+.mrow .t{color:var(--ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrow .n{color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums;flex:none}
+.allclear{color:var(--ink2);font-size:14px;padding:18px 0}
+.acts{display:flex;gap:10px}
+.chip.pri{background:var(--accent);border-color:var(--accent);color:#0e1016;font-weight:600}
+.chip.pri:hover{filter:brightness(1.1)}
+.note{font-size:11px;color:var(--ink3)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>歌曲寻词</h1>
+  <button class="chip on">全部</button>
+  <button class="chip">歌词收藏</button>
+  <button class="chip">单词</button>
+  <button class="chip">词组</button>
+  <span class="len-label">每轮</span>
+  <span class="len">
+    <button class="chip" data-len="10">10</button>
+    <button class="chip on" data-len="20">20</button>
+    <button class="chip" data-len="50">50</button>
+    <button class="chip" data-len="0">全部</button>
+  </span>
+</header>
+
+<div class="progress" id="prog">
+  <div class="rail"><div class="done" id="bar"></div></div>
+  <span class="n" id="pn">0/5</span>
+</div>
+
+<!-- 练习态 -->
+<section class="drill" id="drill" aria-label="打字练习">
+  <p class="meaning" id="meaning"></p>
+  <div class="wordrow">
+    <div class="w" id="word"></div>
+    <span class="phon" id="phon"></span>
+    <span class="blind-t">盲打</span>
+  </div>
+  <p class="src" id="src"></p>
+  <p class="hint" id="hint">直接敲键盘开始 · 打错整词重来 · Tab 偷看一眼</p>
+  <p class="statline" id="stat">单词本 47/68 已练 · 5 熟练</p>
+</section>
+
+<!-- 回顾态 -->
+<section class="review" id="review" aria-label="本轮回顾">
+  <h2 id="rtitle">本轮完成</h2>
+  <p class="sumline" id="rsum"></p>
+  <div class="missed" id="missed"></div>
+  <div class="acts">
+    <button class="chip pri" id="retry">重打错词</button>
+    <button class="chip" id="next">下一轮</button>
+  </div>
+  <p class="note">原型说明:演示轮长 5(真实版默认 20，档位即上方 chips);按 Enter = 下一轮</p>
+</section>
+
+<script>
+// ── 演示数据:5 词一轮,打完看回顾(真实版从 /api/drill/queue 取前 N) ──
+const WORDS = [
+  {w:'sequin', p:"'si:kwin", m:'n. 装饰衣服用的金属或塑料小圆片', s:'「●●●●●● smile, black lipstick」·《cardigan》'},
+  {w:'cobblestone', p:"'kɔblәstәjn", m:'n. 圆石, 鹅卵石', s:'「High heels on ●●●●●●●●●●●s」·《cardigan》'},
+  {w:'penthouse', p:"'penthaus", m:'n. 顶层豪华公寓', s:'「When I want the ●●●●●●●●● of your heart」·《Bejeweled》'},
+  {w:'shimmer', p:"'ʃimә", m:'v. 闪烁, 发微光', s:'「I can still make the whole place ●●●●●●●」·《Bejeweled》'},
+  {w:'sapphire', p:"'sæfaiә", m:'n. 蓝宝石', s:'「●●●●●●●● tears on my face」·《Bejeweled》'},
+];
+let queue = [...WORDS], qi = 0, typed = 0, mistakes = 0, done = false;
+let round = {perfect: 0, missed: []};
+const $ = (id) => document.getElementById(id);
+
+function showCard() {
+  const e = queue[qi];
+  $('meaning').textContent = e.m;
+  $('phon').textContent = '/' + e.p + '/';
+  $('src').textContent = e.s;
+  $('word').innerHTML = e.w.split('').map(() => '<span>●</span>').join('');
+  $('pn').textContent = qi + '/' + queue.length;
+  $('bar').style.width = (qi / queue.length * 100) + '%';
+  $('hint').textContent = '直接敲键盘开始 · 打错整词重来 · Tab 偷看一眼';
+  typed = 0; mistakes = 0; done = false;
+}
+function paint() {
+  const e = queue[qi];
+  [...$('word').children].forEach((s, i) => {
+    s.className = i < typed ? 'ok' : '';
+    s.textContent = i < typed || done ? e.w[i] : '●';
+  });
+}
+function showReview() {
+  $('drill').style.display = 'none';
+  $('review').style.display = 'flex';
+  $('bar').style.width = '100%';
+  $('pn').textContent = queue.length + '/' + queue.length;
+  const pct = Math.round(100 * round.perfect / queue.length);
+  $('rsum').textContent = `本轮 ${queue.length} 词 · 一遍过 ${round.perfect}(${pct}%) · WPM 38.2　｜　单词本 47/68 已练 · 5 熟练`;
+  $('rtitle').textContent = round.missed.length ? '本轮完成 · ' + round.missed.length + ' 个错词' : '本轮完成 · 全部一遍过';
+  $('missed').innerHTML = round.missed.length
+    ? '<div class="missed-h">错词(本轮整词重来 ≥1 次)</div>' + round.missed.map((m) =>
+        `<div class="mrow"><b>${m.w}</b><span class="p">/${m.p}/</span>` +
+        `<span class="t">${m.m}</span><span class="n">重来 ×${m.n}</span></div>`).join('')
+    : '<p class="allclear">没有错词——这轮漂亮。</p>';
+  $('retry').style.display = round.missed.length ? '' : 'none';
+}
+function startRound(words) {
+  queue = words; qi = 0; round = {perfect: 0, missed: []};
+  $('review').style.display = 'none';
+  $('drill').style.display = 'flex';
+  showCard();
+}
+document.addEventListener('keydown', (e) => {
+  if ($('review').style.display === 'flex') {
+    if (e.key === 'Enter') startRound([...WORDS]);
+    return;
+  }
+  const w = queue[qi].w;
+  if (e.key === 'Enter' && done) {
+    qi++;
+    if (qi >= queue.length) showReview(); else showCard();
+    return;
+  }
+  if (done || e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+  e.preventDefault();
+  if (e.key.toLowerCase() === w[typed]) {
+    typed++;
+    if (typed >= w.length) {
+      done = true;
+      const entry = queue[qi];
+      if (mistakes === 0) round.perfect++;
+      else round.missed.push({w: entry.w, p: entry.p, m: entry.m, n: mistakes});
+      $('hint').textContent = `完成(${mistakes === 0 ? '一遍过' : mistakes + ' 次重来'})· 按 Enter 下一个`;
+    }
+  } else { typed = 0; mistakes++; }
+  paint();
+});
+$('next').addEventListener('click', () => startRound([...WORDS]));
+$('retry').addEventListener('click', () =>
+  startRound(round.missed.map((m) => WORDS.find((x) => x.w === m.w))));
+document.querySelectorAll('.len .chip').forEach((c) =>
+  c.addEventListener('click', () => {
+    document.querySelectorAll('.len .chip').forEach((x) => x.classList.remove('on'));
+    c.classList.add('on');
+  }));
+showCard();
+</script>
+</body>
+</html>

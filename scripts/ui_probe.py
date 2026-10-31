@@ -29,12 +29,14 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import re
 import shutil
 import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -146,7 +148,8 @@ def free_port() -> int:
         return s.getsockname()[1]
 
 
-def run_probe(base: str, server_log: Path | None) -> list[dict]:
+def run_probe(base: str, server_log: Path | None,
+              data_root: Path | None = None) -> list[dict]:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
@@ -517,7 +520,8 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
                 lambda: pg.locator(".song-title-display").inner_text().strip()
                 == PLAIN_SONG, msg="could not open the starting song")
             write_mcp_command("play", title=AUDIO_SONG,
-                              path=ROOT / "data" / "cache" / "mcp_command.json")
+                              path=(data_root or ROOT / "data")
+                                   / "cache" / "mcp_command.json")
             probe.wait_until(
                 lambda: pg.locator(".song-title-display").inner_text().strip()
                 == AUDIO_SONG,
@@ -980,6 +984,209 @@ def run_probe(base: str, server_log: Path | None) -> list[dict]:
         return probe.results
 
 
+def run_react_probe(base: str, server_log: Path | None) -> list[dict]:
+    from playwright.sync_api import sync_playwright
+
+    def api(path: str):
+        with urllib.request.urlopen(base + path, timeout=10) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        page = browser.new_page(viewport={"width": 1600, "height": 1000})
+        probe = Probe(page, server_log)
+        pg, must, count = page, probe.must, probe.count
+        state: dict = {}
+
+        def c_boot():
+            pg.goto(base + "/", wait_until="load")
+            pg.wait_for_selector(".lyric-line", timeout=40000)
+            songs = api("/api/songs")
+            must(songs, "song list empty")
+            cur = next((s for s in songs if s["id"] == "cardigan"), songs[0])
+            state["songs"] = songs
+            state["title"] = cur["title"]
+        probe.check("react_boot", "react play page loads lyrics", c_boot)
+
+        def c_pick_words():
+            title = state["title"]
+            lines = pg.evaluate(
+                "[...document.querySelectorAll('.lyric-line')]"
+                ".map(l => l.textContent.trim())")
+            quoted = urllib.parse.quote(title)
+            for text in lines:
+                for word in re.findall(r"[A-Za-z]{3,}", text):
+                    if ("single" in state and "multi" in state
+                            and state["multi"][3]):
+                        return
+                    key = word.lower()
+                    if key in state.setdefault("tried", set()):
+                        continue
+                    state["tried"].add(key)
+                    occ = api(f"/api/dict/{urllib.parse.quote(word)}"
+                              f"/occurrences?song={quoted}"
+                              f"&line={urllib.parse.quote(text)}")
+                    lib = {s["title"] for s in state["songs"]}
+                    cross = [it for it in occ["items"]
+                             if it["song"] != title and it["song"] in lib]
+                    same = [it for it in occ["items"] if it["song"] == title]
+                    if occ["total"] > 0 and cross and (
+                            "multi" not in state
+                            or (same and not state["multi"][3])):
+                        state["multi"] = (word, text, occ, same, cross)
+                    if "single" not in state and occ["total"] == 0:
+                        state["single"] = (word, text)
+            must("multi" in state, "no word with cross-song occurrences found")
+            must("single" in state, "no single-occurrence word found")
+        probe.check("occ_pick_words",
+                    "corpus has a multi-hit and a single-hit probe word",
+                    c_pick_words)
+
+        def dbl(word: str, text: str) -> None:
+            pg.keyboard.press("Escape")
+            ok = pg.evaluate("""([word, text]) => {
+              const lines = document.querySelectorAll('.lyric-line');
+              for (const line of lines) {
+                if (line.textContent.trim() !== text) continue;
+                const node = line.firstChild;
+                if (!node || node.nodeType !== 3) continue;
+                const i = node.textContent.indexOf(word);
+                if (i < 0) continue;
+                const range = document.createRange();
+                range.setStart(node, i); range.setEnd(node, i + word.length);
+                const sel = window.getSelection();
+                sel.removeAllRanges(); sel.addRange(range);
+                line.dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));
+                return true;
+              }
+              return false;
+            }""", [word, text])
+            if not ok:
+                raise AssertionError(f"could not dblclick '{word}'")
+
+        def c_fold_renders():
+            word, text, occ, _, _ = state["multi"]
+            dbl(word, text)
+            probe.wait_until(
+                lambda: count("[data-occ-state=some]") == 1,
+                msg="occurrences fold did not reach state=some")
+            fold = pg.locator("[data-occ-fold]")
+            must(fold.count() == 1, "fold section missing")
+            must(f"曲库里还有 {occ['total']} 处" in fold.inner_text(),
+                 "fold title does not show total")
+            must(count("[data-occ-list]") == 0,
+                 "fold must be collapsed by default")
+        probe.check("occ_fold_renders",
+                    "dblclick multi-hit word -> collapsed fold with total",
+                    c_fold_renders)
+
+        def c_jump_current():
+            _, _, _, same, _ = state["multi"]
+            if not same:
+                return "no same-song hit in sandbox corpus, skipped"
+            pg.locator("[data-occ-fold] > button").click()
+            probe.wait_until(lambda: count("[data-occ-item]") >= 1,
+                             msg="fold did not expand")
+            it = same[0]
+            pg.locator(f"[data-occ-item][data-occ-song=\"{it['song']}\"]"
+                       f"[data-occ-line=\"{it['line_index']}\"]").first.click()
+            probe.wait_until(
+                lambda: pg.evaluate(
+                    f"(document.querySelector('[data-line=\"{it['line_index']}\"]')"
+                    " || {getAttribute: () => null})"
+                    ".getAttribute('data-occ-hl')") == "1",
+                msg="same-song hit click did not highlight the line")
+        probe.check("occ_jump_current",
+                    "same-song hit click jumps to the line",
+                    c_jump_current)
+
+        def c_jump_cross():
+            word, text, _, _, cross = state["multi"]
+            dbl(word, text)
+            probe.wait_until(
+                lambda: count("[data-occ-fold] > button") >= 1,
+                msg="fold did not render for cross-song jump")
+            pg.locator("[data-occ-fold] > button").last.click()
+            probe.wait_until(lambda: count("[data-occ-item]") >= 1,
+                             msg="fold did not expand")
+            it = cross[0]
+            pg.locator(f"[data-occ-item][data-occ-song=\"{it['song']}\"]"
+                       f"[data-occ-line=\"{it['line_index']}\"]").first.click()
+
+            def landed():
+                el_hl = pg.evaluate(
+                    f"(document.querySelector('[data-line=\"{it['line_index']}\"]')"
+                    " || {getAttribute: () => null})"
+                    ".getAttribute('data-occ-hl')")
+                el_text = pg.evaluate(
+                    f"((document.querySelector('[data-line=\"{it['line_index']}\"]')"
+                    " || {textContent: ''}).textContent || '').trim()")
+                return (el_hl == "1"
+                        and el_text.startswith(it["line"][:20]))
+            probe.wait_until(
+                landed, msg="cross-song hit did not switch song + highlight")
+            must(pg.evaluate(
+                "(document.querySelector('audio') || {paused: true}).paused"
+                " !== false"), "cross-song jump must not autoplay")
+        probe.check("occ_jump_cross",
+                    "cross-song hit switches song, highlights, no autoplay",
+                    c_jump_cross)
+
+        def c_fold_absent():
+            word, text = state["single"]
+            pg.goto(base + "/", wait_until="load")
+            pg.wait_for_selector(".lyric-line", timeout=40000)
+            dbl(word, text)
+            probe.wait_until(
+                lambda: count("[data-occ-state=none]") == 1,
+                msg="single-hit card did not settle to state=none")
+            must(count("[data-occ-fold]") == 0,
+                 "fold must not render when total=0")
+        probe.check("occ_fold_absent",
+                    "single-occurrence word renders no fold",
+                    c_fold_absent)
+
+        def c_settings_key_state():
+            req = urllib.request.Request(
+                base + "/api/settings", method="PUT",
+                headers={"Content-Type": "application/json"},
+                data=json.dumps({"provider": "openai", "key": "sk-probe-fake",
+                                 "base": "https://example.invalid/v1",
+                                 "model": "probe-model"}).encode("utf-8"))
+            with urllib.request.urlopen(req, timeout=10) as r:
+                must(r.status == 200, "settings PUT failed")
+            pg.goto(base + "/settings", wait_until="load")
+            probe.wait_until(
+                lambda: pg.evaluate(
+                    "(document.querySelector('[data-key-state]')"
+                    " || {getAttribute: () => null})"
+                    ".getAttribute('data-key-state')") == "saved",
+                msg="saved key state indicator did not render")
+            probe.wait_until(
+                lambda: pg.evaluate(
+                    "(document.querySelector('input[name=\"base-url\"]')"
+                    " || {value: ''}).value") == "https://example.invalid/v1",
+                msg="base url field not repopulated from saved settings")
+            must(pg.evaluate(
+                "(document.querySelector('input[name=\"model-name\"]')"
+                " || {value: ''}).value") == "probe-model",
+                "model field not repopulated from saved settings")
+            must(pg.evaluate(
+                "(document.querySelector('input[name=\"api-key\"]')"
+                " || {value: 'x'}).value") == "",
+                "key field must stay empty (write-only)")
+        probe.check("settings_key_state",
+                    "saved key shows indicator and repopulated fields",
+                    c_settings_key_state)
+
+        if probe.console_errors:
+            probe.check("react_console", "no unexpected console errors",
+                        lambda: (_ for _ in ()).throw(
+                            AssertionError("; ".join(probe.console_errors[:5]))))
+        browser.close()
+        return probe.results
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--port", type=int, default=None,
@@ -997,24 +1204,64 @@ def main() -> int:
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         server_log = OUT_DIR / "server.log"
         # BILI_AUTO_BIND=0: no grey-API搜索 traffic from probe runs
-        env = {**__import__("os").environ, "UI_PORT": str(port),
+        env = {**os.environ, "UI_PORT": str(port),
                "BILI_AUTO_BIND": "0",
                "LL_CORPUS_REBUILD": "0",
                "LL_WORD_EXAMPLES": "0",
                # 探针继续覆盖全曲库行为（含中文歌检查）
                "LL_SHOW_CJK": "1"}
+        # 数据沙箱：把 data/ 复制到临时目录并让服务跑在那里——
+        # 巡检会真实练词/收藏，绝不能污染真实 stats/wordbook
+        # （2026-10-30 定，热力图曾被 probe 刷出虚高练习数）。
+        import tempfile
+        sandbox = Path(tempfile.mkdtemp(prefix="ll_probe_"))
+        shutil.copytree(
+            ROOT / "data", sandbox / "data",
+            ignore=shutil.ignore_patterns("ui_probe", "design_loop",
+                                          "reports"))
+        print(f"data sandbox: {sandbox}")
         with open(server_log, "w", encoding="utf-8") as lf:
             proc = subprocess.Popen(
                 [sys.executable, "-m", "lyric_agent.cli", "serve", "--no-browser"],
-                cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT, env=env)
+                cwd=str(sandbox), stdout=lf, stderr=subprocess.STDOUT, env=env)
         print(f"spawned server on {base} (pid {proc.pid})")
 
     try:
         wait_server(base)
-        results = run_probe(base, server_log)
+        results = run_probe(
+            base, server_log,
+            data_root=(sandbox / "data") if proc is not None else None)
     finally:
         if proc is not None:
             proc.kill()
+            proc.wait(timeout=15)
+            shutil.rmtree(sandbox, ignore_errors=True)
+
+    if not args.port:
+        dist = ROOT / "frontend" / "dist" / "index.html"
+        if not dist.exists():
+            npm = shutil.which("npm")
+            subprocess.run([npm, "run", "build"],
+                           cwd=str(ROOT / "frontend"), check=True)
+        port2 = free_port()
+        base2 = f"http://127.0.0.1:{port2}"
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        web_log = OUT_DIR / "server_web.log"
+        with open(web_log, "w", encoding="utf-8") as lf:
+            proc2 = subprocess.Popen(
+                [sys.executable, "-m", "lyric_agent.cli", "serve-web",
+                 "--sandbox", "--no-browser", "--port", str(port2)],
+                cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT,
+                env={**os.environ, "LL_CORPUS_REBUILD": "0",
+                     "LL_COVER_FETCH": "0",
+                     "PYTHONPATH": str(ROOT / "src")})
+        print(f"spawned serve-web on {base2} (pid {proc2.pid})")
+        try:
+            wait_server(base2)
+            results += run_react_probe(base2, web_log)
+        finally:
+            proc2.kill()
+            proc2.wait(timeout=15)
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     report = {
