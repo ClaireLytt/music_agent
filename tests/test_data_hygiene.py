@@ -32,3 +32,18 @@ def test_no_placeholder_llm_output_committed():
     assert not offenders, (
         "git 跟踪的 data/songs/ 批注里有失败 LLM 运行的占位输出，"
         "重跑生成后再提交：" + ", ".join(offenders))
+
+
+BARE_URLOPEN = "urllib.request.urlopen("
+
+
+def test_no_bare_urlopen_in_source():
+    offenders = []
+    for f in (ROOT / "src" / "lyric_agent").rglob("*.py"):
+        text = f.read_text(encoding="utf-8")
+        if BARE_URLOPEN in text:
+            offenders.append(f.name)
+    assert not offenders, (
+        "bare urllib.request.urlopen found (IPv6 stall class, see commit "
+        "8a0543e): use jsonio.http_get_json or build_opener("
+        "V4FirstHTTPSHandler()): " + ", ".join(offenders))
