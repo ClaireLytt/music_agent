@@ -77,10 +77,10 @@ export default function PlayerBar({
       <div className="flex min-w-0 items-center gap-3">
         <div className="h-[52px] w-[52px] flex-none rounded-lg bg-gradient-to-br from-[#4a6b58] to-[#22332a] shadow-art" />
         <div className="min-w-0">
-          <div className="truncate text-[13.5px] font-semibold">
+          <div className="truncate text-[20.3px] font-semibold">
             {song ? song.title : "—"}
           </div>
-          <div className="text-xs text-ink3">
+          <div className="text-[18px] text-ink3">
             {song ? `${song.artist}${song.album ? ` · ${song.album}` : ""}` : ""}
           </div>
         </div>
@@ -106,7 +106,7 @@ export default function PlayerBar({
             {hintTick > 0 && (
               <div
                 role="status"
-                className="absolute bottom-[calc(100%+12px)] left-1/2 w-max max-w-[260px] -translate-x-1/2 animate-popin rounded-[10px] border border-edge bg-panel2 px-3.5 py-2.5 text-left text-[13px] leading-normal shadow-pop after:absolute after:left-1/2 after:top-full after:-ml-[5px] after:border-[5px] after:border-transparent after:border-t-panel2"
+                className="absolute bottom-[calc(100%+12px)] left-1/2 w-max max-w-[260px] -translate-x-1/2 animate-popin rounded-[10px] border border-edge bg-panel2 px-3.5 py-2.5 text-left text-[19.5px] leading-normal shadow-pop after:absolute after:left-1/2 after:top-full after:-ml-[5px] after:border-[5px] after:border-transparent after:border-t-panel2"
               >
                 <b className="mb-0.5 block font-semibold text-ink">
                   这首歌还没有音频
@@ -130,7 +130,7 @@ export default function PlayerBar({
           {song?.audio_type === "preview" && (
             <span
               title="来自 iTunes 的 30 秒试听片段，非完整歌曲"
-              className="absolute left-full top-1/2 ml-4 -translate-y-1/2 whitespace-nowrap rounded-full border border-edge2 px-2 py-0.5 text-[11px] leading-none text-ink3"
+              className="absolute left-full top-1/2 ml-4 -translate-y-1/2 whitespace-nowrap rounded-full border border-edge2 px-2 py-0.5 text-[16.5px] leading-none text-ink3"
             >
               试听 30s
             </span>
@@ -156,14 +156,14 @@ export default function PlayerBar({
           </div>
         </div>
         <div className="flex w-full max-w-[560px] items-center gap-2.5">
-          <time className="text-[11px] tabular-nums text-ink3">{fmt(timeMs)}</time>
+          <time className="text-[16.5px] tabular-nums text-ink3">{fmt(timeMs)}</time>
           <div ref={railRef} className="group relative h-1 flex-1 cursor-pointer rounded-sm bg-edge2" onClick={seek}>
             <div
               className="absolute inset-y-0 left-0 rounded-sm bg-accent group-hover:bg-[#9ab4ff]"
               style={{ width: `${pct}%` }}
             />
           </div>
-          <time className="text-[11px] tabular-nums text-ink3">{fmt(durationMs)}</time>
+          <time className="text-[16.5px] tabular-nums text-ink3">{fmt(durationMs)}</time>
         </div>
       </div>
 
