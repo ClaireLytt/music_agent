@@ -24,6 +24,7 @@ WRITE_CALLS = [
     ("post", "/api/songs/demo/notes", {"ts_ms": 0, "text": "n"}),
     ("delete", "/api/songs/demo/notes/0", None),
     ("put", "/api/songs/demo/bvid", {"bvid": ""}),
+    ("put", "/api/songs/demo/lyrics", {"lrc_text": "[00:01.00]x"}),
     ("put", "/api/songs/demo/offset", {"offset_ms": 0}),
     ("post", "/api/drill/result", {"word": "x", "ok": True}),
     ("delete", "/api/wordbook/groups/g", None),

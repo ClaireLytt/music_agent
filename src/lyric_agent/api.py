@@ -305,6 +305,22 @@ def create_app() -> FastAPI:
             },
         }
 
+    @app.put("/api/songs/{song_id}/lyrics", **WRITE_GATE)
+    def put_lyrics(song_id: str,
+                   lrc_text: str = Body(..., embed=True)) -> dict:
+        from .lrc_parser import parse_lrc
+        s = _find_song(song_id)
+        text = (lrc_text or "").strip()
+        _, timed = parse_lrc(text)
+        if not timed:
+            raise HTTPException(
+                422, "未能解析出带时间戳的歌词行，请检查格式"
+                     "（如 [00:12.34] 歌词内容）")
+        (Path(s["dir"]) / "lyrics.lrc").write_text(
+            text + "\n", encoding="utf-8")
+        _kick_corpus_rebuild()
+        return {"lines": len(timed)}
+
     @app.get("/api/songs/{song_id}/audio")
     def get_audio(song_id: str, request: Request):
         s = _find_song(song_id)
@@ -941,7 +957,7 @@ def create_app() -> FastAPI:
         (d / "metadata.json").write_text(json.dumps({
             "title": title, "artist": (artist or "").strip() or "未知歌手",
             "album": (album or "").strip(), "year": 0, "era": "",
-            "themes": [],
+            "themes": [], "source": "manual",
         }, ensure_ascii=False, indent=2), encoding="utf-8")
         _kick_corpus_rebuild()
         return {"id": slug, "note": lrc_note}

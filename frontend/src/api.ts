@@ -505,6 +505,10 @@ export function useActions(songId: string | null, songTitle: string) {
       send(`/api/songs/${songId}/intro`, "POST").then(() =>
         refetch(["intro", songId]),
       ),
+    uploadLrc: (lrc_text: string) =>
+      send(`/api/songs/${songId}/lyrics`, "PUT", { lrc_text }).then(() =>
+        refetch(["lyrics", songId], ["songs"]),
+      ),
     uploadAudio: async (file: File) => {
       const fd = new FormData();
       fd.append("file", file);
