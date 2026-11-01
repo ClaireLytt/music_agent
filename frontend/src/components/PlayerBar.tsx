@@ -96,7 +96,7 @@ export default function PlayerBar({
   const pct = durationMs ? (timeMs / durationMs) * 100 : 0;
 
   return (
-    <footer className="grid grid-cols-[280px_1fr_280px] items-center gap-4 border-t border-line bg-deep px-5">
+    <footer className="grid grid-cols-[minmax(0,1fr)_minmax(0,560px)_minmax(0,1fr)] items-center gap-4 border-t border-line bg-deep px-5">
       <div className="flex min-w-0 items-center gap-3">
         {/* 专辑封面：后端自动抓取缓存；渐变打底，图到了淡入 */}
         <div className="relative h-[52px] w-[52px] flex-none">
@@ -123,7 +123,7 @@ export default function PlayerBar({
           <div className="truncate text-[20.3px] font-semibold">
             {song ? song.title : "—"}
           </div>
-          <div className="text-[18px] text-ink3">
+          <div className="truncate text-[18px] text-ink3">
             {song ? `${song.artist}${song.album ? ` · ${song.album}` : ""}` : ""}
           </div>
         </div>
