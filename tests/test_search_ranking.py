@@ -8,13 +8,13 @@ fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 
-def _mk_song(root, slug, title, artist, lines):
+def _mk_song(root, slug, title, artist, lines, album=""):
     d = root / "songs" / slug
     d.mkdir(parents=True)
     d_lrc = "\n".join(f"[00:{i:02d}.00]{t}" for i, t in enumerate(lines, 1))
     (d / "lyrics.lrc").write_text(d_lrc + "\n", encoding="utf-8")
     (d / "metadata.json").write_text(json.dumps({
-        "title": title, "artist": artist, "album": "", "year": 0,
+        "title": title, "artist": artist, "album": album, "year": 0,
         "era": "", "themes": [],
     }), encoding="utf-8")
 
@@ -30,6 +30,8 @@ def client(tmp_path, monkeypatch):
              ["now we got bad blood"])
     _mk_song(data, "c_blood_artist", "Six Feet Under", "Bloodhound Gang",
              ["something else entirely"])
+    _mk_song(data, "e_blood_album", "Let's Fall in Love for the Night",
+             "FINNEAS", ["nothing matching here"], album="Blood Harmony")
     (data / "wordbook.json").write_text("[]", encoding="utf-8")
     (data / "favorites.json").write_text("[]", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -42,8 +44,14 @@ def test_title_match_ranks_first(client):
     ids = [s["id"] for s in client.get("/api/songs?q=blood").json()]
     assert ids[0] == "z_bad_blood", ids
     assert ids[1] == "c_blood_artist", ids
-    assert set(ids[2:]) == {"a_my_shot", "b_vampire"}
+    assert ids[2] == "e_blood_album", ids
+    assert set(ids[3:]) == {"a_my_shot", "b_vampire"}
+
+
+def test_album_query_finds_song(client):
+    ids = [s["id"] for s in client.get("/api/songs?q=harmony").json()]
+    assert ids == ["e_blood_album"]
 
 
 def test_no_query_keeps_full_list(client):
-    assert len(client.get("/api/songs").json()) == 4
+    assert len(client.get("/api/songs").json()) == 5

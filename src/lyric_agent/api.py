@@ -291,11 +291,13 @@ def create_app() -> FastAPI:
                     return 0
                 if q in s["artist"].lower():
                     return 1
+                if q in s["album"].lower():
+                    return 2
                 try:  # 全文歌词匹配（与旧 UI 歌单筛选同口径）
                     data = _load_song_data(s["dir"])
                     if any(q in ln.text.lower()
                            for ln in data["timed_lines"]):
-                        return 2
+                        return 3
                 except Exception:
                     pass
                 return None
@@ -988,11 +990,14 @@ def create_app() -> FastAPI:
             else:
                 lrc_content = _PLACEHOLDER_LRC
                 lrc_note = "LRCLIB 未找到歌词，已创建占位歌词"
+        album_final = (album or "").strip()
+        if not album_final:
+            album_final = cover_art.fetch_album(title, (artist or "").strip())
         d.mkdir(parents=True)
         (d / "lyrics.lrc").write_text(lrc_content, encoding="utf-8")
         (d / "metadata.json").write_text(json.dumps({
             "title": title, "artist": (artist or "").strip() or "未知歌手",
-            "album": (album or "").strip(), "year": 0, "era": "",
+            "album": album_final, "year": 0, "era": "",
             "themes": [], "source": "manual",
         }, ensure_ascii=False, indent=2), encoding="utf-8")
         _kick_corpus_rebuild()

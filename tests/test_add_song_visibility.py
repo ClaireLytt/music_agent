@@ -132,6 +132,32 @@ def test_add_song_autobinds_top_played_mv(client, monkeypatch):
     assert bvid == "BV1top"
 
 
+def test_add_song_autofills_album_from_itunes(client, monkeypatch):
+    from lyric_agent import cover_art, songdata
+    monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(cover_art, "fetch_album",
+                        lambda title, artist: "Blurryface")
+    sid = client.post("/api/songs", json={
+        "title": "Stressed Out", "artist": "Twenty One Pilots"}).json()["id"]
+    song = next(s for s in client.get("/api/songs").json()
+                if s["id"] == sid)
+    assert song["album"] == "Blurryface"
+
+
+def test_add_song_keeps_user_album(client, monkeypatch):
+    from lyric_agent import cover_art, songdata
+    monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",
+                        lambda *a, **k: None)
+    monkeypatch.setattr(cover_art, "fetch_album",
+                        lambda title, artist: "Wrong Album")
+    sid = client.post("/api/songs", json={
+        "title": "Own Album Song", "album": "My Album"}).json()["id"]
+    song = next(s for s in client.get("/api/songs").json()
+                if s["id"] == sid)
+    assert song["album"] == "My Album"
+
+
 def test_upload_lyrics_rejects_unparseable(client, monkeypatch):
     from lyric_agent import songdata
     monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",
