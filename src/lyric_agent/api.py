@@ -929,7 +929,8 @@ def create_app() -> FastAPI:
     @app.post("/api/songs", **WRITE_GATE)
     async def add_song(title: str = Body(...), artist: str = Body(""),
                        album: str = Body(""),
-                       lrc_text: str = Body("")) -> dict:
+                       lrc_text: str = Body(""),
+                       abort_if_no_lrc: bool = Body(False)) -> dict:
         import re as _re
         import time as _time
         from .lrc_parser import parse_lrc
@@ -963,6 +964,8 @@ def create_app() -> FastAPI:
                 lrc_content = fetched
                 _, timed = parse_lrc(lrc_content)
                 lrc_note = f"已自动从 LRCLIB 获取 {len(timed)} 行歌词"
+            elif abort_if_no_lrc:
+                return {"missing_lrc": True}
             else:
                 lrc_content = _PLACEHOLDER_LRC
                 lrc_note = "LRCLIB 未找到歌词，已创建占位歌词"

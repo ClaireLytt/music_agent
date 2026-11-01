@@ -87,6 +87,23 @@ def test_same_title_different_artist_both_addable(client, monkeypatch):
     assert r3.status_code == 409
 
 
+def test_abort_if_no_lrc_creates_nothing(client, monkeypatch):
+    from lyric_agent import songdata
+    monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",
+                        lambda *a, **k: None)
+    r = client.post("/api/songs", json={
+        "title": "ghost song", "abort_if_no_lrc": True})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"missing_lrc": True}
+    assert "ghost_song" not in [s["id"] for s in
+                                client.get("/api/songs").json()]
+
+    r2 = client.post("/api/songs", json={
+        "title": "ghost song", "abort_if_no_lrc": True,
+        "lrc_text": "[00:01.00]found it"})
+    assert r2.status_code == 200 and r2.json()["id"] == "ghost_song"
+
+
 def test_upload_lyrics_rejects_unparseable(client, monkeypatch):
     from lyric_agent import songdata
     monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",

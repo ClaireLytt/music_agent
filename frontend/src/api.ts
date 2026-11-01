@@ -421,10 +421,12 @@ export function useAdminActions() {
         refetch(["songs"], ["catalog"]);
         return r;
       }),
-    addSong: (title: string, artist: string, album: string, lrc_text: string) =>
-      send<{ id: string; note: string }>("/api/songs", "POST", {
-        title, artist, album, lrc_text,
-      }).then((r) => {
+    addSong: (title: string, artist: string, album: string, lrc_text: string,
+              abort_if_no_lrc = false) =>
+      send<{ id: string; note: string; missing_lrc?: boolean }>(
+        "/api/songs", "POST", {
+          title, artist, album, lrc_text, abort_if_no_lrc,
+        }).then((r) => {
         refetch(["songs"], ["catalog"]);
         return r;
       }),
