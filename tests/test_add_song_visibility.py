@@ -67,6 +67,26 @@ def test_song_without_lrc_accepts_upload_later(client, monkeypatch):
     assert any("hello again" in ln["text"] for ln in lines)
 
 
+def test_same_title_different_artist_both_addable(client, monkeypatch):
+    from lyric_agent import songdata
+    monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",
+                        lambda *a, **k: None)
+    r1 = client.post("/api/songs",
+                     json={"title": "Lonely", "artist": "Justin Bieber"})
+    assert r1.status_code == 200, r1.text
+    r2 = client.post("/api/songs",
+                     json={"title": "Lonely", "artist": "Akon"})
+    assert r2.status_code == 200, r2.text
+    assert r1.json()["id"] != r2.json()["id"]
+    songs = client.get("/api/songs").json()
+    ids = [s["id"] for s in songs]
+    assert r1.json()["id"] in ids and r2.json()["id"] in ids
+
+    r3 = client.post("/api/songs",
+                     json={"title": "Lonely", "artist": "Akon"})
+    assert r3.status_code == 409
+
+
 def test_upload_lyrics_rejects_unparseable(client, monkeypatch):
     from lyric_agent import songdata
     monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",

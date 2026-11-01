@@ -933,8 +933,15 @@ def create_app() -> FastAPI:
         slug = _re.sub(r"[^\w]+", "_", title.lower()).strip("_") \
             or f"song_{int(_time.time())}"
         d = Path(load_settings().songs_dir) / slug
+        if d.exists() and (artist or "").strip():
+            alt = _re.sub(r"[^\w]+", "_",
+                          f"{title} {artist.strip()}".lower()).strip("_")
+            if alt != slug:
+                slug = alt
+                d = Path(load_settings().songs_dir) / slug
         if d.exists():
-            raise HTTPException(409, f"歌曲目录已存在：{slug}，请换一个标题")
+            raise HTTPException(
+                409, f"歌曲目录已存在：{slug}，请换一个标题或歌手")
         lrc_content = (lrc_text or "").strip()
         if lrc_content:
             _, timed = parse_lrc(lrc_content)
