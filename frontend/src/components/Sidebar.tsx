@@ -57,7 +57,10 @@ export default function Sidebar({
   const { deleteSong } = useAdminActions();
   const isPublic = useSettings().data?.public ?? false;
   const [sort, setSort] = useState<SortKey>(loadSort);
-  const sorted = useMemo(() => sortSongs(songs, sort), [songs, sort]);
+  const sorted = useMemo(
+    () => (query.trim() ? songs : sortSongs(songs, sort)),
+    [songs, sort, query],
+  );
   const cycleSort = () => {
     const i = SORTS.findIndex((s) => s.key === sort);
     const next = SORTS[(i + 1) % SORTS.length].key;

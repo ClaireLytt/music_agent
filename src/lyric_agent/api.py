@@ -271,16 +271,23 @@ def create_app() -> FastAPI:
         # ── end iTunes 试听 ──
         q = (q or "").strip().lower()
         if q:
-            def hit(s: dict) -> bool:
-                if q in s["title"].lower() or q in s["artist"].lower():
-                    return True
+            def tier(s: dict) -> int | None:
+                if q in s["title"].lower():
+                    return 0
+                if q in s["artist"].lower():
+                    return 1
                 try:  # 全文歌词匹配（与旧 UI 歌单筛选同口径）
                     data = _load_song_data(s["dir"])
-                    return any(q in ln.text.lower()
-                               for ln in data["timed_lines"])
+                    if any(q in ln.text.lower()
+                           for ln in data["timed_lines"]):
+                        return 2
                 except Exception:
-                    return False
-            songs = [s for s in songs if hit(s)]
+                    pass
+                return None
+            scored = [(t, s) for s in songs
+                      if (t := tier(s)) is not None]
+            scored.sort(key=lambda ts: ts[0])
+            songs = [s for _, s in scored]
         return [_song_payload(s, settings) for s in songs]
 
     @app.get("/api/songs/{song_id}")
