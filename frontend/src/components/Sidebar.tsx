@@ -11,6 +11,7 @@ const SORTS = [
   { key: "added", label: "最新添加" },
   { key: "title", label: "歌名 A-Z" },
   { key: "artist", label: "歌手" },
+  { key: "album", label: "专辑" },
 ] as const;
 type SortKey = (typeof SORTS)[number]["key"];
 
@@ -29,9 +30,14 @@ function sortSongs(songs: Song[], key: SortKey): Song[] {
   if (key === "added") out.sort((a, b) => b.added_ts - a.added_ts);
   else if (key === "title")
     out.sort((a, b) => a.title.localeCompare(b.title, "en"));
-  else
+  else if (key === "artist")
     out.sort((a, b) =>
       a.artist.localeCompare(b.artist, "en") ||
+      a.title.localeCompare(b.title, "en"));
+  else
+    out.sort((a, b) =>
+      Number(!a.album) - Number(!b.album) ||
+      a.album.localeCompare(b.album, "en") ||
       a.title.localeCompare(b.title, "en"));
   return out;
 }
@@ -162,7 +168,9 @@ export default function Sidebar({
                 {s.title}
               </span>
               <span className="flex-none truncate text-[16.5px] text-ink3">
-                {s.artist}
+                {sort === "album" && !query.trim()
+                  ? s.album || "未知专辑"
+                  : s.artist}
               </span>
             </button>
             {!isPublic && (
