@@ -104,6 +104,34 @@ def test_abort_if_no_lrc_creates_nothing(client, monkeypatch):
     assert r2.status_code == 200 and r2.json()["id"] == "ghost_song"
 
 
+def test_add_song_autobinds_top_played_mv(client, monkeypatch):
+    import json as _json
+    import time
+    from pathlib import Path
+
+    from lyric_agent import bilibili, songdata
+    monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",
+                        lambda *a, **k: None)
+    monkeypatch.setenv("LL_MV_AUTOBIND", "1")
+    monkeypatch.setattr(bilibili.time, "sleep", lambda s: None)
+    monkeypatch.setattr(bilibili, "search_mv", lambda *a, **k: [
+        {"bvid": "BV1low", "title": "Golden Hour MV", "play": 100},
+        {"bvid": "BV1top", "title": "Golden Hour official MV",
+         "play": 99999},
+        {"bvid": "BV1off", "title": "unrelated video", "play": 888888},
+    ])
+    sid = client.post("/api/songs",
+                      json={"title": "Golden Hour"}).json()["id"]
+    meta_path = Path("data/songs") / sid / "metadata.json"
+    deadline = time.time() + 5
+    bvid = ""
+    while time.time() < deadline and not bvid:
+        bvid = _json.loads(
+            meta_path.read_text(encoding="utf-8")).get("bvid", "")
+        time.sleep(0.05)
+    assert bvid == "BV1top"
+
+
 def test_upload_lyrics_rejects_unparseable(client, monkeypatch):
     from lyric_agent import songdata
     monkeypatch.setattr(songdata, "_fetch_lrc_from_lrclib",

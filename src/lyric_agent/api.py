@@ -99,6 +99,21 @@ def _write_meta(song_dir: str, mutate) -> None:
 _CORPUS_REBUILDING = threading.Lock()
 
 
+def _kick_mv_autobind(songs: list[dict]) -> None:
+    if os.getenv("LL_MV_AUTOBIND", "1") == "0":
+        return
+
+    def _run() -> None:
+        try:
+            from .bilibili import auto_bind_missing
+            auto_bind_missing(songs, lambda: True)
+        except Exception:
+            logger.exception("MV auto-bind failed")
+
+    threading.Thread(target=_run, daemon=True,
+                     name="ll-mv-autobind").start()
+
+
 def _kick_corpus_rebuild() -> None:
     """曲库增删后后台重建语料+embeddings（零 LLM），与旧 Runtime 同口径。"""
     if os.getenv("LL_CORPUS_REBUILD", "1") == "0":
@@ -888,6 +903,7 @@ def create_app() -> FastAPI:
         from .songdata import _load_catalog
         catalog = _load_catalog()
         added, existed, missing = [], [], []
+        new_dirs: list[dict] = []
         for label in labels or []:
             entry = next((c for c in catalog
                           if f"{c['title']} — {c['artist']}" == label), None)
@@ -922,8 +938,11 @@ def create_app() -> FastAPI:
                 "era": entry.get("era", ""), "themes": [],
             }, ensure_ascii=False, indent=2), encoding="utf-8")
             added.append(entry["title"])
+            new_dirs.append({"dir": str(d), "title": entry["title"],
+                             "artist": entry["artist"]})
         if added:
             _kick_corpus_rebuild()
+            _kick_mv_autobind(new_dirs)
         return {"added": added, "existed": existed, "missing": missing}
 
     @app.post("/api/songs", **WRITE_GATE)
@@ -977,6 +996,8 @@ def create_app() -> FastAPI:
             "themes": [], "source": "manual",
         }, ensure_ascii=False, indent=2), encoding="utf-8")
         _kick_corpus_rebuild()
+        _kick_mv_autobind([{"dir": str(d), "title": title,
+                            "artist": (artist or "").strip()}])
         return {"id": slug, "note": lrc_note}
 
     @app.delete("/api/songs/{song_id}", **WRITE_GATE)

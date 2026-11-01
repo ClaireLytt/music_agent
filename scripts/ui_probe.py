@@ -1206,7 +1206,7 @@ def main() -> int:
         # BILI_AUTO_BIND=0: no grey-API搜索 traffic from probe runs
         env = {**os.environ, "UI_PORT": str(port),
                "BILI_AUTO_BIND": "0",
-               "LL_CORPUS_REBUILD": "0",
+               "LL_CORPUS_REBUILD": "0", "LL_MV_AUTOBIND": "0",
                "LL_WORD_EXAMPLES": "0",
                # 探针继续覆盖全曲库行为（含中文歌检查）
                "LL_SHOW_CJK": "1"}
@@ -1252,7 +1252,7 @@ def main() -> int:
                 [sys.executable, "-m", "lyric_agent.cli", "serve-web",
                  "--sandbox", "--no-browser", "--port", str(port2)],
                 cwd=str(ROOT), stdout=lf, stderr=subprocess.STDOUT,
-                env={**os.environ, "LL_CORPUS_REBUILD": "0",
+                env={**os.environ, "LL_CORPUS_REBUILD": "0", "LL_MV_AUTOBIND": "0",
                      "LL_COVER_FETCH": "0",
                      "PYTHONPATH": str(ROOT / "src")})
         print(f"spawned serve-web on {base2} (pid {proc2.pid})")
