@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Song } from "../api";
+import { Song, useAdminActions, useSettings } from "../api";
 import { usePlayer } from "../store";
 import Scrollable from "./Scrollable";
 import {
@@ -11,6 +11,7 @@ const SORTS = [
   { key: "added", label: "最新添加" },
   { key: "title", label: "歌名 A-Z" },
   { key: "artist", label: "歌手" },
+  { key: "album", label: "专辑" },
 ] as const;
 type SortKey = (typeof SORTS)[number]["key"];
 
@@ -29,9 +30,14 @@ function sortSongs(songs: Song[], key: SortKey): Song[] {
   if (key === "added") out.sort((a, b) => b.added_ts - a.added_ts);
   else if (key === "title")
     out.sort((a, b) => a.title.localeCompare(b.title, "en"));
-  else
+  else if (key === "artist")
     out.sort((a, b) =>
       a.artist.localeCompare(b.artist, "en") ||
+      a.title.localeCompare(b.title, "en"));
+  else
+    out.sort((a, b) =>
+      Number(!a.album) - Number(!b.album) ||
+      a.album.localeCompare(b.album, "en") ||
       a.title.localeCompare(b.title, "en"));
   return out;
 }
@@ -54,8 +60,13 @@ export default function Sidebar({
   onQuery: (q: string) => void;
 }) {
   const { songId, setSong } = usePlayer();
+  const { deleteSong } = useAdminActions();
+  const isPublic = useSettings().data?.public ?? false;
   const [sort, setSort] = useState<SortKey>(loadSort);
-  const sorted = useMemo(() => sortSongs(songs, sort), [songs, sort]);
+  const sorted = useMemo(
+    () => (query.trim() ? songs : sortSongs(songs, sort)),
+    [songs, sort, query],
+  );
   const cycleSort = () => {
     const i = SORTS.findIndex((s) => s.key === sort);
     const next = SORTS[(i + 1) % SORTS.length].key;
@@ -127,7 +138,7 @@ export default function Sidebar({
         autoComplete="off"
         value={query}
         onChange={(e) => onQuery(e.target.value)}
-        placeholder="搜歌名 / 歌手 / 歌词…"
+        placeholder="搜歌名 / 歌手 / 专辑 / 歌词…"
         aria-label="搜索曲库"
         className="mx-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[22.5px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
       />
@@ -138,25 +149,48 @@ export default function Sidebar({
           </p>
         )}
         {sorted.map((s) => (
-          <button
+          <div
             key={s.id}
-            aria-current={s.id === songId || undefined}
-            onClick={() => setSong(s.id)}
-            className={`flex min-w-0 items-baseline gap-2 rounded-lg px-2.5 py-[7px] text-left transition-colors ${
+            className={`group flex min-w-0 items-center rounded-lg transition-colors ${
               s.id === songId ? "bg-accent-soft" : "hover:bg-[#1b1b1f]"
             }`}
           >
-            <span
-              className={`truncate text-[22.5px] font-medium ${
-                s.id === songId ? "text-accent" : "text-ink2"
-              }`}
+            <button
+              aria-current={s.id === songId || undefined}
+              onClick={() => setSong(s.id)}
+              className="flex min-w-0 flex-1 items-baseline gap-2 px-2.5 py-[7px] text-left"
             >
-              {s.title}
-            </span>
-            <span className="flex-none truncate text-[16.5px] text-ink3">
-              {s.artist}
-            </span>
-          </button>
+              <span
+                className={`truncate text-[22.5px] font-medium ${
+                  s.id === songId ? "text-accent" : "text-ink2"
+                }`}
+              >
+                {s.title}
+              </span>
+              <span className="flex-none truncate text-[16.5px] text-ink3">
+                {sort === "album" && !query.trim()
+                  ? s.album || "未知专辑"
+                  : s.artist}
+              </span>
+            </button>
+            {!isPublic && (
+              <button
+                aria-label={`删除《${s.title}》`}
+                onClick={() => {
+                  if (window.confirm(
+                    `确定删除《${s.title}》？歌词、批注、音频将一并删除。`))
+                    void deleteSong(s.id).then(() => {
+                      if (s.id !== songId) return;
+                      const rest = sorted.filter((x) => x.id !== s.id);
+                      if (rest.length) setSong(rest[0].id);
+                    });
+                }}
+                className="invisible mr-2.5 flex-none text-[22.5px] text-ink3 hover:text-ink group-hover:visible"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         ))}
       </Scrollable>
     </aside>

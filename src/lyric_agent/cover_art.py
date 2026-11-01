@@ -55,6 +55,24 @@ def _get_json(url: str) -> dict:
     return json.loads(_get(url).decode("utf-8"))
 
 
+def fetch_album(title: str, artist: str) -> str:
+    if _disabled():
+        return ""
+    q = urllib.parse.urlencode({
+        "term": f"{title} {artist}".strip(), "media": "music",
+        "entity": "song", "limit": 5})
+    try:
+        results = _get_json(
+            f"https://itunes.apple.com/search?{q}").get("results") or []
+    except Exception:
+        return ""
+    artist_lc = artist.lower()
+    pick = next((r for r in results
+                 if artist_lc and artist_lc in (r.get("artistName") or "").lower()),
+                results[0] if results else None)
+    return ((pick or {}).get("collectionName") or "").strip()
+
+
 def _from_itunes(title: str, artist: str) -> bytes | None:
     q = urllib.parse.urlencode({
         "term": f"{title} {artist}".strip(), "media": "music",

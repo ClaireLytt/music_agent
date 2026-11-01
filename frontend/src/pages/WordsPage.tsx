@@ -78,7 +78,7 @@ export default function WordsPage({ analysis = false }: { analysis?: boolean }) 
             className={
               analysis
                 ? chip(true)
-                : "whitespace-nowrap rounded-full bg-[#5fc79b] px-4 py-2 text-[18.8px] font-semibold text-[#0e1016] transition-colors hover:brightness-110"
+                : "whitespace-nowrap rounded-full bg-accent px-4 py-2 text-[18.8px] font-semibold text-[#0e1016] transition-colors hover:brightness-110"
             }
             onClick={() =>
               navigate(analysis ? `/words${search}` : `/words/analysis${search}`)

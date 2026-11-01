@@ -99,6 +99,21 @@ def _write_meta(song_dir: str, mutate) -> None:
 _CORPUS_REBUILDING = threading.Lock()
 
 
+def _kick_mv_autobind(songs: list[dict]) -> None:
+    if os.getenv("LL_MV_AUTOBIND", "1") == "0":
+        return
+
+    def _run() -> None:
+        try:
+            from .bilibili import auto_bind_missing
+            auto_bind_missing(songs, lambda: True)
+        except Exception:
+            logger.exception("MV auto-bind failed")
+
+    threading.Thread(target=_run, daemon=True,
+                     name="ll-mv-autobind").start()
+
+
 def _kick_corpus_rebuild() -> None:
     """曲库增删后后台重建语料+embeddings（零 LLM），与旧 Runtime 同口径。"""
     if os.getenv("LL_CORPUS_REBUILD", "1") == "0":
@@ -271,16 +286,25 @@ def create_app() -> FastAPI:
         # ── end iTunes 试听 ──
         q = (q or "").strip().lower()
         if q:
-            def hit(s: dict) -> bool:
-                if q in s["title"].lower() or q in s["artist"].lower():
-                    return True
+            def tier(s: dict) -> int | None:
+                if q in s["title"].lower():
+                    return 0
+                if q in s["artist"].lower():
+                    return 1
+                if q in s["album"].lower():
+                    return 2
                 try:  # 全文歌词匹配（与旧 UI 歌单筛选同口径）
                     data = _load_song_data(s["dir"])
-                    return any(q in ln.text.lower()
-                               for ln in data["timed_lines"])
+                    if any(q in ln.text.lower()
+                           for ln in data["timed_lines"]):
+                        return 3
                 except Exception:
-                    return False
-            songs = [s for s in songs if hit(s)]
+                    pass
+                return None
+            scored = [(t, s) for s in songs
+                      if (t := tier(s)) is not None]
+            scored.sort(key=lambda ts: ts[0])
+            songs = [s for _, s in scored]
         return [_song_payload(s, settings) for s in songs]
 
     @app.get("/api/songs/{song_id}")
@@ -304,6 +328,22 @@ def create_app() -> FastAPI:
                 for idx, ann in data["annotations"].items()
             },
         }
+
+    @app.put("/api/songs/{song_id}/lyrics", **WRITE_GATE)
+    def put_lyrics(song_id: str,
+                   lrc_text: str = Body(..., embed=True)) -> dict:
+        from .lrc_parser import parse_lrc
+        s = _find_song(song_id)
+        text = (lrc_text or "").strip()
+        _, timed = parse_lrc(text)
+        if not timed:
+            raise HTTPException(
+                422, "未能解析出带时间戳的歌词行，请检查格式"
+                     "（如 [00:12.34] 歌词内容）")
+        (Path(s["dir"]) / "lyrics.lrc").write_text(
+            text + "\n", encoding="utf-8")
+        _kick_corpus_rebuild()
+        return {"lines": len(timed)}
 
     @app.get("/api/songs/{song_id}/audio")
     def get_audio(song_id: str, request: Request):
@@ -865,6 +905,7 @@ def create_app() -> FastAPI:
         from .songdata import _load_catalog
         catalog = _load_catalog()
         added, existed, missing = [], [], []
+        new_dirs: list[dict] = []
         for label in labels or []:
             entry = next((c for c in catalog
                           if f"{c['title']} — {c['artist']}" == label), None)
@@ -899,14 +940,18 @@ def create_app() -> FastAPI:
                 "era": entry.get("era", ""), "themes": [],
             }, ensure_ascii=False, indent=2), encoding="utf-8")
             added.append(entry["title"])
+            new_dirs.append({"dir": str(d), "title": entry["title"],
+                             "artist": entry["artist"]})
         if added:
             _kick_corpus_rebuild()
+            _kick_mv_autobind(new_dirs)
         return {"added": added, "existed": existed, "missing": missing}
 
     @app.post("/api/songs", **WRITE_GATE)
     async def add_song(title: str = Body(...), artist: str = Body(""),
                        album: str = Body(""),
-                       lrc_text: str = Body("")) -> dict:
+                       lrc_text: str = Body(""),
+                       abort_if_no_lrc: bool = Body(False)) -> dict:
         import re as _re
         import time as _time
         from .lrc_parser import parse_lrc
@@ -917,8 +962,15 @@ def create_app() -> FastAPI:
         slug = _re.sub(r"[^\w]+", "_", title.lower()).strip("_") \
             or f"song_{int(_time.time())}"
         d = Path(load_settings().songs_dir) / slug
+        if d.exists() and (artist or "").strip():
+            alt = _re.sub(r"[^\w]+", "_",
+                          f"{title} {artist.strip()}".lower()).strip("_")
+            if alt != slug:
+                slug = alt
+                d = Path(load_settings().songs_dir) / slug
         if d.exists():
-            raise HTTPException(409, f"歌曲目录已存在：{slug}，请换一个标题")
+            raise HTTPException(
+                409, f"歌曲目录已存在：{slug}，请换一个标题或歌手")
         lrc_content = (lrc_text or "").strip()
         if lrc_content:
             _, timed = parse_lrc(lrc_content)
@@ -933,17 +985,24 @@ def create_app() -> FastAPI:
                 lrc_content = fetched
                 _, timed = parse_lrc(lrc_content)
                 lrc_note = f"已自动从 LRCLIB 获取 {len(timed)} 行歌词"
+            elif abort_if_no_lrc:
+                return {"missing_lrc": True}
             else:
                 lrc_content = _PLACEHOLDER_LRC
                 lrc_note = "LRCLIB 未找到歌词，已创建占位歌词"
+        album_final = (album or "").strip()
+        if not album_final:
+            album_final = cover_art.fetch_album(title, (artist or "").strip())
         d.mkdir(parents=True)
         (d / "lyrics.lrc").write_text(lrc_content, encoding="utf-8")
         (d / "metadata.json").write_text(json.dumps({
             "title": title, "artist": (artist or "").strip() or "未知歌手",
-            "album": (album or "").strip(), "year": 0, "era": "",
-            "themes": [],
+            "album": album_final, "year": 0, "era": "",
+            "themes": [], "source": "manual",
         }, ensure_ascii=False, indent=2), encoding="utf-8")
         _kick_corpus_rebuild()
+        _kick_mv_autobind([{"dir": str(d), "title": title,
+                            "artist": (artist or "").strip()}])
         return {"id": slug, "note": lrc_note}
 
     @app.delete("/api/songs/{song_id}", **WRITE_GATE)

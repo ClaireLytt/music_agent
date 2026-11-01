@@ -96,7 +96,7 @@ def _discover_songs(songs_dir: str,
                 meta = {}
         if exclude_sources and meta.get("source") in exclude_sources:
             continue
-        if exclude_cjk and song_is_cjk(d):
+        if exclude_cjk and meta.get("source") != "manual" and song_is_cjk(d):
             continue
         audio = resolve_audio(d)
         era = meta.get("era", "").lower()

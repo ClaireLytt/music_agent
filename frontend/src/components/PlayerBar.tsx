@@ -58,12 +58,24 @@ export default function PlayerBar({
     if (a.paused) void a.play();
     else a.pause();
   };
-  const seek = (e: React.MouseEvent) => {
-    const rail = railRef.current;
+  const [dragPct, setDragPct] = useState<number | null>(null);
+  const pctAt = (clientX: number) => {
+    const r = railRef.current!.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+  };
+  const onRailDown = (e: React.PointerEvent) => {
+    if (!railRef.current || !audioRef.current || !durationMs) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragPct(pctAt(e.clientX));
+  };
+  const onRailMove = (e: React.PointerEvent) => {
+    if (dragPct !== null) setDragPct(pctAt(e.clientX));
+  };
+  const onRailUp = (e: React.PointerEvent) => {
+    if (dragPct === null) return;
     const a = audioRef.current;
-    if (!rail || !a || !durationMs) return;
-    const r = rail.getBoundingClientRect();
-    a.currentTime = ((e.clientX - r.left) / r.width) * (durationMs / 1000);
+    if (a) a.currentTime = pctAt(e.clientX) * (durationMs / 1000);
+    setDragPct(null);
   };
   const onVolume = (v: number) => {
     setVolume(v);
@@ -84,7 +96,7 @@ export default function PlayerBar({
   const pct = durationMs ? (timeMs / durationMs) * 100 : 0;
 
   return (
-    <footer className="grid grid-cols-[280px_1fr_280px] items-center gap-4 border-t border-line bg-deep px-5">
+    <footer className="grid grid-cols-[minmax(0,1fr)_minmax(0,560px)_minmax(0,1fr)] items-center gap-4 border-t border-line bg-deep px-5">
       <div className="flex min-w-0 items-center gap-3">
         {/* 专辑封面：后端自动抓取缓存；渐变打底，图到了淡入 */}
         <div className="relative h-[52px] w-[52px] flex-none">
@@ -111,7 +123,7 @@ export default function PlayerBar({
           <div className="truncate text-[20.3px] font-semibold">
             {song ? song.title : "—"}
           </div>
-          <div className="text-[18px] text-ink3">
+          <div className="truncate text-[18px] text-ink3">
             {song ? `${song.artist}${song.album ? ` · ${song.album}` : ""}` : ""}
           </div>
         </div>
@@ -187,11 +199,42 @@ export default function PlayerBar({
           </div>
         </div>
         <div className="flex w-full max-w-[560px] items-center gap-2.5">
-          <time className="text-[16.5px] tabular-nums text-ink3">{fmt(timeMs)}</time>
-          <div ref={railRef} className="group relative h-1 flex-1 cursor-pointer rounded-sm bg-edge2" onClick={seek}>
+          <time
+            className={`text-[16.5px] tabular-nums ${
+              dragPct !== null ? "font-semibold text-ink" : "text-ink3"
+            }`}
+          >
+            {fmt(dragPct !== null ? dragPct * durationMs : timeMs)}
+          </time>
+          <div
+            className={`group relative flex h-4 flex-1 touch-none items-center ${
+              dragPct !== null ? "cursor-grabbing" : "cursor-pointer"
+            }`}
+            onPointerDown={onRailDown}
+            onPointerMove={onRailMove}
+            onPointerUp={onRailUp}
+            onPointerCancel={() => setDragPct(null)}
+          >
             <div
-              className="absolute inset-y-0 left-0 rounded-sm bg-accent group-hover:bg-[#9ab4ff]"
-              style={{ width: `${pct}%` }}
+              ref={railRef}
+              className={`relative w-full rounded-full bg-edge2 transition-[height] duration-200 ease-[cubic-bezier(.16,1,.3,1)] ${
+                dragPct !== null ? "h-[6px]" : "h-1 group-hover:h-[6px]"
+              }`}
+            >
+              <div
+                className={`absolute inset-y-0 left-0 rounded-full ${
+                  dragPct !== null ? "bg-[#9ab4ff]" : "bg-accent group-hover:bg-[#9ab4ff]"
+                }`}
+                style={{ width: `${dragPct !== null ? dragPct * 100 : pct}%` }}
+              />
+            </div>
+            <div
+              className={`pointer-events-none absolute h-3 w-3 -translate-x-1/2 rounded-full bg-ink shadow-[0_2px_8px_-1px_rgba(0,0,0,.6)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(.16,1,.3,1)] ${
+                dragPct !== null
+                  ? "scale-110 opacity-100"
+                  : "scale-50 opacity-0 group-hover:scale-100 group-hover:opacity-100"
+              }`}
+              style={{ left: `${dragPct !== null ? dragPct * 100 : pct}%` }}
             />
           </div>
           <time className="text-[16.5px] tabular-nums text-ink3">{fmt(durationMs)}</time>

@@ -421,10 +421,12 @@ export function useAdminActions() {
         refetch(["songs"], ["catalog"]);
         return r;
       }),
-    addSong: (title: string, artist: string, album: string, lrc_text: string) =>
-      send<{ id: string; note: string }>("/api/songs", "POST", {
-        title, artist, album, lrc_text,
-      }).then((r) => {
+    addSong: (title: string, artist: string, album: string, lrc_text: string,
+              abort_if_no_lrc = false) =>
+      send<{ id: string; note: string; missing_lrc?: boolean }>(
+        "/api/songs", "POST", {
+          title, artist, album, lrc_text, abort_if_no_lrc,
+        }).then((r) => {
         refetch(["songs"], ["catalog"]);
         return r;
       }),
@@ -504,6 +506,10 @@ export function useActions(songId: string | null, songTitle: string) {
     genIntro: () =>
       send(`/api/songs/${songId}/intro`, "POST").then(() =>
         refetch(["intro", songId]),
+      ),
+    uploadLrc: (lrc_text: string) =>
+      send(`/api/songs/${songId}/lyrics`, "PUT", { lrc_text }).then(() =>
+        refetch(["lyrics", songId], ["songs"]),
       ),
     uploadAudio: async (file: File) => {
       const fd = new FormData();

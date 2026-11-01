@@ -108,7 +108,7 @@ export default function SettingsPage() {
 
       <section className="rounded-card border border-edge bg-panel p-5">
         <h2 className="mb-1 text-[19.5px] font-semibold">语料库与 Embedding 模型</h2>
-        <p className="mb-3 max-w-2xl text-[18.8px] leading-[1.6] text-ink3">
+        <p className="mb-3 text-[18.8px] leading-[1.6] text-ink3">
           彩蛋/互文/语义搜索使用本地 embedding 模型。默认英文模型对中文歌词区分度差;
           曲库以中文为主时，建议切换到多语模型后重建索引(首次会下载模型，重建需 1-3 分钟)。
         </p>
@@ -151,11 +151,11 @@ export default function SettingsPage() {
       {!settings.data?.public && (
         <section className="rounded-card border border-edge bg-panel p-5">
           <h2 className="mb-1 text-[19.5px] font-semibold">数据备份</h2>
-          <p className="mb-1 max-w-2xl text-[18.8px] leading-[1.6] text-ink3">
+          <p className="mb-1 text-[18.8px] leading-[1.6] text-ink3">
             导出整个数据目录（学习数据、AI 缓存、歌曲音频）为 zip，换电脑时
             在新机器上传恢复即可。备份包内不含你的 API Key。
           </p>
-          <p className="mb-3 max-w-2xl text-[18.8px] font-medium leading-[1.6] text-[#e5484d]">
+          <p className="mb-3 text-[18.8px] font-medium leading-[1.6] text-[#e5484d]">
             恢复会替换当前全部数据（原数据自动留底为 data.bak_时间戳）；
             请勿修改备份文件内容。
           </p>

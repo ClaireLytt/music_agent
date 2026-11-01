@@ -265,6 +265,23 @@ export default function LibraryPage() {
   const [album, setAlbum] = useState("");
   const [lrc, setLrc] = useState("");
   const lrcFileRef = useRef<HTMLInputElement>(null);
+  const [noLrcOpen, setNoLrcOpen] = useState(false);
+  const dlgFileRef = useRef<HTMLInputElement>(null);
+
+  const saveSong = (lrcText: string, abortIfNoLrc: boolean) =>
+    wrapAddSave(() =>
+      acts.addSong(title, artist, album, lrcText, abortIfNoLrc).then((r) => {
+        if (r.missing_lrc) {
+          setNoLrcOpen(true);
+          return;
+        }
+        setSong(r.id);
+        setAddMsg(`已添加《${title}》（${r.note}）· `
+          + "音频可在播放页「歌曲工具」上传");
+        setTitle(""); setArtist(""); setAlbum(""); setLrc("");
+      }),
+    ).catch((err) =>
+      setAddMsg(err instanceof Error ? err.message : "添加失败"));
 
   const rows = catalog.data ?? [];
   const addable = rows.filter((r) => !r.in_library);
@@ -399,15 +416,7 @@ export default function LibraryPage() {
           className="flex flex-col gap-2.5"
           onSubmit={(e) => {
             e.preventDefault();
-            void wrapAddSave(() =>
-              acts.addSong(title, artist, album, lrc).then((r) => {
-                setSong(r.id);
-                setAddMsg(`已添加《${title}》（${r.note}）· `
-                  + "音频可在播放页「歌曲工具」上传");
-                setTitle(""); setArtist(""); setAlbum(""); setLrc("");
-              }),
-            ).catch((err) =>
-              setAddMsg(err instanceof Error ? err.message : "添加失败"));
+            void saveSong(lrc, !lrc.trim());
           }}
         >
           <div className="flex flex-wrap items-center gap-2.5">
@@ -472,6 +481,79 @@ export default function LibraryPage() {
             )}
           </div>
         </form>
+        <input
+          ref={dlgFileRef}
+          type="file"
+          accept=".lrc,.txt"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (!f) return;
+            const text = await f.text();
+            setNoLrcOpen(false);
+            void saveSong(text, false);
+          }}
+        />
+        {noLrcOpen && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-[3px]"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setNoLrcOpen(false);
+                setAddMsg(`已取消，《${title}》未添加`);
+              }
+            }}
+          >
+            <div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="nolrc-title"
+              className="flex w-[400px] max-w-full flex-col gap-2.5 rounded-card border border-edge bg-panel p-6 shadow-[0_18px_40px_-18px_rgba(0,0,0,.65)]"
+            >
+              <span className="grid h-9 w-9 place-items-center rounded-full bg-accent-soft text-accent">
+                <svg width="18" height="18" viewBox="0 0 20 20" fill="none"
+                     stroke="currentColor" strokeWidth="1.8"
+                     strokeLinecap="round">
+                  <path d="M7 15V5l8-2v10" />
+                  <circle cx="5" cy="15" r="2" />
+                  <circle cx="13" cy="13" r="2" />
+                  <path d="M16.5 16.5l2.5 2.5M19 16.5l-2.5 2.5"
+                        strokeWidth="1.6" />
+                </svg>
+              </span>
+              <h3 id="nolrc-title" className="text-[21px] font-bold">
+                没有找到这首歌的歌词
+              </h3>
+              <p className="text-[18.8px] text-ink2">
+                LRCLIB 中没能自动识别出
+                <span className="font-semibold text-ink">《{title}》</span>
+                的同步歌词，也可能是网络波动，取消后再点一次保存即可重试。
+                点确定选择本地 .lrc 文件直接上传；取消则不添加这首歌。
+              </p>
+              <div className="mt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  autoFocus
+                  className={chip()}
+                  onClick={() => {
+                    setNoLrcOpen(false);
+                    setAddMsg(`已取消，《${title}》未添加`);
+                  }}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className={chip(true)}
+                  onClick={() => dlgFileRef.current?.click()}
+                >
+                  确定，上传 .lrc
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <details className="group/manage rounded-card border border-edge bg-panel p-5">

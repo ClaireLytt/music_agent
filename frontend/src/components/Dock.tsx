@@ -284,6 +284,7 @@ export default function Dock({
     ).catch((e) =>
       setToast(e instanceof Error ? e.message : "保存失败"));
   const fileRef = useRef<HTMLInputElement>(null);
+  const lrcRef = useRef<HTMLInputElement>(null);
 
   const run = (p: Promise<unknown>, ok: string) =>
     p.then(() => setToast(ok)).catch((e) =>
@@ -582,6 +583,24 @@ export default function Dock({
                 <SaveLabel phase={offsetPhase}>保存</SaveLabel>
               </Chip>
             </form>
+          </div>
+          <div>
+            <input
+              ref={lrcRef}
+              type="file"
+              accept=".lrc,.txt"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f)
+                  void f.text().then((text) =>
+                    run(acts.uploadLrc(text), "歌词已更新"));
+                e.target.value = "";
+              }}
+            />
+            <Chip onClick={() => lrcRef.current?.click()}>
+              上传 .lrc 歌词…
+            </Chip>
           </div>
           <div>
             <div className="mb-1 text-[18.9px] text-ink3">
