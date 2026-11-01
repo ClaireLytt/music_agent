@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>未找到歌词弹窗</title>
+<style>
+  /* 布局：复刻曲库管理「手动添加」卡片 + 新增的未找到歌词确认弹窗 */
+  :root {
+    --bg: #121212; --panel: #1e1e22; --panel2: #24242a;
+    --ink: #f5f5f4; --ink2: #a8a8b3; --ink3: #6e6e78;
+    --accent: #7c9eff; --accent-soft: rgba(124, 158, 255, .16);
+    --edge: #2a2a31; --radius: 12px;
+    color-scheme: dark;
+  }
+  body {
+    margin: 0; min-height: 100vh;
+    background: radial-gradient(120% 90% at 20% 0%, #1a2420 0%, var(--bg) 55%),
+                var(--bg);
+    color: var(--ink);
+    font: 14px/1.6 Inter, "Noto Sans SC", system-ui, sans-serif;
+    display: grid; place-items: center;
+    padding-block: 40px;
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .card {
+    width: min(460px, 100%);
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: var(--radius); padding: 20px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .card h2 {
+    margin: 0; font-size: 12px; font-weight: 600;
+    letter-spacing: .1em; color: var(--ink3);
+  }
+  input[type="text"] {
+    width: 100%; box-sizing: border-box;
+    background: var(--panel2); color: var(--ink);
+    border: 1px solid var(--edge); border-radius: 999px;
+    padding: 9px 14px; font: inherit; font-size: 14.5px;
+  }
+  input[type="text"]::placeholder { color: var(--ink3); }
+  input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  .chip {
+    border: 1px solid var(--edge); border-radius: 999px;
+    background: transparent; color: var(--ink2);
+    padding: 8px 16px; font: inherit; font-size: 13.5px;
+    cursor: pointer; transition: border-color .25s cubic-bezier(.16,1,.3,1),
+                                 color .25s cubic-bezier(.16,1,.3,1);
+  }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .chip.primary {
+    background: var(--accent); border-color: var(--accent);
+    color: #10131c; font-weight: 600;
+  }
+  .chip.primary:hover { color: #10131c; filter: brightness(1.08); }
+  .chip:disabled { opacity: .55; cursor: default; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .hint { font-size: 12.5px; color: var(--ink3); margin: 0; }
+
+  .scrim {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    background: rgba(8, 8, 10, .6); backdrop-filter: blur(3px);
+    padding: 16px; opacity: 0; pointer-events: none;
+    transition: opacity .22s cubic-bezier(.16,1,.3,1);
+  }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  .dialog {
+    width: min(400px, 100%);
+    background: var(--panel); border: 1px solid var(--edge);
+    border-radius: var(--radius); padding: 22px 22px 18px;
+    box-shadow: 0 18px 40px -18px rgba(0, 0, 0, .65);
+    display: flex; flex-direction: column; gap: 10px;
+    transform: translateY(10px) scale(.97);
+    transition: transform .28s cubic-bezier(.16,1,.3,1);
+  }
+  .scrim.open .dialog { transform: none; }
+  .dialog .mark {
+    width: 38px; height: 38px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent);
+    display: grid; place-items: center; margin-bottom: 2px;
+  }
+  .dialog h3 { margin: 0; font-size: 17px; font-weight: 700; }
+  .dialog p { margin: 0; color: var(--ink2); font-size: 13.5px; }
+  .dialog .song { color: var(--ink); font-weight: 600; }
+  .dialog .actions {
+    display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;
+  }
+  .toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+    background: var(--panel2); border: 1px solid var(--edge);
+    border-radius: 999px; padding: 9px 18px; font-size: 13.5px;
+    box-shadow: 0 10px 28px -12px rgba(0, 0, 0, .7);
+    opacity: 0; transition: opacity .3s cubic-bezier(.16,1,.3,1);
+    max-width: calc(100vw - 32px);
+  }
+  .toast.show { opacity: 1; }
+  .note {
+    width: min(460px, 100%); margin-top: 14px;
+    font-size: 12.5px; color: var(--ink3); text-align: center;
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  ::selection { background: var(--accent-soft); }
+  @media (prefers-reduced-motion: reduce) {
+    .scrim, .dialog, .toast, .chip { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<main>
+  <section class="card" aria-label="手动添加">
+    <h2>手动添加</h2>
+    <input id="t" type="text" value="Counting Stars" placeholder="歌曲标题（必填）" autocomplete="off">
+    <input id="a" type="text" value="OneRepublic" placeholder="歌手" autocomplete="off">
+    <input id="al" type="text" placeholder="专辑" autocomplete="off">
+    <div class="row">
+      <button class="chip" id="lrcpick" type="button">上传 .lrc 歌词（选填，留空自动获取）…</button>
+    </div>
+    <div class="row">
+      <button class="chip primary" id="save" type="button">保存</button>
+      <p class="hint" id="msg"></p>
+    </div>
+  </section>
+  <p class="note">原型：本页模拟「自动获取歌词失败」的分支——点保存即可看到弹窗。<br>
+  取消 = 不添加这首歌；确定 = 立即打开文件选择器上传 .lrc，选完才真正保存。</p>
+</main>
+
+<div class="scrim" id="scrim" role="presentation">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dt" aria-describedby="dd">
+    <span class="mark" aria-hidden="true">
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none"
+           stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+        <path d="M7 15V5l8-2v10"/>
+        <circle cx="5" cy="15" r="2"/><circle cx="13" cy="13" r="2"/>
+        <path d="M16.5 16.5l2.5 2.5M19 16.5l-2.5 2.5" stroke-width="1.6"/>
+      </svg>
+    </span>
+    <h3 id="dt">没有找到这首歌的歌词</h3>
+    <p id="dd">LRCLIB 中没能自动识别出 <span class="song" id="dsong">《Counting Stars》</span> 的同步歌词。
+    点确定选择本地 .lrc 文件直接上传；取消则不添加这首歌。</p>
+    <div class="actions">
+      <button class="chip" id="cancel" type="button">取消</button>
+      <button class="chip primary" id="ok" type="button">确定，上传 .lrc</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file" accept=".lrc,.txt" hidden>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const scrim = $("scrim"), save = $("save"), msg = $("msg"), toast = $("toast");
+  let toastTimer;
+  const showToast = (text) => {
+    toast.textContent = text;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 3200);
+  };
+  const title = () => ($("t").value.trim() || "未命名");
+
+  save.addEventListener("click", () => {
+    save.disabled = true;
+    msg.textContent = "正在自动获取歌词…";
+    setTimeout(() => {
+      save.disabled = false;
+      msg.textContent = "";
+      $("dsong").textContent = `《${title()}》`;
+      scrim.classList.add("open");
+      $("cancel").focus();
+    }, 900);
+  });
+
+  $("cancel").addEventListener("click", () => {
+    scrim.classList.remove("open");
+    showToast(`已取消，《${title()}》未添加`);
+  });
+
+  $("ok").addEventListener("click", () => $("file").click());
+
+  $("file").addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    scrim.classList.remove("open");
+    showToast(`已添加《${title()}》，歌词来自 ${f.name}`);
+  });
+
+  $("lrcpick").addEventListener("click", () =>
+    showToast("原型中此入口不参与演示——请直接点保存"));
+
+  scrim.addEventListener("click", (e) => {
+    if (e.target === scrim) $("cancel").click();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && scrim.classList.contains("open"))
+      $("cancel").click();
+  });
+</script>
+</body>
+</html>
