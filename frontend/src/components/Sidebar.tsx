@@ -138,7 +138,7 @@ export default function Sidebar({
         autoComplete="off"
         value={query}
         onChange={(e) => onQuery(e.target.value)}
-        placeholder="搜歌名 / 歌手 / 歌词…"
+        placeholder="搜歌名 / 歌手 / 专辑 / 歌词…"
         aria-label="搜索曲库"
         className="mx-1 rounded-full border border-edge2 bg-panel2 px-3.5 py-2 text-[22.5px] text-ink placeholder:text-ink3 focus:border-accent focus:outline-none"
       />
@@ -185,13 +185,9 @@ export default function Sidebar({
                       if (rest.length) setSong(rest[0].id);
                     });
                 }}
-                className="mr-1.5 hidden h-5 w-5 flex-none place-items-center rounded-full text-ink3 transition-colors hover:bg-[#2a2a30] hover:text-ink group-hover:grid"
+                className="invisible mr-2.5 flex-none text-[22.5px] text-ink3 hover:text-ink group-hover:visible"
               >
-                <svg width="11" height="11" viewBox="0 0 12 12" fill="none"
-                     stroke="currentColor" strokeWidth="1.8"
-                     strokeLinecap="round">
-                  <path d="M2 2l8 8M10 2l-8 8" />
-                </svg>
+                ✕
               </button>
             )}
           </div>
