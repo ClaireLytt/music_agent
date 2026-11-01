@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Song } from "../api";
+import { Song, useAdminActions, useSettings } from "../api";
 import { usePlayer } from "../store";
 import Scrollable from "./Scrollable";
 import {
@@ -54,6 +54,8 @@ export default function Sidebar({
   onQuery: (q: string) => void;
 }) {
   const { songId, setSong } = usePlayer();
+  const { deleteSong } = useAdminActions();
+  const isPublic = useSettings().data?.public ?? false;
   const [sort, setSort] = useState<SortKey>(loadSort);
   const sorted = useMemo(() => sortSongs(songs, sort), [songs, sort]);
   const cycleSort = () => {
@@ -138,25 +140,50 @@ export default function Sidebar({
           </p>
         )}
         {sorted.map((s) => (
-          <button
+          <div
             key={s.id}
-            aria-current={s.id === songId || undefined}
-            onClick={() => setSong(s.id)}
-            className={`flex min-w-0 items-baseline gap-2 rounded-lg px-2.5 py-[7px] text-left transition-colors ${
+            className={`group flex min-w-0 items-center rounded-lg transition-colors ${
               s.id === songId ? "bg-accent-soft" : "hover:bg-[#1b1b1f]"
             }`}
           >
-            <span
-              className={`truncate text-[22.5px] font-medium ${
-                s.id === songId ? "text-accent" : "text-ink2"
-              }`}
+            <button
+              aria-current={s.id === songId || undefined}
+              onClick={() => setSong(s.id)}
+              className="flex min-w-0 flex-1 items-baseline gap-2 px-2.5 py-[7px] text-left"
             >
-              {s.title}
-            </span>
-            <span className="flex-none truncate text-[16.5px] text-ink3">
-              {s.artist}
-            </span>
-          </button>
+              <span
+                className={`truncate text-[22.5px] font-medium ${
+                  s.id === songId ? "text-accent" : "text-ink2"
+                }`}
+              >
+                {s.title}
+              </span>
+              <span className="flex-none truncate text-[16.5px] text-ink3">
+                {s.artist}
+              </span>
+            </button>
+            {!isPublic && (
+              <button
+                aria-label={`删除《${s.title}》`}
+                onClick={() => {
+                  if (window.confirm(
+                    `确定删除《${s.title}》？歌词、批注、音频将一并删除。`))
+                    void deleteSong(s.id).then(() => {
+                      if (s.id !== songId) return;
+                      const rest = sorted.filter((x) => x.id !== s.id);
+                      if (rest.length) setSong(rest[0].id);
+                    });
+                }}
+                className="mr-1.5 hidden h-5 w-5 flex-none place-items-center rounded-full text-ink3 transition-colors hover:bg-[#2a2a30] hover:text-ink group-hover:grid"
+              >
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none"
+                     stroke="currentColor" strokeWidth="1.8"
+                     strokeLinecap="round">
+                  <path d="M2 2l8 8M10 2l-8 8" />
+                </svg>
+              </button>
+            )}
+          </div>
         ))}
       </Scrollable>
     </aside>
