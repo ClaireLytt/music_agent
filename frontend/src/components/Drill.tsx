@@ -272,16 +272,16 @@ export default function Drill({
         <div className="flex w-[min(560px,100%)] flex-col gap-2">
           {missed.length ? (
             <>
-              <div className="text-[11px] font-semibold tracking-[0.1em] text-ink3">
+              <div className="text-[16.5px] font-semibold tracking-[0.1em] text-ink3">
                 错词（本轮整词重来 ≥1 次）
               </div>
               {missed.map((m) => (
-                <div key={m.entry.word} className="flex items-baseline gap-2.5 rounded-card border border-edge bg-panel px-4 py-3 text-[13.5px]">
-                  <b className="text-[15px]">{m.entry.word}</b>
+                <div key={m.entry.word} className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1 rounded-card border border-edge bg-panel px-4 py-3 text-[18px]">
+                  <b className="min-w-0 break-words">{m.entry.word}</b>
                   {m.entry.phonetic && (
-                    <span className="text-[11.5px] text-ink3">/{m.entry.phonetic}/</span>
+                    <span className="min-w-0 break-words text-ink3">/{m.entry.phonetic}/</span>
                   )}
-                  <span className="min-w-0 flex-1 truncate text-ink2">
+                  <span className="min-w-0 grow basis-48 break-words text-ink2">
                     {(m.entry.translation ?? "").replace(/\\n/g, "；")}
                   </span>
                   <span className="flex-none font-semibold tabular-nums text-accent">
