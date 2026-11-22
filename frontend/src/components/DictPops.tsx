@@ -63,8 +63,8 @@ export default function DictPops({ song }: { song: Song | undefined }) {
         const kept = ps.length >= 4 ? ps.slice(1) : ps; // 最多 4 张,顶掉最旧
         return [...kept, {
           id, word, line, lineIndex,
-          x: Math.min(x, window.innerWidth - 300),
-          y: Math.min(y + 6, window.innerHeight - 300),
+          x: Math.min(x, window.innerWidth - 430),
+          y: Math.min(y + 6, window.innerHeight - 420),
           hit: null, loading: true, ai: "", aiLoading: false, faved: false,
           occ: null, occDone: false, occOpen: false,
         }];
@@ -184,16 +184,16 @@ export default function DictPops({ song }: { song: Song | undefined }) {
           <div
             key={p.id}
             onPointerDown={(e) => drag(e, p)}
-            className="fixed z-50 w-[290px] cursor-grab rounded-card border border-edge bg-panel2 p-3.5 shadow-mv"
+            className="fixed z-50 w-[420px] cursor-grab rounded-card border border-edge bg-panel2 p-3.5 text-[25.2px] shadow-mv"
             style={{ left: p.x, top: p.y }}
             role="dialog"
             aria-label={`词典卡 ${p.word}`}
             data-occ-state={p.occDone ? (p.occ ? "some" : "none") : "loading"}
           >
             <div className="flex items-center gap-2">
-              <b className="text-[15px]">{p.hit?.word ?? p.word}</b>
+              <b>{p.hit?.word ?? p.word}</b>
               {p.hit?.phonetic && (
-                <span className="text-[11.5px] text-ink3">/{p.hit.phonetic}/</span>
+                <span className="text-[24.3px] text-ink3">/{p.hit.phonetic}/</span>
               )}
               <button
                 className="text-ink2 hover:text-ink"
@@ -210,7 +210,7 @@ export default function DictPops({ song }: { song: Song | undefined }) {
                 ✕
               </button>
             </div>
-            <div className="mt-1.5 whitespace-pre-line text-[12.5px] leading-6 text-ink2">
+            <div className="mt-1.5 whitespace-pre-line text-[24.3px] text-ink2">
               {p.loading
                 ? "⏳ 查询中…"
                 : p.hit
@@ -218,21 +218,21 @@ export default function DictPops({ song }: { song: Song | undefined }) {
                   : "本地词典没有这个词，试试 ✨ AI 解释。"}
             </div>
             {p.ai && (
-              <div className="mt-2 whitespace-pre-line rounded-lg bg-accent-soft px-2.5 py-2 text-[12.5px] leading-6 text-ink">
+              <div className="mt-2 whitespace-pre-line rounded-lg bg-accent-soft px-2.5 py-2 text-[24.3px] text-ink">
                 ✨ {p.ai}
               </div>
             )}
             {p.occDone && p.occ && (
               <div className="mt-2" data-occ-fold>
                 <button
-                  className="w-full text-left text-[12px] text-ink3 transition-colors hover:text-accent"
+                  className="w-full text-left text-[22.5px] text-ink3 transition-colors hover:text-accent"
                   onClick={() => patchPop(p.id, { occOpen: !p.occOpen })}
                 >
                   <span className="inline-flex items-center gap-1">
                     曲库里还有 {p.occ.total} 处
                     <svg
-                      width="12"
-                      height="12"
+                      width="18"
+                      height="18"
                       viewBox="0 0 16 16"
                       fill="none"
                       stroke="currentColor"
@@ -246,12 +246,12 @@ export default function DictPops({ song }: { song: Song | undefined }) {
                   </span>
                 </button>
                 {p.occOpen && (
-                  <Scrollable className="mt-1.5" contentClassName="max-h-44">
+                  <Scrollable className="mt-1.5" contentClassName="max-h-72">
                     <ul className="flex flex-col gap-0.5" data-occ-list>
                       {p.occ.items.map((it) => (
                         <li key={`${it.song}:${it.line_index}`}>
                           <button
-                            className="w-full rounded-md px-2 py-1 text-left text-[12px] leading-5 text-ink2 transition-colors hover:bg-white/5 hover:text-ink"
+                            className="w-full rounded-md px-2.5 py-1.5 text-left text-[22.5px] leading-8 text-ink2 transition-colors hover:bg-white/5 hover:text-ink"
                             data-occ-item
                             data-occ-song={it.song}
                             data-occ-line={it.line_index}
@@ -267,9 +267,9 @@ export default function DictPops({ song }: { song: Song | undefined }) {
                 )}
               </div>
             )}
-            <div className="mt-2.5 flex gap-2">
+            <div className="mt-2.5 flex flex-wrap gap-2">
               <button
-                className="rounded-full border border-[#33333c] px-3 py-1 text-[12px] text-ink2 transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+                className="rounded-full border border-[#33333c] px-4 py-1.5 text-[22.5px] text-ink2 transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
                 disabled={p.faved}
                 onClick={() => {
                   pickLine(p.lineIndex >= 0 ? p.lineIndex : null);
@@ -282,7 +282,7 @@ export default function DictPops({ song }: { song: Song | undefined }) {
               </button>
               {!p.ai && (
                 <button
-                  className="rounded-full border border-[#33333c] px-3 py-1 text-[12px] text-ink2 transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+                  className="rounded-full border border-[#33333c] px-4 py-1.5 text-[22.5px] text-ink2 transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
                   disabled={p.aiLoading}
                   onClick={() => void genAi(p)}
                 >
